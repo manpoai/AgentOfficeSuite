@@ -349,6 +349,34 @@ app.post('/api/comments', authenticateAgent, async (req, res) => {
   });
 });
 
+// List document comments
+app.get('/api/docs/:doc_id/comments', authenticateAgent, async (req, res) => {
+  const agentOlToken = req.agent.ol_token || OL_TOKEN;
+  const result = await upstream(OL_URL, 'POST', '/api/comments.list', { documentId: req.params.doc_id }, agentOlToken);
+  if (!result.data?.ok) {
+    return res.status(500).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  }
+  const comments = (result.data.data || []).map(c => ({
+    id: c.id,
+    text: extractTextFromProseMirror(c.data),
+    actor: c.createdBy?.name || 'Unknown',
+    parent_id: c.parentCommentId || null,
+    created_at: c.createdAt,
+    updated_at: c.updatedAt,
+  }));
+  res.json({ comments });
+});
+
+function extractTextFromProseMirror(pmData) {
+  if (!pmData) return '';
+  const extract = (node) => {
+    if (node.text) return node.text;
+    if (node.content) return node.content.map(extract).join('');
+    return '';
+  };
+  return extract(pmData);
+}
+
 // Read a single document
 app.get('/api/docs/:doc_id', authenticateAgent, async (req, res) => {
   const agentOlToken = req.agent.ol_token || OL_TOKEN;
@@ -406,7 +434,7 @@ app.get('/api/docs', authenticateAgent, async (req, res) => {
 
 // ─── Tasks (Plane) ──────────────────────────────
 app.post('/api/tasks', authenticateAgent, async (req, res) => {
-  const { title, description, context, assignee_name, parent_task_id, priority } = req.body;
+  const { title, description, context, assignee_name, parent_task_id, priority, start_date, target_date } = req.body;
   if (!title) {
     return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
   }
@@ -419,6 +447,8 @@ app.post('/api/tasks', authenticateAgent, async (req, res) => {
   if (fullDescription) body.description_html = `<p>${fullDescription.replace(/\n/g, '</p><p>')}</p>`;
   if (priority) body.priority = priority;
   if (parent_task_id) body.parent = parent_task_id;
+  if (start_date) body.start_date = start_date;
+  if (target_date) body.target_date = target_date;
 
   // Resolve assignee: if assignee_name given, find their Plane user ID
   if (assignee_name) {
@@ -439,7 +469,10 @@ app.post('/api/tasks', authenticateAgent, async (req, res) => {
   }
   res.status(201).json({
     task_id: result.data.id,
+    title: result.data.name,
     url: `${PLANE_URL}/${PLANE_WORKSPACE}/projects/${PLANE_PROJECT_ID}/issues/${result.data.id}`,
+    start_date: result.data.start_date || null,
+    target_date: result.data.target_date || null,
     created_at: new Date(result.data.created_at).getTime(),
   });
 });
@@ -473,6 +506,51 @@ app.patch('/api/tasks/:task_id/status', authenticateAgent, async (req, res) => {
   res.json({ task_id: result.data.id, status, updated_at: Date.now() });
 });
 
+// General task update (title, description, priority, assignees, dates)
+app.patch('/api/tasks/:task_id', authenticateAgent, async (req, res) => {
+  const { title, description, priority, assignee_name, start_date, target_date } = req.body;
+  const agentPlaneToken = req.agent.plane_token || PLANE_TOKEN;
+  const body = {};
+
+  if (title !== undefined) body.name = title;
+  if (description !== undefined) body.description_html = `<p>${description.replace(/\n/g, '</p><p>')}</p>`;
+  if (priority !== undefined) body.priority = priority;
+  if (start_date !== undefined) body.start_date = start_date || null; // "YYYY-MM-DD" or null
+  if (target_date !== undefined) body.target_date = target_date || null;
+
+  // Resolve assignee by name → Plane user ID
+  if (assignee_name !== undefined) {
+    if (!assignee_name) {
+      body.assignees = [];
+    } else {
+      const assigneeAgent = db.prepare('SELECT * FROM agent_accounts WHERE name = ?').get(assignee_name);
+      if (assigneeAgent?.plane_token) {
+        const meRes = await upstream(PLANE_URL, 'GET',
+          `/api/v1/users/me/`, null, null, { 'X-API-Key': assigneeAgent.plane_token });
+        if (meRes.data?.id) body.assignees = [meRes.data.id];
+      }
+    }
+  }
+
+  if (Object.keys(body).length === 0) {
+    return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'No fields to update' });
+  }
+
+  const apiPath = `/api/v1/workspaces/${PLANE_WORKSPACE}/projects/${PLANE_PROJECT_ID}/issues/${req.params.task_id}/`;
+  const result = await upstream(PLANE_URL, 'PATCH', apiPath, body, null, { 'X-API-Key': agentPlaneToken });
+
+  if (!result.data?.id) {
+    return res.status(result.status || 500).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  }
+  const i = result.data;
+  res.json({
+    task_id: i.id, title: i.name, status: i.state_detail?.group || null,
+    priority: i.priority, start_date: i.start_date, target_date: i.target_date,
+    assignees: i.assignee_details?.map(a => a.display_name) || [],
+    updated_at: Date.now(),
+  });
+});
+
 app.post('/api/tasks/:task_id/comments', authenticateAgent, async (req, res) => {
   const { text } = req.body;
   if (!text) {
@@ -487,6 +565,22 @@ app.post('/api/tasks/:task_id/comments', authenticateAgent, async (req, res) => 
     return res.status(500).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   }
   res.status(201).json({ comment_id: result.data.id, task_id: req.params.task_id, created_at: Date.now() });
+});
+
+// List task comments
+app.get('/api/tasks/:task_id/comments', authenticateAgent, async (req, res) => {
+  const agentPlaneToken = req.agent.plane_token || PLANE_TOKEN;
+  const apiPath = `/api/v1/workspaces/${PLANE_WORKSPACE}/projects/${PLANE_PROJECT_ID}/issues/${req.params.task_id}/comments/`;
+  const result = await upstream(PLANE_URL, 'GET', apiPath, null, null, { 'X-API-Key': agentPlaneToken });
+  const comments = (result.data?.results || result.data || []).map(c => ({
+    id: c.id,
+    text: (c.comment_stripped || c.comment_html || '').replace(/<[^>]+>/g, '').trim(),
+    html: c.comment_html || '',
+    actor: c.actor_detail?.display_name || c.actor_detail?.email || 'Unknown',
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  }));
+  res.json({ comments });
 });
 
 // List tasks
@@ -514,6 +608,7 @@ app.get('/api/tasks', authenticateAgent, async (req, res) => {
   let tasks = issues.map(i => ({
     task_id: i.id, title: i.name, status: i.state_detail?.group || null,
     priority: i.priority, assignees: i.assignee_details?.map(a => a.display_name) || [],
+    start_date: i.start_date || null, target_date: i.target_date || null,
     url: `${PLANE_URL}/${PLANE_WORKSPACE}/projects/${PLANE_PROJECT_ID}/issues/${i.id}`,
     created_at: new Date(i.created_at).getTime(),
     updated_at: new Date(i.updated_at).getTime(),
@@ -543,6 +638,7 @@ app.get('/api/tasks/:task_id', authenticateAgent, async (req, res) => {
     task_id: i.id, title: i.name, description: i.description_stripped || i.description || '',
     status: i.state_detail?.group || null, priority: i.priority,
     assignees: i.assignee_details?.map(a => a.display_name) || [],
+    start_date: i.start_date || null, target_date: i.target_date || null,
     url: `${PLANE_URL}/${PLANE_WORKSPACE}/projects/${PLANE_PROJECT_ID}/issues/${i.id}`,
     created_at: new Date(i.created_at).getTime(),
     updated_at: new Date(i.updated_at).getTime(),
