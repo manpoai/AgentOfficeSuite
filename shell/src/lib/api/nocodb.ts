@@ -20,12 +20,20 @@ export interface NCTable {
   created_at?: string;
 }
 
+export interface NCSelectOption {
+  title: string;
+  color?: string;
+  order?: number;
+}
+
 export interface NCColumn {
   column_id: string;
   title: string;
-  type: string; // uidt: SingleLineText, LongText, Number, Decimal, Checkbox, Date, DateTime, Email, URL, ID
+  type: string; // uidt: SingleLineText, LongText, Number, Decimal, Checkbox, Date, DateTime, Email, URL, ID, SingleSelect, MultiSelect, Currency, Percent, Rating, PhoneNumber, JSON, etc.
   primary_key: boolean;
   required: boolean;
+  options?: NCSelectOption[]; // for SingleSelect / MultiSelect
+  meta?: Record<string, unknown>; // for Currency symbol, decimal places, etc.
 }
 
 export interface NCTableMeta {
@@ -107,11 +115,16 @@ export async function deleteRow(tableId: string, rowId: number | string): Promis
 
 // ── Column management ──
 
-export async function addColumn(tableId: string, title: string, uidt: string = 'SingleLineText'): Promise<{ column_id: string; title: string; type: string }> {
+export async function addColumn(
+  tableId: string,
+  title: string,
+  uidt: string = 'SingleLineText',
+  opts?: { options?: NCSelectOption[]; meta?: Record<string, unknown> }
+): Promise<{ column_id: string; title: string; type: string }> {
   return ncFetch(`/tables/${tableId}/columns`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, uidt }),
+    body: JSON.stringify({ title, uidt, ...opts }),
   });
 }
 

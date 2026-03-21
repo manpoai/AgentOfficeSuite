@@ -790,20 +790,37 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
   const result = await nc('GET', `/api/v1/db/meta/tables/${req.params.table_id}`);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   const t = result.data;
-  const columns = (t.columns || []).map(c => ({
-    column_id: c.id, title: c.title, type: c.uidt,
-    primary_key: !!c.pk, required: !!c.rqd,
-  }));
+  const columns = (t.columns || []).map(c => {
+    const col = {
+      column_id: c.id, title: c.title, type: c.uidt,
+      primary_key: !!c.pk, required: !!c.rqd,
+    };
+    // Pass through select options
+    if (c.colOptions?.options) {
+      col.options = c.colOptions.options.map(o => ({ title: o.title, color: o.color, order: o.order }));
+    }
+    // Pass through meta (for currency symbol, decimal places, etc.)
+    if (c.meta && typeof c.meta === 'object' && Object.keys(c.meta).length > 0) {
+      col.meta = c.meta;
+    } else if (c.meta && typeof c.meta === 'string') {
+      try { const m = JSON.parse(c.meta); if (Object.keys(m).length > 0) col.meta = m; } catch {}
+    }
+    return col;
+  });
   res.json({ table_id: t.id, title: t.title, columns });
 });
 
 // Add a column to a table
-// Body: { title: string, uidt: string }
+// Body: { title: string, uidt: string, options?: [{title, color}] }
 app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, res) => {
   if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
-  const { title, uidt = 'SingleLineText' } = req.body;
+  const { title, uidt = 'SingleLineText', options, meta } = req.body;
   if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
   const body = { column_name: title, title, uidt };
+  if (options && (uidt === 'SingleSelect' || uidt === 'MultiSelect')) {
+    body.colOptions = { options: options.map((o, i) => ({ title: o.title || o, color: o.color, order: i + 1 })) };
+  }
+  if (meta) body.meta = meta;
   const result = await nc('POST', `/api/v1/db/meta/tables/${req.params.table_id}/columns`, body);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   const c = result.data;
