@@ -69,7 +69,7 @@ export default function IMPage() {
   }, [members, setChannelMembers]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Channel list — always visible on desktop, toggle on mobile */}
       <div className={`
         w-full md:w-64 border-r border-border bg-card flex flex-col shrink-0
@@ -80,7 +80,7 @@ export default function IMPage() {
 
       {/* Message area — always visible on desktop, toggle on mobile */}
       <div className={`
-        flex-1 flex flex-col min-w-0
+        flex-1 flex flex-col min-w-0 overflow-hidden
         ${mobileView === 'messages' ? 'flex' : 'hidden md:flex'}
       `}>
         {activeChannelId ? (

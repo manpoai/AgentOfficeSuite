@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ol from '@/lib/api/outline';
 import * as nc from '@/lib/api/nocodb';
-import { FileText, Table2, Plus, ArrowLeft, Save, Trash2, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Search, Clock, FolderOpen } from 'lucide-react';
+import { FileText, Table2, Plus, ArrowLeft, Save, Trash2, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Search, Clock, FolderOpen, MoreHorizontal, MessageSquare as MessageSquareIcon, Star, Copy, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Editor } from '@/components/editor';
@@ -108,7 +108,7 @@ export default function ContentPage() {
   const isLoading = docsLoading || tablesLoading;
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
+    <div className="flex h-full overflow-hidden flex-col md:flex-row">
       {/* Unified content list sidebar */}
       <div className={cn(
         'w-full md:w-72 border-r border-border bg-card flex flex-col shrink-0',
@@ -184,63 +184,30 @@ export default function ContentPage() {
             {searchQuery.length >= 2 && displayItems.length === 0 && !isLoading && (
               <p className="p-3 text-xs text-muted-foreground">未找到匹配的文档</p>
             )}
-            {(() => {
-              const docItems = displayItems.filter(i => i.type === 'doc');
-              const tableItems = displayItems.filter(i => i.type === 'table');
+            {displayItems.map(item => {
+              const isSelected = selection?.type === item.type && selection?.id === item.id;
               return (
-                <>
-                  {docItems.length > 0 && !searchQuery && (
-                    <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider flex items-center gap-1.5">
-                      <FileText className="h-3 w-3" />
-                      文档 ({docItems.length})
-                    </div>
+                <button
+                  key={`${item.type}-${item.id}`}
+                  onClick={() => handleSelect(item)}
+                  className={cn(
+                    'w-full flex items-start gap-2 px-3 py-1.5 text-left transition-colors',
+                    isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-accent/50'
                   )}
-                  {docItems.map(item => {
-                    const isSelected = selection?.type === item.type && selection?.id === item.id;
-                    return (
-                      <button
-                        key={`${item.type}-${item.id}`}
-                        onClick={() => handleSelect(item)}
-                        className={cn(
-                          'w-full flex items-start gap-2 px-3 py-2 text-left transition-colors',
-                          isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-accent/50'
-                        )}
-                      >
-                        <FileText className="h-4 w-4 shrink-0 mt-0.5 text-blue-400/70" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm truncate">{item.title}</p>
-                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">{item.subtitle}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {tableItems.length > 0 && !searchQuery && (
-                    <div className="px-3 pt-3 pb-1 text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider flex items-center gap-1.5">
-                      <Table2 className="h-3 w-3" />
-                      数据表 ({tableItems.length})
-                    </div>
-                  )}
-                  {tableItems.map(item => {
-                    const isSelected = selection?.type === item.type && selection?.id === item.id;
-                    return (
-                      <button
-                        key={`${item.type}-${item.id}`}
-                        onClick={() => handleSelect(item)}
-                        className={cn(
-                          'w-full flex items-start gap-2 px-3 py-2 text-left transition-colors',
-                          isSelected ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-accent/50'
-                        )}
-                      >
-                        <Table2 className="h-4 w-4 shrink-0 mt-0.5 text-green-400/70" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm truncate">{item.title}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
+                >
+                  {item.type === 'doc'
+                    ? <FileText className="h-4 w-4 shrink-0 mt-0.5 text-blue-400/70" />
+                    : <Table2 className="h-4 w-4 shrink-0 mt-0.5 text-green-400/70" />
+                  }
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm truncate">{item.title}</p>
+                    {item.type === 'doc' && item.subtitle && (
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{item.subtitle}</p>
+                    )}
+                  </div>
+                </button>
               );
-            })()}
+            })}
           </div>
         </ScrollArea>
       </div>
@@ -561,6 +528,8 @@ function DocPanel({ doc, collectionName, onBack, onSaved, onDeleted }: {
   onSaved: () => void;
   onDeleted: () => void;
 }) {
+  const [showComments, setShowComments] = useState(false);
+  const [showDocMenu, setShowDocMenu] = useState(false);
   const [title, setTitle] = useState(doc.title);
   const [text, setText] = useState(doc.text);
   const [deleting, setDeleting] = useState(false);
@@ -656,9 +625,44 @@ function DocPanel({ doc, collectionName, onBack, onSaved, onDeleted }: {
               saveStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'
             )}>{statusText}</span>
           )}
-          <button onClick={handleDelete} disabled={deleting} className="p-1.5 text-muted-foreground hover:text-destructive shrink-0" title="删除">
-            <Trash2 className="h-4 w-4" />
+          <button
+            onClick={() => setShowComments(v => !v)}
+            className={cn(
+              'p-1.5 rounded transition-colors shrink-0',
+              showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground'
+            )}
+            title="评论"
+          >
+            <MessageSquareIcon className="h-4 w-4" />
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowDocMenu(v => !v)}
+              className="p-1.5 text-muted-foreground hover:text-foreground shrink-0"
+              title="更多操作"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {showDocMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowDocMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
+                  <DocMenuBtn icon={Star} label="收藏" onClick={() => setShowDocMenu(false)} />
+                  <DocMenuBtn icon={Clock} label="历史版本" onClick={() => setShowDocMenu(false)} />
+                  <DocMenuBtn icon={Copy} label="复制" onClick={() => { navigator.clipboard.writeText(doc.text); setShowDocMenu(false); }} />
+                  <DocMenuBtn icon={Download} label="下载" onClick={() => {
+                    const blob = new Blob([doc.text], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
+                    URL.revokeObjectURL(url);
+                    setShowDocMenu(false);
+                  }} />
+                  <div className="border-t border-border my-1" />
+                  <DocMenuBtn icon={Trash2} label="删除" onClick={() => { setShowDocMenu(false); handleDelete(); }} danger />
+                </div>
+              </>
+            )}
+          </div>
         </div>
         {/* Last edited info */}
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 mt-0.5 pl-0 md:pl-0">
@@ -668,15 +672,26 @@ function DocPanel({ doc, collectionName, onBack, onSaved, onDeleted }: {
           </span>
         </div>
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-hidden flex flex-row">
         <div className="flex-1 overflow-hidden">
           <Editor key={doc.id} defaultValue={doc.text} onChange={handleTextChange} placeholder="输入 / 打开命令菜单..." />
         </div>
-        <Comments
-          queryKey={['doc-comments', doc.id]}
-          fetchComments={() => gw.listDocComments(doc.id)}
-          postComment={(text) => gw.commentOnDoc(doc.id, text)}
-        />
+        {/* Comments right panel */}
+        {showComments && (
+          <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+            <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-foreground">评论</h3>
+              <button onClick={() => setShowComments(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <Comments
+              queryKey={['doc-comments', doc.id]}
+              fetchComments={() => gw.listDocComments(doc.id)}
+              postComment={(text) => gw.commentOnDoc(doc.id, text)}
+            />
+          </div>
+        )}
       </div>
     </>
   );
@@ -974,6 +989,26 @@ function CellDisplay({ value, colType, isPK, onClick }: {
     >
       {str}
     </span>
+  );
+}
+
+function DocMenuBtn({ icon: Icon, label, onClick, danger }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
+        danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-accent'
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {label}
+    </button>
   );
 }
 

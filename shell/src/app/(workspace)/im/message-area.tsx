@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useIMStore } from '@/lib/stores/im';
 import * as mm from '@/lib/api/mm';
-import { ArrowLeft, Send, MoreHorizontal, Pencil, Trash2, Smile, Users, Hash, Reply, X } from 'lucide-react';
+import { ArrowLeft, Send, MoreHorizontal, Pencil, Trash2, Smile, Users, Hash, Reply, X, Bold, Italic, Strikethrough, Heading, Link, Code, Quote, List, ListOrdered, Paperclip, AtSign, Bookmark, Pin, Copy } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
@@ -127,6 +127,33 @@ export function MessageArea({ channelId }: { channelId: string }) {
     el.style.height = Math.min(el.scrollHeight, 128) + 'px';
   }, []);
 
+  // Formatting helpers
+  const wrapSelection = useCallback((wrapper: string, endWrapper?: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = input.slice(start, end);
+    const ew = endWrapper || wrapper;
+    const newText = input.slice(0, start) + wrapper + selected + ew + input.slice(end);
+    setInput(newText);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + wrapper.length, start + wrapper.length + selected.length);
+    }, 0);
+  }, [input]);
+
+  const insertPrefix = useCallback((prefix: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    // Find start of current line
+    const lineStart = input.lastIndexOf('\n', start - 1) + 1;
+    const newText = input.slice(0, lineStart) + prefix + input.slice(lineStart);
+    setInput(newText);
+    setTimeout(() => { el.focus(); el.setSelectionRange(start + prefix.length, start + prefix.length); }, 0);
+  }, [input]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -248,6 +275,13 @@ export function MessageArea({ channelId }: { channelId: string }) {
                 {editingPostId !== post.id && (
                   <div className="absolute right-2 top-0 hidden group-hover:flex items-center gap-0.5 bg-card border border-border rounded-lg shadow-sm px-1 py-0.5">
                     <button
+                      onClick={() => setEmojiPickerPostId(emojiPickerPostId === post.id ? null : post.id)}
+                      className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                      title="表情"
+                    >
+                      <Smile className="h-3.5 w-3.5" />
+                    </button>
+                    <button
                       onClick={() => { setReplyTo(post); textareaRef.current?.focus(); }}
                       className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
                       title="回复"
@@ -255,31 +289,41 @@ export function MessageArea({ channelId }: { channelId: string }) {
                       <Reply className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => setEmojiPickerPostId(emojiPickerPostId === post.id ? null : post.id)}
+                      onClick={() => { navigator.clipboard.writeText(post.message); }}
                       className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-                      title="表情"
+                      title="复制文字"
                     >
-                      <Smile className="h-3.5 w-3.5" />
+                      <Copy className="h-3.5 w-3.5" />
                     </button>
-                    {post.user_id === myUserId && (
-                      <>
-                        <button
-                          onClick={() => { setEditingPostId(post.id); setEditText(post.message); setMenuPostId(null); }}
-                          className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-                          title="编辑"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => { if (confirm('删除此消息？')) handleDelete(post.id); }}
-                          className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
-                          title="删除"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </>
-                    )}
+                    <button
+                      onClick={() => setMenuPostId(menuPostId === post.id ? null : post.id)}
+                      className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                      title="更多"
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </button>
                   </div>
+                )}
+                {/* More actions dropdown */}
+                {menuPostId === post.id && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMenuPostId(null)} />
+                    <div className="absolute right-2 top-7 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
+                      <MenuBtn icon={Bookmark} label="收藏消息" shortcut="S" onClick={() => setMenuPostId(null)} />
+                      <MenuBtn icon={Pin} label="Pin 到频道" shortcut="P" onClick={() => setMenuPostId(null)} />
+                      <MenuBtn icon={Link} label="复制链接" shortcut="K" onClick={() => setMenuPostId(null)} />
+                      {post.user_id === myUserId && (
+                        <>
+                          <div className="border-t border-border my-1" />
+                          <MenuBtn icon={Pencil} label="编辑" shortcut="E" onClick={() => { setEditingPostId(post.id); setEditText(post.message); setMenuPostId(null); }} />
+                        </>
+                      )}
+                      <div className="border-t border-border my-1" />
+                      {post.user_id === myUserId && (
+                        <MenuBtn icon={Trash2} label="删除" shortcut="" onClick={() => { setMenuPostId(null); if (confirm('删除此消息？')) handleDelete(post.id); }} danger />
+                      )}
+                    </div>
+                  </>
                 )}
                 {/* Quick emoji picker */}
                 {emojiPickerPostId === post.id && (
@@ -317,27 +361,83 @@ export function MessageArea({ channelId }: { channelId: string }) {
             </button>
           </div>
         )}
-        <div className="flex items-end gap-2 bg-muted rounded-lg px-3 py-2">
+        <div className="bg-muted rounded-lg border border-border/50 focus-within:border-sidebar-primary/50 transition-colors">
           <textarea
             ref={textareaRef}
             value={input}
             onChange={e => { setInput(e.target.value); autoResize(); }}
             onKeyDown={handleKeyDown}
-            placeholder={replyTo ? '回复消息...' : '输入消息... (Shift+Enter 换行)'}
+            placeholder={replyTo ? '回复消息...' : `发送到 ${channel?.display_name || '频道'}`}
             rows={1}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none max-h-32"
-            style={{ minHeight: '20px' }}
+            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none px-3 pt-2.5 pb-1 max-h-32"
+            style={{ minHeight: '24px' }}
           />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || sending}
-            className="p-1.5 text-sidebar-primary hover:text-sidebar-primary/80 disabled:text-muted-foreground transition-colors shrink-0"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+          {/* Formatting toolbar */}
+          <div className="flex items-center justify-between px-2 py-1 border-t border-border/30">
+            <div className="flex items-center gap-0.5">
+              <FmtBtn icon={Bold} title="粗体" onClick={() => wrapSelection('**')} />
+              <FmtBtn icon={Italic} title="斜体" onClick={() => wrapSelection('*')} />
+              <FmtBtn icon={Strikethrough} title="删除线" onClick={() => wrapSelection('~~')} />
+              <div className="w-px h-4 bg-border/50 mx-0.5" />
+              <FmtBtn icon={Heading} title="标题" onClick={() => insertPrefix('### ')} />
+              <FmtBtn icon={Link} title="链接" onClick={() => wrapSelection('[', '](url)')} />
+              <FmtBtn icon={Code} title="代码" onClick={() => wrapSelection('`')} />
+              <FmtBtn icon={Quote} title="引用" onClick={() => insertPrefix('> ')} />
+              <div className="w-px h-4 bg-border/50 mx-0.5" />
+              <FmtBtn icon={List} title="无序列表" onClick={() => insertPrefix('- ')} />
+              <FmtBtn icon={ListOrdered} title="有序列表" onClick={() => insertPrefix('1. ')} />
+            </div>
+            <div className="flex items-center gap-0.5">
+              <FmtBtn icon={Paperclip} title="附件" onClick={() => {}} />
+              <FmtBtn icon={Smile} title="表情" onClick={() => {}} />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || sending}
+                className="ml-1 p-1.5 text-sidebar-primary hover:bg-sidebar-primary/10 disabled:text-muted-foreground/40 rounded transition-colors"
+                title="发送 (Enter)"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </>
+  );
+}
+
+function MenuBtn({ icon: Icon, label, shortcut, onClick, danger }: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  shortcut?: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors',
+        danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-accent'
+      )}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="flex-1 text-left">{label}</span>
+      {shortcut && <span className="text-[10px] text-muted-foreground">{shortcut}</span>}
+    </button>
+  );
+}
+
+function FmtBtn({ icon: Icon, title, onClick }: { icon: React.ComponentType<{ className?: string }>; title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded transition-colors"
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
   );
 }
 
