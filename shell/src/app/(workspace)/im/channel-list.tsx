@@ -76,14 +76,28 @@ export function ChannelList() {
       </div>
       <ScrollArea className="flex-1">
         <div className="py-1">
-          {publicChannels.length > 0 && (
-            <ChannelGroup label="公开频道" channels={publicChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
-          )}
-          {privateChannels.length > 0 && (
-            <ChannelGroup label="私有频道" channels={privateChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
-          )}
-          {dmChannels.length > 0 && (
-            <ChannelGroup label="私信" channels={dmChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
+          {channels.length === 0 ? (
+            /* Skeleton loading */
+            <div className="space-y-1 px-3 py-2">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
+                  <div className="w-4 h-4 rounded bg-muted" />
+                  <div className="h-3 rounded bg-muted" style={{ width: `${50 + Math.random() * 80}px` }} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              {publicChannels.length > 0 && (
+                <ChannelGroup label="公开频道" channels={publicChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
+              )}
+              {privateChannels.length > 0 && (
+                <ChannelGroup label="私有频道" channels={privateChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
+              )}
+              {dmChannels.length > 0 && (
+                <ChannelGroup label="私信" channels={dmChannels} active={activeChannelId} onSelect={handleSelect} getDisplayName={getDisplayName} getUnread={getUnreadCount} />
+              )}
+            </>
           )}
         </div>
       </ScrollArea>
