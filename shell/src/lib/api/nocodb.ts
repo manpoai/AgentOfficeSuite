@@ -104,3 +104,39 @@ export async function updateRow(tableId: string, rowId: number | string, fields:
 export async function deleteRow(tableId: string, rowId: number | string): Promise<void> {
   await ncFetch(`/${tableId}/rows/${rowId}`, { method: 'DELETE' });
 }
+
+// ── Column management ──
+
+export async function addColumn(tableId: string, title: string, uidt: string = 'SingleLineText'): Promise<{ column_id: string; title: string; type: string }> {
+  return ncFetch(`/tables/${tableId}/columns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, uidt }),
+  });
+}
+
+export async function updateColumn(tableId: string, columnId: string, updates: { title?: string; uidt?: string }): Promise<void> {
+  await ncFetch(`/tables/${tableId}/columns/${columnId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteColumn(tableId: string, columnId: string): Promise<void> {
+  await ncFetch(`/tables/${tableId}/columns/${columnId}`, { method: 'DELETE' });
+}
+
+// ── Table management ──
+
+export async function renameTable(tableId: string, title: string): Promise<void> {
+  await ncFetch(`/tables/${tableId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteTable(tableId: string): Promise<void> {
+  await ncFetch(`/tables/${tableId}`, { method: 'DELETE' });
+}

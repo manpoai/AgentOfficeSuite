@@ -4,11 +4,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ol from '@/lib/api/outline';
 import * as nc from '@/lib/api/nocodb';
-import { FileText, Table2, Plus, ArrowLeft, Save, Trash2, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Star, Copy, Download } from 'lucide-react';
+import { FileText, Table2, Plus, ArrowLeft, Trash2, X, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Star, Copy, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Editor } from '@/components/editor';
 import { Comments } from '@/components/comments/Comments';
+import { TableEditor } from '@/components/table-editor/TableEditor';
 import * as gw from '@/lib/api/gateway';
 
 type ContentItem = { type: 'doc'; id: string; title: string; subtitle: string; emoji?: string; updatedAt?: string; sortTime: number }
@@ -257,9 +258,10 @@ export default function ContentPage() {
             onDeleted={() => { setSelection(null); refreshDocs(); setMobileView('list'); }}
           />
         ) : selectedTableId ? (
-          <TableViewer
+          <TableEditor
             tableId={selectedTableId}
             onBack={() => setMobileView('list')}
+            onDeleted={() => { setSelection(null); setMobileView('list'); }}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
@@ -273,263 +275,6 @@ export default function ContentPage() {
         )}
       </div>
     </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════
-// Table Viewer (NocoDB)
-// ════════════════════════════════════════════════════════════════
-
-function TableViewer({ tableId, onBack }: { tableId: string; onBack: () => void }) {
-  const [page, setPage] = useState(1);
-  const [editingCell, setEditingCell] = useState<{ rowId: number; col: string } | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [addingRow, setAddingRow] = useState(false);
-  const [newRow, setNewRow] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [sortCol, setSortCol] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const queryClient = useQueryClient();
-  const pageSize = 25;
-
-  const sortParam = sortCol ? (sortDir === 'desc' ? `-${sortCol}` : sortCol) : undefined;
-
-  const { data: meta } = useQuery({
-    queryKey: ['nc-table-meta', tableId],
-    queryFn: () => nc.describeTable(tableId),
-  });
-
-  const { data: rowsData, isLoading } = useQuery({
-    queryKey: ['nc-rows', tableId, page, sortParam],
-    queryFn: () => nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam }),
-    enabled: !!meta,
-  });
-
-  const handleSort = (col: string) => {
-    if (sortCol === col) {
-      if (sortDir === 'asc') setSortDir('desc');
-      else { setSortCol(null); setSortDir('asc'); } // third click clears sort
-    } else {
-      setSortCol(col);
-      setSortDir('asc');
-    }
-    setPage(1);
-  };
-
-  const displayCols = meta?.columns || [];
-
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['nc-rows', tableId, page] });
-  };
-
-  const startEdit = (rowId: number, col: string, currentValue: unknown) => {
-    setEditingCell({ rowId, col });
-    setEditValue(currentValue == null ? '' : String(currentValue));
-  };
-
-  const saveEdit = async () => {
-    if (!editingCell) return;
-    setSaving(true);
-    try {
-      await nc.updateRow(tableId, editingCell.rowId, { [editingCell.col]: editValue });
-      refresh();
-    } catch (e) {
-      console.error('Update failed:', e);
-    } finally {
-      setSaving(false);
-      setEditingCell(null);
-    }
-  };
-
-  const handleAddRow = async () => {
-    setSaving(true);
-    try {
-      await nc.insertRow(tableId, newRow);
-      setNewRow({});
-      setAddingRow(false);
-      refresh();
-    } catch (e) {
-      console.error('Insert failed:', e);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteRow = async (rowId: number) => {
-    if (!confirm('确定删除这行？')) return;
-    try {
-      await nc.deleteRow(tableId, rowId);
-      refresh();
-    } catch (e) {
-      console.error('Delete failed:', e);
-    }
-  };
-
-  const totalRows = rowsData?.pageInfo?.totalRows || 0;
-  const totalPages = Math.ceil(totalRows / pageSize) || 1;
-
-  return (
-    <>
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border bg-card shrink-0">
-        <button onClick={onBack} className="md:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <Table2 className="h-4 w-4 text-green-400/70 shrink-0" />
-        <h2 className="text-sm font-semibold text-foreground truncate flex-1">
-          {meta?.title || '加载中...'}
-        </h2>
-        <span className="text-xs text-muted-foreground">{totalRows} 行</span>
-        <button
-          onClick={() => { setAddingRow(true); setNewRow({}); }}
-          className="flex items-center gap-1 px-2 py-1 text-xs bg-sidebar-primary text-sidebar-primary-foreground rounded-lg hover:opacity-90"
-        >
-          <Plus className="h-3 w-3" />
-          添加行
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-auto">
-        {isLoading ? (
-          <p className="p-4 text-sm text-muted-foreground">加载中...</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/50 sticky top-0">
-                {displayCols.map(col => (
-                  <th
-                    key={col.column_id}
-                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap cursor-pointer select-none hover:text-foreground transition-colors"
-                    onClick={() => handleSort(col.title)}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {col.title}
-                      {col.primary_key && <span className="text-[10px] opacity-50">PK</span>}
-                      {sortCol === col.title && (
-                        sortDir === 'asc'
-                          ? <ArrowUp className="h-3 w-3 text-sidebar-primary" />
-                          : <ArrowDown className="h-3 w-3 text-sidebar-primary" />
-                      )}
-                    </span>
-                  </th>
-                ))}
-                <th className="px-2 py-2 w-10"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {addingRow && (
-                <tr className="border-b border-border bg-accent/30">
-                  {displayCols.map(col => (
-                    <td key={col.column_id} className="px-3 py-1.5">
-                      {col.primary_key ? (
-                        <span className="text-xs text-muted-foreground">自动</span>
-                      ) : (
-                        <input
-                          value={newRow[col.title] || ''}
-                          onChange={e => setNewRow(prev => ({ ...prev, [col.title]: e.target.value }))}
-                          className="w-full bg-card rounded px-2 py-1 text-xs text-foreground outline-none border border-border focus:border-sidebar-primary"
-                          placeholder={col.title}
-                        />
-                      )}
-                    </td>
-                  ))}
-                  <td className="px-2 py-1.5">
-                    <div className="flex gap-1">
-                      <button onClick={handleAddRow} disabled={saving} className="p-1 text-green-500 hover:text-green-400">
-                        <Save className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => setAddingRow(false)} className="p-1 text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {rowsData?.list.map((row, idx) => {
-                const rowId = row.Id as number;
-                return (
-                  <tr key={rowId ?? idx} className="border-b border-border hover:bg-accent/20 transition-colors group">
-                    {displayCols.map(col => {
-                      const val = row[col.title];
-                      const isEditing = editingCell?.rowId === rowId && editingCell?.col === col.title;
-                      return (
-                        <td key={col.column_id} className="px-3 py-1.5">
-                          {isEditing ? (
-                            <div className="flex gap-1 items-center">
-                              <input
-                                value={editValue}
-                                onChange={e => setEditValue(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Escape') { setEditingCell(null); return; }
-                                  const editableCols = displayCols.filter(c => !c.primary_key);
-                                  const rows = rowsData?.list || [];
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    saveEdit();
-                                    // Move to same column, next row
-                                    const nextRowIdx = idx + 1;
-                                    if (nextRowIdx < rows.length) {
-                                      const nextRow = rows[nextRowIdx];
-                                      const nextRowId = nextRow.Id as number;
-                                      setTimeout(() => startEdit(nextRowId, col.title, nextRow[col.title]), 50);
-                                    }
-                                  }
-                                  if (e.key === 'Tab') {
-                                    e.preventDefault();
-                                    saveEdit();
-                                    const curColIdx = editableCols.findIndex(c => c.title === col.title);
-                                    const nextColIdx = e.shiftKey ? curColIdx - 1 : curColIdx + 1;
-                                    if (nextColIdx >= 0 && nextColIdx < editableCols.length) {
-                                      const nextCol = editableCols[nextColIdx];
-                                      setTimeout(() => startEdit(rowId, nextCol.title, row[nextCol.title]), 50);
-                                    }
-                                  }
-                                }}
-                                className="flex-1 bg-card rounded px-2 py-0.5 text-xs text-foreground outline-none border border-sidebar-primary"
-                                autoFocus
-                              />
-                              <button onClick={saveEdit} disabled={saving} className="p-0.5 text-green-500">
-                                <Save className="h-3 w-3" />
-                              </button>
-                              <button onClick={() => setEditingCell(null)} className="p-0.5 text-muted-foreground">
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <CellDisplay
-                              value={val}
-                              colType={col.type}
-                              isPK={col.primary_key}
-                              onClick={col.primary_key ? undefined : () => startEdit(rowId, col.title, val)}
-                            />
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="px-2 py-1.5">
-                      <button onClick={() => handleDeleteRow(rowId)} className="p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100" title="删除行">
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 px-4 py-2 border-t border-border bg-card shrink-0">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <span className="text-xs text-muted-foreground">{page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30">
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-    </>
   );
 }
 
@@ -728,87 +473,6 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
 // ════════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════════
-
-function CellDisplay({ value, colType, isPK, onClick }: {
-  value: unknown;
-  colType: string;
-  isPK: boolean;
-  onClick?: () => void;
-}) {
-  if (value == null || value === '') {
-    return <span className="text-xs text-muted-foreground/50">—</span>;
-  }
-  const str = String(value);
-
-  // Checkbox
-  if (colType === 'Checkbox') {
-    return (
-      <span className={cn('text-xs', isPK ? 'text-muted-foreground' : 'cursor-pointer')} onClick={onClick}>
-        {value ? '✅' : '⬜'}
-      </span>
-    );
-  }
-
-  // URL
-  if (colType === 'URL') {
-    return (
-      <a href={str} target="_blank" rel="noopener noreferrer"
-        className="text-xs text-sidebar-primary hover:underline truncate block max-w-[200px]"
-        title={str}
-      >
-        {str.replace(/^https?:\/\//, '').slice(0, 40)}
-      </a>
-    );
-  }
-
-  // Email
-  if (colType === 'Email') {
-    return (
-      <a href={`mailto:${str}`} className="text-xs text-sidebar-primary hover:underline truncate block max-w-[200px]">
-        {str}
-      </a>
-    );
-  }
-
-  // Date / DateTime
-  if (colType === 'Date' || colType === 'DateTime') {
-    const d = new Date(str);
-    const formatted = isNaN(d.getTime()) ? str : d.toLocaleDateString('zh-CN', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      ...(colType === 'DateTime' ? { hour: '2-digit', minute: '2-digit' } : {}),
-    });
-    return (
-      <span className={cn('text-xs', isPK ? 'text-muted-foreground' : 'text-foreground cursor-pointer hover:text-sidebar-primary')}
-        onClick={onClick} title={str}>
-        {formatted}
-      </span>
-    );
-  }
-
-  // Number / Decimal
-  if (colType === 'Number' || colType === 'Decimal') {
-    return (
-      <span className={cn('text-xs tabular-nums', isPK ? 'text-muted-foreground' : 'text-foreground cursor-pointer hover:text-sidebar-primary')}
-        onClick={onClick} title={str}>
-        {str}
-      </span>
-    );
-  }
-
-  // Default: text
-  return (
-    <span
-      className={cn(
-        'text-xs block truncate max-w-[200px]',
-        isPK ? 'text-muted-foreground' : 'text-foreground cursor-pointer hover:text-sidebar-primary'
-      )}
-      onClick={onClick}
-      title={str}
-    >
-      {str}
-    </span>
-  );
-}
 
 function DocMenuBtn({ icon: Icon, label, onClick, danger }: {
   icon: React.ComponentType<{ className?: string }>;

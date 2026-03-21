@@ -797,6 +797,57 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
   res.json({ table_id: t.id, title: t.title, columns });
 });
 
+// Add a column to a table
+// Body: { title: string, uidt: string }
+app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { title, uidt = 'SingleLineText' } = req.body;
+  if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
+  const body = { column_name: title, title, uidt };
+  const result = await nc('POST', `/api/v1/db/meta/tables/${req.params.table_id}/columns`, body);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  const c = result.data;
+  res.status(201).json({ column_id: c.id, title: c.title, type: c.uidt });
+});
+
+// Update a column (rename or change type)
+// Body: { title?: string, uidt?: string }
+app.patch('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const body = {};
+  if (req.body.title) { body.title = req.body.title; body.column_name = req.body.title; }
+  if (req.body.uidt) body.uidt = req.body.uidt;
+  const result = await nc('PATCH', `/api/v1/db/meta/columns/${req.params.column_id}`, body);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
+});
+
+// Delete a column
+app.delete('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('DELETE', `/api/v1/db/meta/columns/${req.params.column_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ deleted: true });
+});
+
+// Rename a table
+app.patch('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
+  const result = await nc('PATCH', `/api/v1/db/meta/tables/${req.params.table_id}`, { title, table_name: title });
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
+});
+
+// Delete a table
+app.delete('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('DELETE', `/api/v1/db/meta/tables/${req.params.table_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ deleted: true });
+});
+
 // List rows from a table
 app.get('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
   if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
