@@ -7,6 +7,7 @@ import {
   ArrowLeft, Table2, MoreHorizontal, Type, Hash, Calendar, CheckSquare,
   Link, Mail, AlignLeft, Pencil, Star, Phone, Clock, DollarSign,
   Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
+  LayoutGrid, Filter, ArrowUpDown, ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import * as nc from '@/lib/api/nocodb';
@@ -76,6 +77,20 @@ function getOptionColor(color?: string, idx?: number) {
 // ── Read-only column types ──
 const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 
+// ── Filter operators ──
+const FILTER_OPS = [
+  { value: 'eq', label: '等于' },
+  { value: 'neq', label: '不等于' },
+  { value: 'like', label: '包含' },
+  { value: 'nlike', label: '不包含' },
+  { value: 'gt', label: '大于' },
+  { value: 'gte', label: '大于等于' },
+  { value: 'lt', label: '小于' },
+  { value: 'lte', label: '小于等于' },
+  { value: 'is', label: '为空' },
+  { value: 'isnot', label: '不为空' },
+];
+
 // ── Main component ──
 
 interface TableEditorProps {
@@ -109,6 +124,21 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
   const [tableTitleValue, setTableTitleValue] = useState('');
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [selectDropdown, setSelectDropdown] = useState<{ rowId: number; col: string; options: nc.NCSelectOption[]; multi: boolean } | null>(null);
+  // View state
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [viewMenu, setViewMenu] = useState<string | null>(null);
+  const [editingViewTitle, setEditingViewTitle] = useState<string | null>(null);
+  const [viewTitleValue, setViewTitleValue] = useState('');
+  const [showCreateView, setShowCreateView] = useState(false);
+  const [newViewTitle, setNewViewTitle] = useState('');
+  // Filter & Sort state
+  const [showFilters, setShowFilters] = useState(false);
+  const [showSorts, setShowSorts] = useState(false);
+  const [newFilterCol, setNewFilterCol] = useState('');
+  const [newFilterOp, setNewFilterOp] = useState('eq');
+  const [newFilterVal, setNewFilterVal] = useState('');
+  const [newSortCol, setNewSortCol] = useState('');
+  const [newSortDir, setNewSortDir] = useState<'asc' | 'desc'>('asc');
   const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const colTitleRef = useRef<HTMLInputElement>(null);
   const newColRef = useRef<HTMLInputElement>(null);
@@ -122,10 +152,36 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
     queryFn: () => nc.describeTable(tableId),
   });
 
+  // Set active view to default when meta loads
+  useEffect(() => {
+    if (meta?.views?.length && !activeViewId) {
+      const defaultView = meta.views.find(v => v.is_default) || meta.views[0];
+      setActiveViewId(defaultView.view_id);
+    }
+  }, [meta?.views, activeViewId]);
+
+  const views = meta?.views || [];
+
   const { data: rowsData, isLoading } = useQuery({
-    queryKey: ['nc-rows', tableId, page, sortParam],
-    queryFn: () => nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam }),
+    queryKey: ['nc-rows', tableId, activeViewId, page, sortParam],
+    queryFn: () => activeViewId
+      ? nc.queryRowsByView(tableId, activeViewId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam })
+      : nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam }),
     enabled: !!meta,
+  });
+
+  // View filters
+  const { data: viewFilters } = useQuery({
+    queryKey: ['nc-view-filters', activeViewId],
+    queryFn: () => nc.listFilters(activeViewId!),
+    enabled: !!activeViewId,
+  });
+
+  // View sorts
+  const { data: viewSorts } = useQuery({
+    queryKey: ['nc-view-sorts', activeViewId],
+    queryFn: () => nc.listSorts(activeViewId!),
+    enabled: !!activeViewId,
   });
 
   // All tables (for Links creation)
@@ -159,6 +215,75 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['nc-rows', tableId] });
   const refreshMeta = () => queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
+  const refreshFilters = () => queryClient.invalidateQueries({ queryKey: ['nc-view-filters', activeViewId] });
+  const refreshSorts = () => queryClient.invalidateQueries({ queryKey: ['nc-view-sorts', activeViewId] });
+
+  // ── View handlers ──
+  const handleCreateView = async () => {
+    if (!newViewTitle.trim()) return;
+    try {
+      const view = await nc.createView(tableId, newViewTitle.trim());
+      setNewViewTitle('');
+      setShowCreateView(false);
+      refreshMeta();
+      setActiveViewId(view.view_id);
+    } catch {}
+  };
+
+  const handleRenameView = async (viewId: string) => {
+    if (!viewTitleValue.trim()) { setEditingViewTitle(null); return; }
+    try {
+      await nc.renameView(viewId, viewTitleValue.trim());
+      refreshMeta();
+    } catch {}
+    setEditingViewTitle(null);
+  };
+
+  const handleDeleteView = async (viewId: string) => {
+    try {
+      await nc.deleteView(viewId);
+      refreshMeta();
+      if (activeViewId === viewId) setActiveViewId(null);
+    } catch {}
+    setViewMenu(null);
+  };
+
+  const handleAddFilter = async () => {
+    if (!activeViewId || !newFilterCol) return;
+    try {
+      await nc.createFilter(activeViewId, { fk_column_id: newFilterCol, comparison_op: newFilterOp, value: newFilterVal });
+      refreshFilters();
+      refresh();
+      setNewFilterCol('');
+      setNewFilterVal('');
+    } catch {}
+  };
+
+  const handleDeleteFilter = async (filterId: string) => {
+    try {
+      await nc.deleteFilter(filterId);
+      refreshFilters();
+      refresh();
+    } catch {}
+  };
+
+  const handleAddSort = async () => {
+    if (!activeViewId || !newSortCol) return;
+    try {
+      await nc.createSort(activeViewId, { fk_column_id: newSortCol, direction: newSortDir });
+      refreshSorts();
+      refresh();
+      setNewSortCol('');
+    } catch {}
+  };
+
+  const handleDeleteSort = async (sortId: string) => {
+    try {
+      await nc.deleteSort(sortId);
+      refreshSorts();
+      refresh();
+    } catch {}
+  };
 
   // ── Sort ──
   const handleSort = (col: string) => {
@@ -471,6 +596,180 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
           )}
         </div>
       </div>
+
+      {/* View tabs bar */}
+      <div className="flex items-center gap-0 px-2 border-b border-border bg-card/50 shrink-0 overflow-x-auto">
+        {views.map(v => (
+          <div key={v.view_id} className="relative flex items-center">
+            {editingViewTitle === v.view_id ? (
+              <input
+                value={viewTitleValue}
+                onChange={e => setViewTitleValue(e.target.value)}
+                onBlur={() => handleRenameView(v.view_id)}
+                onKeyDown={e => { if (e.key === 'Enter') handleRenameView(v.view_id); if (e.key === 'Escape') setEditingViewTitle(null); }}
+                className="px-2 py-1 text-xs bg-transparent text-foreground outline-none border-b border-sidebar-primary"
+                autoFocus
+              />
+            ) : (
+              <button
+                onClick={() => { setActiveViewId(v.view_id); setPage(1); }}
+                onDoubleClick={() => { if (!v.is_default) { setEditingViewTitle(v.view_id); setViewTitleValue(v.title); } }}
+                className={cn(
+                  'flex items-center gap-1 px-3 py-1.5 text-xs whitespace-nowrap transition-colors border-b-2',
+                  activeViewId === v.view_id
+                    ? 'border-sidebar-primary text-foreground font-medium'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <LayoutGrid className="h-3 w-3" />
+                {v.title}
+              </button>
+            )}
+            {!v.is_default && activeViewId === v.view_id && (
+              <div className="relative">
+                <button
+                  onClick={() => setViewMenu(viewMenu === v.view_id ? null : v.view_id)}
+                  className="p-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                {viewMenu === v.view_id && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setViewMenu(null)} />
+                    <div className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-32">
+                      <button
+                        onClick={() => { setViewMenu(null); setEditingViewTitle(v.view_id); setViewTitleValue(v.title); }}
+                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
+                      >
+                        <Pencil className="h-3 w-3" /> 重命名
+                      </button>
+                      <button
+                        onClick={() => handleDeleteView(v.view_id)}
+                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-3 w-3" /> 删除视图
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {showCreateView ? (
+          <div className="flex items-center gap-1 ml-1">
+            <input
+              value={newViewTitle}
+              onChange={e => setNewViewTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateView(); if (e.key === 'Escape') { setShowCreateView(false); setNewViewTitle(''); } }}
+              placeholder="视图名称"
+              className="px-2 py-1 text-xs bg-muted rounded text-foreground placeholder:text-muted-foreground outline-none w-28"
+              autoFocus
+            />
+            <button onClick={handleCreateView} className="p-0.5 text-sidebar-primary hover:opacity-80"><Plus className="h-3.5 w-3.5" /></button>
+            <button onClick={() => { setShowCreateView(false); setNewViewTitle(''); }} className="p-0.5 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ) : (
+          <button onClick={() => setShowCreateView(true)} className="ml-1 p-1 text-muted-foreground hover:text-foreground" title="添加视图">
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <div className="flex-1" />
+        {/* Filter & Sort toolbar */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => { setShowFilters(v => !v); setShowSorts(false); }}
+            className={cn('flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+              (viewFilters?.length || showFilters) ? 'text-sidebar-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Filter className="h-3 w-3" />
+            筛选{viewFilters?.length ? ` (${viewFilters.length})` : ''}
+          </button>
+          <button
+            onClick={() => { setShowSorts(v => !v); setShowFilters(false); }}
+            className={cn('flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+              (viewSorts?.length || showSorts) ? 'text-sidebar-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <ArrowUpDown className="h-3 w-3" />
+            排序{viewSorts?.length ? ` (${viewSorts.length})` : ''}
+          </button>
+        </div>
+      </div>
+
+      {/* Filter panel */}
+      {showFilters && activeViewId && (
+        <div className="px-4 py-2 border-b border-border bg-card/30 space-y-2 shrink-0">
+          {viewFilters?.map(f => {
+            const col = displayCols.find(c => c.column_id === f.fk_column_id);
+            return (
+              <div key={f.filter_id} className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">{col?.title || f.fk_column_id}</span>
+                <span className="text-sidebar-primary">{FILTER_OPS.find(o => o.value === f.comparison_op)?.label || f.comparison_op}</span>
+                <span className="text-foreground">{f.value}</span>
+                <button onClick={() => handleDeleteFilter(f.filter_id)} className="p-0.5 text-muted-foreground hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-2">
+            <select value={newFilterCol} onChange={e => setNewFilterCol(e.target.value)} className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none">
+              <option value="">字段...</option>
+              {displayCols.filter(c => !READONLY_TYPES.has(c.type)).map(c => (
+                <option key={c.column_id} value={c.column_id}>{c.title}</option>
+              ))}
+            </select>
+            <select value={newFilterOp} onChange={e => setNewFilterOp(e.target.value)} className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none">
+              {FILTER_OPS.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+            </select>
+            <input
+              value={newFilterVal}
+              onChange={e => setNewFilterVal(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleAddFilter(); }}
+              placeholder="值"
+              className="bg-muted rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none w-32"
+            />
+            <button onClick={handleAddFilter} disabled={!newFilterCol} className="px-2 py-1 text-xs text-sidebar-primary hover:opacity-80 disabled:opacity-40">
+              添加
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Sort panel */}
+      {showSorts && activeViewId && (
+        <div className="px-4 py-2 border-b border-border bg-card/30 space-y-2 shrink-0">
+          {viewSorts?.map(s => {
+            const col = displayCols.find(c => c.column_id === s.fk_column_id);
+            return (
+              <div key={s.sort_id} className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">{col?.title || s.fk_column_id}</span>
+                <span className="text-sidebar-primary">{s.direction === 'asc' ? '升序' : '降序'}</span>
+                <button onClick={() => handleDeleteSort(s.sort_id)} className="p-0.5 text-muted-foreground hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-2">
+            <select value={newSortCol} onChange={e => setNewSortCol(e.target.value)} className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none">
+              <option value="">字段...</option>
+              {displayCols.filter(c => !READONLY_TYPES.has(c.type)).map(c => (
+                <option key={c.column_id} value={c.column_id}>{c.title}</option>
+              ))}
+            </select>
+            <select value={newSortDir} onChange={e => setNewSortDir(e.target.value as 'asc' | 'desc')} className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none">
+              <option value="asc">升序</option>
+              <option value="desc">降序</option>
+            </select>
+            <button onClick={handleAddSort} disabled={!newSortCol} className="px-2 py-1 text-xs text-sidebar-primary hover:opacity-80 disabled:opacity-40">
+              添加
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">

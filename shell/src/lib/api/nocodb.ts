@@ -43,10 +43,36 @@ export interface NCColumn {
   rollup_function?: string; // for Rollup
 }
 
+export interface NCView {
+  view_id: string;
+  title: string;
+  type: number; // 1=form, 2=gallery, 3=grid, 4=kanban, 5=calendar
+  is_default: boolean;
+  order: number;
+}
+
+export interface NCFilter {
+  filter_id: string;
+  fk_column_id: string;
+  comparison_op: string;
+  comparison_sub_op?: string;
+  value: string;
+  logical_op?: string;
+  order: number;
+}
+
+export interface NCSort {
+  sort_id: string;
+  fk_column_id: string;
+  direction: 'asc' | 'desc';
+  order: number;
+}
+
 export interface NCTableMeta {
   table_id: string;
   title: string;
   columns: NCColumn[];
+  views?: NCView[];
 }
 
 export interface NCPageInfo {
@@ -169,4 +195,83 @@ export async function renameTable(tableId: string, title: string): Promise<void>
 
 export async function deleteTable(tableId: string): Promise<void> {
   await ncFetch(`/tables/${tableId}`, { method: 'DELETE' });
+}
+
+// ── View management ──
+
+export async function listViews(tableId: string): Promise<NCView[]> {
+  const data = await ncFetch<{ list: NCView[] }>(`/tables/${tableId}/views`);
+  return data.list;
+}
+
+export async function createView(tableId: string, title: string, type: string = 'grid'): Promise<NCView> {
+  return ncFetch<NCView>(`/tables/${tableId}/views`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, type }),
+  });
+}
+
+export async function renameView(viewId: string, title: string): Promise<void> {
+  await ncFetch(`/views/${viewId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteView(viewId: string): Promise<void> {
+  await ncFetch(`/views/${viewId}`, { method: 'DELETE' });
+}
+
+export async function queryRowsByView(
+  tableId: string,
+  viewId: string,
+  opts?: { limit?: number; offset?: number; where?: string; sort?: string }
+): Promise<NCRowsResponse> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.offset) params.set('offset', String(opts.offset));
+  if (opts?.where) params.set('where', opts.where);
+  if (opts?.sort) params.set('sort', opts.sort);
+  const qs = params.toString();
+  return ncFetch<NCRowsResponse>(`/${tableId}/views/${viewId}/rows${qs ? `?${qs}` : ''}`);
+}
+
+// ── View filters ──
+
+export async function listFilters(viewId: string): Promise<NCFilter[]> {
+  const data = await ncFetch<{ list: NCFilter[] }>(`/views/${viewId}/filters`);
+  return data.list;
+}
+
+export async function createFilter(viewId: string, filter: { fk_column_id: string; comparison_op: string; value?: string; logical_op?: string }): Promise<NCFilter> {
+  return ncFetch<NCFilter>(`/views/${viewId}/filters`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(filter),
+  });
+}
+
+export async function deleteFilter(filterId: string): Promise<void> {
+  await ncFetch(`/filters/${filterId}`, { method: 'DELETE' });
+}
+
+// ── View sorts ──
+
+export async function listSorts(viewId: string): Promise<NCSort[]> {
+  const data = await ncFetch<{ list: NCSort[] }>(`/views/${viewId}/sorts`);
+  return data.list;
+}
+
+export async function createSort(viewId: string, sort: { fk_column_id: string; direction?: string }): Promise<NCSort> {
+  return ncFetch<NCSort>(`/views/${viewId}/sorts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sort),
+  });
+}
+
+export async function deleteSort(sortId: string): Promise<void> {
+  await ncFetch(`/sorts/${sortId}`, { method: 'DELETE' });
 }

@@ -827,7 +827,14 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
     }
     return col;
   });
-  res.json({ table_id: t.id, title: t.title, columns });
+  const views = (t.views || []).map(v => ({
+    view_id: v.id,
+    title: v.title,
+    type: v.type,
+    is_default: !!v.is_default,
+    order: v.order,
+  }));
+  res.json({ table_id: t.id, title: t.title, columns, views });
 });
 
 // Add a column to a table
@@ -909,6 +916,148 @@ app.delete('/api/data/tables/:table_id', authenticateAgent, async (req, res) => 
   const result = await nc('DELETE', `/api/v1/db/meta/tables/${req.params.table_id}`);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   res.json({ deleted: true });
+});
+
+// ── Views ──
+
+// List views for a table (included in describe, but also standalone)
+app.get('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('GET', `/api/v1/db/meta/tables/${req.params.table_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  const views = (result.data.views || []).map(v => ({
+    view_id: v.id,
+    title: v.title,
+    type: v.type, // 1=form, 2=gallery, 3=grid, 4=kanban, 5=calendar
+    is_default: !!v.is_default,
+    order: v.order,
+    lock_type: v.lock_type,
+  }));
+  res.json({ list: views });
+});
+
+// Create a grid view
+app.post('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { title, type } = req.body;
+  if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
+  // Map type string to endpoint; default to grid
+  const typeMap = { form: 'forms', gallery: 'galleries', grid: 'grids', kanban: 'kanbans', calendar: 'calendars' };
+  const endpoint = typeMap[type] || 'grids';
+  const result = await nc('POST', `/api/v1/db/meta/tables/${req.params.table_id}/${endpoint}`, { title });
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.status(201).json({
+    view_id: result.data.id,
+    title: result.data.title,
+    type: result.data.type,
+    is_default: !!result.data.is_default,
+    order: result.data.order,
+  });
+});
+
+// Rename a view
+app.patch('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
+  const result = await nc('PATCH', `/api/v1/db/meta/views/${req.params.view_id}`, { title });
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ updated: true });
+});
+
+// Delete a view
+app.delete('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('DELETE', `/api/v1/db/meta/views/${req.params.view_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ deleted: true });
+});
+
+// List filters for a view
+app.get('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('GET', `/api/v1/db/meta/views/${req.params.view_id}/filters`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  const filters = (result.data.list || []).map(f => ({
+    filter_id: f.id,
+    fk_column_id: f.fk_column_id,
+    comparison_op: f.comparison_op,
+    comparison_sub_op: f.comparison_sub_op,
+    value: f.value,
+    logical_op: f.logical_op,
+    order: f.order,
+  }));
+  res.json({ list: filters });
+});
+
+// Create a filter for a view
+app.post('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { fk_column_id, comparison_op, value, logical_op } = req.body;
+  if (!fk_column_id || !comparison_op) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id and comparison_op required' });
+  const result = await nc('POST', `/api/v1/db/meta/views/${req.params.view_id}/filters`, { fk_column_id, comparison_op, value: value || '', logical_op: logical_op || 'and' });
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.status(201).json({ filter_id: result.data.id, fk_column_id: result.data.fk_column_id, comparison_op: result.data.comparison_op, value: result.data.value });
+});
+
+// Update a filter
+app.patch('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('PATCH', `/api/v1/db/meta/filters/${req.params.filter_id}`, req.body);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ updated: true });
+});
+
+// Delete a filter
+app.delete('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('DELETE', `/api/v1/db/meta/filters/${req.params.filter_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ deleted: true });
+});
+
+// List sorts for a view
+app.get('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('GET', `/api/v1/db/meta/views/${req.params.view_id}/sorts`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  const sorts = (result.data.list || []).map(s => ({
+    sort_id: s.id,
+    fk_column_id: s.fk_column_id,
+    direction: s.direction,
+    order: s.order,
+  }));
+  res.json({ list: sorts });
+});
+
+// Create a sort for a view
+app.post('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { fk_column_id, direction } = req.body;
+  if (!fk_column_id) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id required' });
+  const result = await nc('POST', `/api/v1/db/meta/views/${req.params.view_id}/sorts`, { fk_column_id, direction: direction || 'asc' });
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.status(201).json({ sort_id: result.data.id, fk_column_id: result.data.fk_column_id, direction: result.data.direction });
+});
+
+// Delete a sort
+app.delete('/api/data/sorts/:sort_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const result = await nc('DELETE', `/api/v1/db/meta/sorts/${req.params.sort_id}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json({ deleted: true });
+});
+
+// Query rows through a specific view (applies view's filters/sorts)
+app.get('/api/data/:table_id/views/:view_id/rows', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const { where, limit = '25', offset = '0', sort } = req.query;
+  const params = new URLSearchParams({ limit, offset });
+  if (where) params.set('where', where);
+  if (sort) params.set('sort', sort);
+  const result = await nc('GET', `/api/v1/db/data/noco/${NC_BASE_ID}/${req.params.table_id}/views/${req.params.view_id}?${params}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
 });
 
 // List rows from a table
