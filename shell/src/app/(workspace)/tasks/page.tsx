@@ -320,21 +320,22 @@ function KanbanView({ tasks, onSelect, onStatusChange }: {
             const statusTasks = tasks.filter(t => getTaskStatus(t) === status);
             const Icon = config.icon;
 
+            const isEmpty = statusTasks.length === 0;
             return (
-              <KanbanColumn key={status} id={status}>
+              <KanbanColumn key={status} id={status} collapsed={isEmpty}>
                 <div className="flex items-center gap-2 mb-3 px-1">
                   <Icon className={cn('h-4 w-4', config.color)} />
                   <span className="text-sm font-medium text-foreground">{config.label}</span>
-                  <span className="text-xs text-muted-foreground">({statusTasks.length})</span>
+                  <span className={cn('text-xs', isEmpty ? 'text-muted-foreground/50' : 'text-muted-foreground')}>({statusTasks.length})</span>
                 </div>
                 <ScrollArea className="flex-1">
                   <div className="space-y-2">
                     {statusTasks.map(task => (
                       <DraggableTaskCard key={task.task_id} task={task} onClick={() => onSelect(task.task_id)} />
                     ))}
-                    {statusTasks.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-border p-4 text-center">
-                        <p className="text-xs text-muted-foreground">拖拽任务到这里</p>
+                    {isEmpty && (
+                      <div className="rounded-lg border border-dashed border-border/50 p-3 text-center">
+                        <p className="text-[10px] text-muted-foreground/50">拖拽任务到这里</p>
                       </div>
                     )}
                   </div>
@@ -352,13 +353,14 @@ function KanbanView({ tasks, onSelect, onStatusChange }: {
   );
 }
 
-function KanbanColumn({ id, children }: { id: string; children: React.ReactNode }) {
+function KanbanColumn({ id, children, collapsed }: { id: string; children: React.ReactNode; collapsed?: boolean }) {
   const { isOver, setNodeRef } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'flex-1 min-w-[200px] flex flex-col rounded-lg transition-colors p-1',
+        'flex flex-col rounded-lg transition-all p-1',
+        collapsed ? 'min-w-[140px] flex-[0.5]' : 'min-w-[200px] flex-1',
         isOver && 'bg-accent/30'
       )}
     >

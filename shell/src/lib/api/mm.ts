@@ -130,3 +130,50 @@ export async function viewChannel(channelId: string): Promise<void> {
 export function getProfileImageUrl(userId: string): string {
   return `${BASE}/users/${userId}/image`;
 }
+
+// ── Message operations ──
+
+export async function updatePost(postId: string, message: string): Promise<MMPost> {
+  return mmFetch(`/posts/${postId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: postId, message }),
+  });
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  await mmFetch(`/posts/${postId}`, { method: 'DELETE' });
+}
+
+// ── Reactions ──
+
+export interface MMReaction {
+  user_id: string;
+  post_id: string;
+  emoji_name: string;
+  create_at: number;
+}
+
+export async function addReaction(postId: string, emojiName: string): Promise<MMReaction> {
+  return mmFetch('/reactions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ post_id: postId, emoji_name: emojiName }),
+  });
+}
+
+export async function removeReaction(postId: string, emojiName: string, userId: string): Promise<void> {
+  await mmFetch(`/users/${userId}/posts/${postId}/reactions/${emojiName}`, { method: 'DELETE' });
+}
+
+// ── Channel stats ──
+
+export interface MMChannelStats {
+  channel_id: string;
+  member_count: number;
+  guest_count: number;
+}
+
+export async function getChannelStats(channelId: string): Promise<MMChannelStats> {
+  return mmFetch(`/channels/${channelId}/stats`);
+}

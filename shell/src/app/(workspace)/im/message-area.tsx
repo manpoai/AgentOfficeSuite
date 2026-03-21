@@ -1,20 +1,70 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useIMStore } from '@/lib/stores/im';
 import * as mm from '@/lib/api/mm';
-import { ArrowLeft, Send } from 'lucide-react';
+import { ArrowLeft, Send, MoreHorizontal, Pencil, Trash2, Smile, Users, Hash } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
+const QUICK_EMOJIS = ['👍', '❤️', '😄', '🎉', '👀', '🚀'];
+
 export function MessageArea({ channelId }: { channelId: string }) {
-  const { messages, setMessages, setUsers, users, channels, setMobileView, addMessage } = useIMStore();
+  const { messages, setMessages, setUsers, users, channels, setMobileView, addMessage, myUserId } = useIMStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [menuPostId, setMenuPostId] = useState<string | null>(null);
+  const [emojiPickerPostId, setEmojiPickerPostId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
 
   const channel = channels.find(c => c.id === channelId);
+
+  // Fetch channel stats (member count)
+  const { data: channelStats } = useQuery({
+    queryKey: ['mm-channel-stats', channelId],
+    queryFn: () => mm.getChannelStats(channelId),
+    enabled: !!channelId,
+    staleTime: 60_000,
+  });
+
+  const refreshPosts = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['mm-posts', channelId] });
+  }, [queryClient, channelId]);
+
+  // Message operations
+  const handleEdit = async (postId: string, newText: string) => {
+    try {
+      await mm.updatePost(postId, newText);
+      setEditingPostId(null);
+      refreshPosts();
+    } catch (e) {
+      console.error('Edit failed:', e);
+    }
+  };
+
+  const handleDelete = async (postId: string) => {
+    try {
+      await mm.deletePost(postId);
+      refreshPosts();
+    } catch (e) {
+      console.error('Delete failed:', e);
+    }
+  };
+
+  const handleReaction = async (postId: string, emoji: string) => {
+    if (!myUserId) return;
+    try {
+      await mm.addReaction(postId, emoji);
+      refreshPosts();
+    } catch (e) {
+      console.error('Reaction failed:', e);
+    }
+    setEmojiPickerPostId(null);
+  };
 
   // Fetch posts
   const { data: postList, isLoading } = useQuery({
@@ -77,16 +127,29 @@ export function MessageArea({ channelId }: { channelId: string }) {
     <>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
-        {/* Back button — mobile only */}
         <button
           onClick={() => setMobileView('channels')}
           className="md:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h2 className="text-sm font-semibold text-foreground truncate">
-          {channel?.display_name || channelId}
-        </h2>
+        {channel?.type === 'O' || channel?.type === 'P' ? (
+          <Hash className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : null}
+        <div className="flex-1 min-w-0">
+          <h2 className="text-sm font-semibold text-foreground truncate">
+            {channel?.display_name || channelId}
+          </h2>
+          {channel?.header && (
+            <p className="text-[10px] text-muted-foreground truncate">{channel.header}</p>
+          )}
+        </div>
+        {channelStats && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <Users className="h-3 w-3" />
+            <span>{channelStats.member_count}</span>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -102,7 +165,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
               (post.create_at - prevPost.create_at > 300_000); // 5min gap
 
             return (
-              <div key={post.id} className={cn('group', showHeader ? 'mt-3' : '')}>
+              <div key={post.id} className={cn('group relative', showHeader ? 'mt-3' : '')}>
                 {showHeader && (
                   <div className="flex items-center gap-2 mb-0.5">
                     <img
@@ -116,11 +179,76 @@ export function MessageArea({ channelId }: { channelId: string }) {
                     <span className="text-[11px] text-muted-foreground">
                       {formatTime(post.create_at)}
                     </span>
+                    {post.update_at > post.create_at && (
+                      <span className="text-[10px] text-muted-foreground/60">(已编辑)</span>
+                    )}
                   </div>
                 )}
-                <div className={cn('text-sm text-foreground/90', showHeader ? 'pl-10' : 'pl-10')}>
-                  <MessageContent text={post.message} files={post.metadata?.files} />
+                <div className={cn('text-sm text-foreground/90', 'pl-10')}>
+                  {editingPostId === post.id ? (
+                    <div className="flex gap-1.5 items-end">
+                      <textarea
+                        value={editText}
+                        onChange={e => setEditText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(post.id, editText); }
+                          if (e.key === 'Escape') setEditingPostId(null);
+                        }}
+                        className="flex-1 bg-muted rounded px-2 py-1 text-sm text-foreground outline-none resize-none border border-sidebar-primary"
+                        autoFocus
+                        rows={2}
+                      />
+                      <button onClick={() => handleEdit(post.id, editText)} className="text-xs text-sidebar-primary hover:underline shrink-0 pb-1">保存</button>
+                      <button onClick={() => setEditingPostId(null)} className="text-xs text-muted-foreground hover:underline shrink-0 pb-1">取消</button>
+                    </div>
+                  ) : (
+                    <MessageContent text={post.message} files={post.metadata?.files} />
+                  )}
                 </div>
+                {/* Hover action bar */}
+                {editingPostId !== post.id && (
+                  <div className="absolute right-2 top-0 hidden group-hover:flex items-center gap-0.5 bg-card border border-border rounded-lg shadow-sm px-1 py-0.5">
+                    <button
+                      onClick={() => setEmojiPickerPostId(emojiPickerPostId === post.id ? null : post.id)}
+                      className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                      title="表情"
+                    >
+                      <Smile className="h-3.5 w-3.5" />
+                    </button>
+                    {post.user_id === myUserId && (
+                      <>
+                        <button
+                          onClick={() => { setEditingPostId(post.id); setEditText(post.message); setMenuPostId(null); }}
+                          className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+                          title="编辑"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => { if (confirm('删除此消息？')) handleDelete(post.id); }}
+                          className="p-1 text-muted-foreground hover:text-destructive rounded transition-colors"
+                          title="删除"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+                {/* Quick emoji picker */}
+                {emojiPickerPostId === post.id && (
+                  <div className="absolute right-2 top-8 bg-card border border-border rounded-lg shadow-lg p-1.5 flex gap-1 z-10">
+                    {QUICK_EMOJIS.map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleReaction(post.id, emoji)}
+                        className="text-base hover:bg-accent rounded p-1 transition-colors"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

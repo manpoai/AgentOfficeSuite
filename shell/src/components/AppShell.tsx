@@ -4,6 +4,7 @@ import { MessageSquare, FileText, CheckSquare, Users, Settings } from 'lucide-re
 import { cn } from '@/lib/utils';
 import { useIMStore } from '@/lib/stores/im';
 import { useMemo } from 'react';
+import { CommandPalette } from './CommandPalette';
 
 const NAV_ITEMS = [
   { id: 'im',       path: '/im',       label: 'IM',     icon: MessageSquare },
@@ -73,6 +74,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-hidden min-h-0">
         {children}
       </main>
+
+      {/* Global command palette (Cmd+K) */}
+      <CommandPalette />
 
       {/* Mobile bottom tab bar — visible only on mobile */}
       <nav className="flex md:hidden items-center justify-around border-t border-border bg-sidebar px-1 shrink-0"
