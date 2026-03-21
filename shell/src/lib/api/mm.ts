@@ -177,3 +177,19 @@ export interface MMChannelStats {
 export async function getChannelStats(channelId: string): Promise<MMChannelStats> {
   return mmFetch(`/channels/${channelId}/stats`);
 }
+
+// ── User autocomplete ──
+
+export async function autocompleteUsers(term: string, teamId?: string): Promise<MMUser[]> {
+  const params = new URLSearchParams({ name: term });
+  if (teamId) params.set('in_team', teamId);
+  const data = await mmFetch<{ users: MMUser[] }>(`/users/autocomplete?${params}`);
+  return data.users || [];
+}
+
+export async function getChannelMembersList(channelId: string): Promise<MMUser[]> {
+  const members = await mmFetch<MMChannelMember[]>(`/channels/${channelId}/members?per_page=200`);
+  if (members.length === 0) return [];
+  const userIds = members.map(m => m.user_id);
+  return getUsersByIds(userIds);
+}

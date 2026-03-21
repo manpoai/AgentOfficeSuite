@@ -7,6 +7,7 @@ import * as mm from '@/lib/api/mm';
 import { ArrowLeft, Send, MoreHorizontal, Pencil, Trash2, Smile, Users, Hash, Reply, X, Bold, Italic, Strikethrough, Heading, Link, Code, Quote, List, ListOrdered, Paperclip, AtSign, Bookmark, Pin, Copy } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😄', '🎉', '👀', '🚀'];
 
@@ -19,11 +20,29 @@ export function MessageArea({ channelId }: { channelId: string }) {
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [emojiPickerPostId, setEmojiPickerPostId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<mm.MMPost | null>(null);
+  const [cursorPos, setCursorPos] = useState(0);
+  const [mentionIdx, setMentionIdx] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
 
   const channel = channels.find(c => c.id === channelId);
+
+  // @ mention
+  const mention = useMentionPopover(input, cursorPos);
+
+  const handleMentionSelect = useCallback((candidate: MentionCandidate) => {
+    const before = input.slice(0, mention.triggerStart);
+    const after = input.slice(mention.triggerEnd);
+    const newText = `${before}@${candidate.username} ${after}`;
+    setInput(newText);
+    setMentionIdx(0);
+    const newPos = mention.triggerStart + candidate.username.length + 2; // @name + space
+    setTimeout(() => {
+      const el = textareaRef.current;
+      if (el) { el.focus(); el.setSelectionRange(newPos, newPos); }
+    }, 0);
+  }, [input, mention.triggerStart, mention.triggerEnd]);
 
   // Fetch channel stats (member count)
   const { data: channelStats } = useQuery({
@@ -155,6 +174,13 @@ export function MessageArea({ channelId }: { channelId: string }) {
   }, [input]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Mention navigation
+    if (mention.isOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => (i + 1) % mention.matches.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => (i - 1 + mention.matches.length) % mention.matches.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); handleMentionSelect(mention.matches[mentionIdx]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); setCursorPos(0); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -162,7 +188,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
   };
 
   return (
-    <>
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
         <button
@@ -191,7 +217,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="px-4 py-2 space-y-1">
           {isLoading && (
             <p className="text-sm text-muted-foreground py-8 text-center">加载中...</p>
@@ -362,16 +388,30 @@ export function MessageArea({ channelId }: { channelId: string }) {
           </div>
         )}
         <div className="bg-muted rounded-lg border border-border/50 focus-within:border-sidebar-primary/50 transition-colors">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => { setInput(e.target.value); autoResize(); }}
-            onKeyDown={handleKeyDown}
-            placeholder={replyTo ? '回复消息...' : `发送到 ${channel?.display_name || '频道'}`}
-            rows={1}
-            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none px-3 pt-2.5 pb-1 max-h-32"
-            style={{ minHeight: '24px' }}
-          />
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => { setInput(e.target.value); setCursorPos(e.target.selectionStart); autoResize(); }}
+              onKeyDown={handleKeyDown}
+              onSelect={e => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
+              placeholder={replyTo ? '回复消息...' : `发送到 ${channel?.display_name || '频道'}`}
+              rows={1}
+              className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none px-3 pt-2.5 pb-1 max-h-32"
+              style={{ minHeight: '24px' }}
+            />
+            {mention.isOpen && textareaRef.current && (
+              <MentionPopover
+                matches={mention.matches}
+                selectedIndex={mentionIdx}
+                onSelect={handleMentionSelect}
+                anchorRect={textareaRef.current ? {
+                  left: textareaRef.current.getBoundingClientRect().left + 12,
+                  bottom: textareaRef.current.getBoundingClientRect().top,
+                } : null}
+              />
+            )}
+          </div>
           {/* Formatting toolbar */}
           <div className="flex items-center justify-between px-2 py-1 border-t border-border/30">
             <div className="flex items-center gap-0.5">
@@ -402,7 +442,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

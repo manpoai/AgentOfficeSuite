@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageCircle, Send, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Comment } from '@/lib/api/gateway';
+import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
 
 interface CommentsProps {
   /** Unique key for React Query caching */
@@ -47,7 +48,25 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
   const [expanded, setExpanded] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [posting, setPosting] = useState(false);
+  const [cursorPos, setCursorPos] = useState(0);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const commentInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  const mention = useMentionPopover(newComment, cursorPos);
+
+  const handleMentionSelect = useCallback((candidate: MentionCandidate) => {
+    const before = newComment.slice(0, mention.triggerStart);
+    const after = newComment.slice(mention.triggerEnd);
+    const text = `${before}@${candidate.username} ${after}`;
+    setNewComment(text);
+    setMentionIdx(0);
+    const newPos = mention.triggerStart + candidate.username.length + 2;
+    setTimeout(() => {
+      const el = commentInputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(newPos, newPos); }
+    }, 0);
+  }, [newComment, mention.triggerStart, mention.triggerEnd]);
 
   const { data: comments = [], isLoading } = useQuery({
     queryKey,
@@ -109,11 +128,21 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
           )}
 
           {/* New comment input */}
-          <div className="flex items-center gap-2">
+          <div className="relative flex items-center gap-2">
             <input
+              ref={commentInputRef}
               value={newComment}
-              onChange={e => setNewComment(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePost(); } }}
+              onChange={e => { setNewComment(e.target.value); setCursorPos(e.target.selectionStart || 0); }}
+              onSelect={e => setCursorPos((e.target as HTMLInputElement).selectionStart || 0)}
+              onKeyDown={e => {
+                if (mention.isOpen) {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => (i + 1) % mention.matches.length); return; }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => (i - 1 + mention.matches.length) % mention.matches.length); return; }
+                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); handleMentionSelect(mention.matches[mentionIdx]); return; }
+                  if (e.key === 'Escape') { e.preventDefault(); setCursorPos(0); return; }
+                }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePost(); }
+              }}
               placeholder="添加评论..."
               className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 text-foreground outline-none placeholder:text-muted-foreground"
             />
@@ -124,6 +153,17 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
             >
               <Send className="h-3.5 w-3.5" />
             </button>
+            {mention.isOpen && commentInputRef.current && (
+              <MentionPopover
+                matches={mention.matches}
+                selectedIndex={mentionIdx}
+                onSelect={handleMentionSelect}
+                anchorRect={{
+                  left: commentInputRef.current.getBoundingClientRect().left,
+                  bottom: commentInputRef.current.getBoundingClientRect().top,
+                }}
+              />
+            )}
           </div>
         </div>
       )}

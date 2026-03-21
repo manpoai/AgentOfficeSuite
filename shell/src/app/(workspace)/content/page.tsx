@@ -11,8 +11,8 @@ import { Editor } from '@/components/editor';
 import { Comments } from '@/components/comments/Comments';
 import * as gw from '@/lib/api/gateway';
 
-type ContentItem = { type: 'doc'; id: string; title: string; subtitle: string; emoji?: string; updatedAt?: string }
-  | { type: 'table'; id: string; title: string };
+type ContentItem = { type: 'doc'; id: string; title: string; subtitle: string; emoji?: string; updatedAt?: string; sortTime: number }
+  | { type: 'table'; id: string; title: string; sortTime: number };
 
 type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | null;
 
@@ -59,7 +59,7 @@ export default function ContentPage() {
   const collectionMap = new Map<string, string>();
   collections?.forEach(c => collectionMap.set(c.id, c.name));
 
-  // Build unified content list: docs first, then tables
+  // Build unified content list: docs + tables mixed, sorted by time (newest first)
   const items: ContentItem[] = [];
   docs?.forEach(doc => items.push({
     type: 'doc', id: doc.id,
@@ -67,15 +67,14 @@ export default function ContentPage() {
     subtitle: `${collectionMap.get(doc.collectionId) || ''} · ${formatDate(doc.updatedAt)}`,
     emoji: doc.emoji,
     updatedAt: doc.updatedAt,
+    sortTime: new Date(doc.updatedAt || 0).getTime(),
   }));
-  // Sort docs by last updated (most recent first)
-  items.sort((a, b) => {
-    if (a.type === 'doc' && b.type === 'doc') {
-      return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
-    }
-    return 0;
-  });
-  tables?.forEach(t => items.push({ type: 'table', id: t.id, title: t.title }));
+  tables?.forEach(t => items.push({
+    type: 'table', id: t.id, title: t.title,
+    sortTime: new Date(t.created_at || 0).getTime(),
+  }));
+  // Sort all items by time, newest first
+  items.sort((a, b) => b.sortTime - a.sortTime);
 
   // Filter by search
   const displayItems = searchQuery.length >= 2
@@ -86,6 +85,7 @@ export default function ContentPage() {
             title: r.document.title,
             subtitle: r.context?.slice(0, 60) || '',
             emoji: r.document.emoji,
+            sortTime: 0,
           }))
         : [])
     : items;
@@ -111,7 +111,7 @@ export default function ContentPage() {
     <div className="flex h-full overflow-hidden flex-col md:flex-row">
       {/* Unified content list sidebar */}
       <div className={cn(
-        'w-full md:w-72 border-r border-border bg-card flex flex-col shrink-0',
+        'w-full md:w-72 border-r border-border bg-card flex flex-col shrink-0 overflow-hidden',
         mobileView === 'list' ? 'flex' : 'hidden md:flex'
       )}>
         <div className="p-3 border-b border-border flex items-center justify-between">
@@ -166,7 +166,7 @@ export default function ContentPage() {
             )}
           </div>
         </div>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="py-1">
             {isLoading && (
               <div className="space-y-1 px-3 py-2">
