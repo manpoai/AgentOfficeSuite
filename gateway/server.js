@@ -799,6 +799,26 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
     if (c.colOptions?.options) {
       col.options = c.colOptions.options.map(o => ({ title: o.title, color: o.color, order: o.order }));
     }
+    // Pass through formula
+    if (c.colOptions?.formula_raw || c.colOptions?.formula) {
+      col.formula = c.colOptions.formula_raw || c.colOptions.formula;
+    }
+    // Pass through relation info
+    if (c.colOptions?.fk_related_model_id) {
+      col.relatedTableId = c.colOptions.fk_related_model_id;
+      col.relationType = c.colOptions.type; // hm, bt, mm
+    }
+    // Pass through lookup/rollup info
+    if (c.colOptions?.fk_relation_column_id) {
+      col.fk_relation_column_id = c.colOptions.fk_relation_column_id;
+    }
+    if (c.colOptions?.fk_lookup_column_id) {
+      col.fk_lookup_column_id = c.colOptions.fk_lookup_column_id;
+    }
+    if (c.colOptions?.fk_rollup_column_id) {
+      col.fk_rollup_column_id = c.colOptions.fk_rollup_column_id;
+      col.rollup_function = c.colOptions.rollup_function;
+    }
     // Pass through meta (for currency symbol, decimal places, etc.)
     if (c.meta && typeof c.meta === 'object' && Object.keys(c.meta).length > 0) {
       col.meta = c.meta;
@@ -821,6 +841,32 @@ app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, re
     body.colOptions = { options: options.map((o, i) => ({ title: o.title || o, color: o.color, order: i + 1 })) };
   }
   if (meta) body.meta = meta;
+  // Formula
+  if (uidt === 'Formula' && req.body.formula_raw) {
+    body.formula_raw = req.body.formula_raw;
+  }
+  // Links (relation between tables)
+  if ((uidt === 'Links' || uidt === 'LinkToAnotherRecord') && req.body.childId) {
+    body.colOptions = {
+      type: req.body.relationType || 'mm',
+      fk_related_model_id: req.body.childId,
+    };
+  }
+  // Lookup
+  if (uidt === 'Lookup' && req.body.fk_relation_column_id && req.body.fk_lookup_column_id) {
+    body.colOptions = {
+      fk_relation_column_id: req.body.fk_relation_column_id,
+      fk_lookup_column_id: req.body.fk_lookup_column_id,
+    };
+  }
+  // Rollup
+  if (uidt === 'Rollup' && req.body.fk_relation_column_id && req.body.fk_rollup_column_id) {
+    body.colOptions = {
+      fk_relation_column_id: req.body.fk_relation_column_id,
+      fk_rollup_column_id: req.body.fk_rollup_column_id,
+      rollup_function: req.body.rollup_function || 'count',
+    };
+  }
   const result = await nc('POST', `/api/v1/db/meta/tables/${req.params.table_id}/columns`, body);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   const c = result.data;

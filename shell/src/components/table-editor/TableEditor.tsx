@@ -6,7 +6,7 @@ import {
   Plus, Trash2, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown,
   ArrowLeft, Table2, MoreHorizontal, Type, Hash, Calendar, CheckSquare,
   Link, Mail, AlignLeft, Pencil, Star, Phone, Clock, DollarSign,
-  Percent, List, Tags, Braces, Paperclip, User,
+  Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import * as nc from '@/lib/api/nocodb';
@@ -17,7 +17,7 @@ interface ColTypeDef {
   value: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  group: 'text' | 'number' | 'datetime' | 'select' | 'other';
+  group: 'text' | 'number' | 'datetime' | 'select' | 'relation' | 'other';
 }
 
 const COLUMN_TYPES: ColTypeDef[] = [
@@ -42,6 +42,11 @@ const COLUMN_TYPES: ColTypeDef[] = [
   { value: 'Checkbox', label: '复选框', icon: CheckSquare, group: 'select' },
   { value: 'SingleSelect', label: '单选', icon: List, group: 'select' },
   { value: 'MultiSelect', label: '多选', icon: Tags, group: 'select' },
+  // Relation & Computed
+  { value: 'Links', label: '关联', icon: Link2, group: 'relation' },
+  { value: 'Lookup', label: '查找', icon: Search, group: 'relation' },
+  { value: 'Rollup', label: '汇总', icon: Sigma, group: 'relation' },
+  { value: 'Formula', label: '公式', icon: GitBranch, group: 'relation' },
   // Other
   { value: 'Attachment', label: '附件', icon: Paperclip, group: 'other' },
   { value: 'JSON', label: 'JSON', icon: Braces, group: 'other' },
@@ -49,7 +54,7 @@ const COLUMN_TYPES: ColTypeDef[] = [
 ];
 
 const GROUP_LABELS: Record<string, string> = {
-  text: '文本', number: '数字', datetime: '日期时间', select: '选择', other: '其他',
+  text: '文本', number: '数字', datetime: '日期时间', select: '选择', relation: '关联与计算', other: '其他',
 };
 
 function getColIcon(uidt: string) {
@@ -93,6 +98,13 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
   const [newColTitle, setNewColTitle] = useState('');
   const [newColType, setNewColType] = useState('SingleLineText');
   const [newColOptions, setNewColOptions] = useState('');
+  const [newColFormula, setNewColFormula] = useState('');
+  const [newColRelTable, setNewColRelTable] = useState('');
+  const [newColRelType, setNewColRelType] = useState('mm');
+  const [newColRelCol, setNewColRelCol] = useState(''); // for lookup/rollup: relation column id
+  const [newColLookupCol, setNewColLookupCol] = useState(''); // for lookup: field id in related table
+  const [newColRollupCol, setNewColRollupCol] = useState(''); // for rollup: field id in related table
+  const [newColRollupFn, setNewColRollupFn] = useState('sum');
   const [editingTableTitle, setEditingTableTitle] = useState(false);
   const [tableTitleValue, setTableTitleValue] = useState('');
   const [showTableMenu, setShowTableMenu] = useState(false);
@@ -114,6 +126,29 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
     queryKey: ['nc-rows', tableId, page, sortParam],
     queryFn: () => nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam }),
     enabled: !!meta,
+  });
+
+  // All tables (for Links creation)
+  const { data: allTables } = useQuery({
+    queryKey: ['nc-tables'],
+    queryFn: nc.listTables,
+    enabled: showAddCol,
+  });
+
+  // Related table meta (for Lookup/Rollup field picker)
+  const relatedTableId = newColRelTable || (() => {
+    // Find the related table from the selected relation column
+    if (newColRelCol && meta?.columns) {
+      const relCol = meta.columns.find(c => c.column_id === newColRelCol);
+      return relCol?.relatedTableId || '';
+    }
+    return '';
+  })();
+
+  const { data: relatedMeta } = useQuery({
+    queryKey: ['nc-table-meta', relatedTableId],
+    queryFn: () => nc.describeTable(relatedTableId),
+    enabled: !!relatedTableId && (newColType === 'Lookup' || newColType === 'Rollup'),
   });
 
   const displayCols = (meta?.columns || []).filter(c => c.title !== 'created_by');
@@ -225,21 +260,48 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
   };
 
   // ── Column operations ──
+  const resetAddColState = () => {
+    setNewColTitle('');
+    setNewColType('SingleLineText');
+    setNewColOptions('');
+    setNewColFormula('');
+    setNewColRelTable('');
+    setNewColRelType('mm');
+    setNewColRelCol('');
+    setNewColLookupCol('');
+    setNewColRollupCol('');
+    setNewColRollupFn('sum');
+    setShowAddCol(false);
+  };
+
   const handleAddColumn = async () => {
     if (!newColTitle.trim()) return;
     try {
-      const opts: { options?: nc.NCSelectOption[] } = {};
+      const opts: Record<string, unknown> = {};
       if ((newColType === 'SingleSelect' || newColType === 'MultiSelect') && newColOptions.trim()) {
         opts.options = newColOptions.split(',').map((s, i) => ({
           title: s.trim(),
           color: SELECT_COLORS[i % SELECT_COLORS.length],
         }));
       }
+      if (newColType === 'Formula' && newColFormula.trim()) {
+        opts.formula_raw = newColFormula.trim();
+      }
+      if (newColType === 'Links' && newColRelTable) {
+        opts.childId = newColRelTable;
+        opts.relationType = newColRelType;
+      }
+      if (newColType === 'Lookup' && newColRelCol && newColLookupCol) {
+        opts.fk_relation_column_id = newColRelCol;
+        opts.fk_lookup_column_id = newColLookupCol;
+      }
+      if (newColType === 'Rollup' && newColRelCol && newColRollupCol) {
+        opts.fk_relation_column_id = newColRelCol;
+        opts.fk_rollup_column_id = newColRollupCol;
+        opts.rollup_function = newColRollupFn;
+      }
       await nc.addColumn(tableId, newColTitle.trim(), newColType, opts);
-      setNewColTitle('');
-      setNewColType('SingleLineText');
-      setNewColOptions('');
-      setShowAddCol(false);
+      resetAddColState();
       refreshMeta();
       refresh();
     } catch (e) {
@@ -719,6 +781,7 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
                 );
               })}
               {/* Options input for select types */}
+              {/* Select options */}
               {isSelectType(newColType) && (
                 <div>
                   <div className="text-[10px] text-muted-foreground mb-1">选项（逗号分隔）</div>
@@ -731,15 +794,160 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
                   {newColOptions && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {newColOptions.split(',').filter(s => s.trim()).map((s, i) => (
-                        <span
-                          key={i}
-                          className="px-1.5 py-0.5 rounded text-[10px]"
-                          style={{ backgroundColor: SELECT_COLORS[i % SELECT_COLORS.length], color: '#1a1a2e' }}
-                        >
+                        <span key={i} className="px-1.5 py-0.5 rounded text-[10px]" style={{ backgroundColor: SELECT_COLORS[i % SELECT_COLORS.length], color: '#1a1a2e' }}>
                           {s.trim()}
                         </span>
                       ))}
                     </div>
+                  )}
+                </div>
+              )}
+              {/* Formula */}
+              {newColType === 'Formula' && (
+                <div>
+                  <div className="text-[10px] text-muted-foreground mb-1">公式表达式</div>
+                  <input
+                    value={newColFormula}
+                    onChange={e => setNewColFormula(e.target.value)}
+                    placeholder="CONCAT({Name}, ' - ', {Country})"
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground outline-none font-mono"
+                  />
+                  <div className="text-[10px] text-muted-foreground/50 mt-1">
+                    用 {'{字段名}'} 引用字段。支持: CONCAT, IF, ADD, SUM, AVG, LEN, NOW, DATEADD 等
+                  </div>
+                </div>
+              )}
+              {/* Links — select target table */}
+              {newColType === 'Links' && (
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground mb-1">关联目标表</div>
+                    <select
+                      value={newColRelTable}
+                      onChange={e => setNewColRelTable(e.target.value)}
+                      className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
+                    >
+                      <option value="">选择表...</option>
+                      {allTables?.filter(t => t.id !== tableId).map(t => (
+                        <option key={t.id} value={t.id}>{t.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground mb-1">关联类型</div>
+                    <div className="flex gap-1">
+                      {[
+                        { value: 'mm', label: '多对多' },
+                        { value: 'hm', label: '一对多' },
+                        { value: 'bt', label: '多对一' },
+                      ].map(rt => (
+                        <button
+                          key={rt.value}
+                          onClick={() => setNewColRelType(rt.value)}
+                          className={cn(
+                            'flex-1 px-2 py-1 rounded-md text-[11px] transition-colors',
+                            newColRelType === rt.value
+                              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                              : 'bg-muted text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          {rt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Lookup — pick relation column + field from related table */}
+              {newColType === 'Lookup' && (
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground mb-1">关联列</div>
+                    <select
+                      value={newColRelCol}
+                      onChange={e => setNewColRelCol(e.target.value)}
+                      className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
+                    >
+                      <option value="">选择关联列...</option>
+                      {displayCols.filter(c => c.type === 'Links' || c.type === 'LinkToAnotherRecord').map(c => (
+                        <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {relatedMeta && (
+                    <div>
+                      <div className="text-[10px] text-muted-foreground mb-1">查找字段（{relatedMeta.title}）</div>
+                      <select
+                        value={newColLookupCol}
+                        onChange={e => setNewColLookupCol(e.target.value)}
+                        className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
+                      >
+                        <option value="">选择字段...</option>
+                        {relatedMeta.columns.filter(c => !READONLY_TYPES.has(c.type) || c.type === 'Formula').map(c => (
+                          <option key={c.column_id} value={c.column_id}>{c.title} ({c.type})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Rollup — pick relation column + field + aggregation function */}
+              {newColType === 'Rollup' && (
+                <div className="space-y-2">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground mb-1">关联列</div>
+                    <select
+                      value={newColRelCol}
+                      onChange={e => setNewColRelCol(e.target.value)}
+                      className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
+                    >
+                      <option value="">选择关联列...</option>
+                      {displayCols.filter(c => c.type === 'Links' || c.type === 'LinkToAnotherRecord').map(c => (
+                        <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {relatedMeta && (
+                    <>
+                      <div>
+                        <div className="text-[10px] text-muted-foreground mb-1">汇总字段（{relatedMeta.title}）</div>
+                        <select
+                          value={newColRollupCol}
+                          onChange={e => setNewColRollupCol(e.target.value)}
+                          className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
+                        >
+                          <option value="">选择字段...</option>
+                          {relatedMeta.columns.filter(c => ['Number', 'Decimal', 'Currency', 'Percent', 'Rating', 'Duration'].includes(c.type)).map(c => (
+                            <option key={c.column_id} value={c.column_id}>{c.title} ({c.type})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted-foreground mb-1">聚合函数</div>
+                        <div className="flex flex-wrap gap-1">
+                          {[
+                            { value: 'sum', label: '求和' },
+                            { value: 'avg', label: '平均' },
+                            { value: 'count', label: '计数' },
+                            { value: 'min', label: '最小' },
+                            { value: 'max', label: '最大' },
+                          ].map(fn => (
+                            <button
+                              key={fn.value}
+                              onClick={() => setNewColRollupFn(fn.value)}
+                              className={cn(
+                                'px-2 py-1 rounded-md text-[11px] transition-colors',
+                                newColRollupFn === fn.value
+                                  ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                                  : 'bg-muted text-muted-foreground hover:text-foreground'
+                              )}
+                            >
+                              {fn.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -751,7 +959,7 @@ export function TableEditor({ tableId, onBack, onDeleted }: TableEditorProps) {
                 >
                   添加
                 </button>
-                <button onClick={() => setShowAddCol(false)} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+                <button onClick={() => { resetAddColState(); }} className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
                   取消
                 </button>
               </div>

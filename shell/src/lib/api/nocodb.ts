@@ -34,6 +34,13 @@ export interface NCColumn {
   required: boolean;
   options?: NCSelectOption[]; // for SingleSelect / MultiSelect
   meta?: Record<string, unknown>; // for Currency symbol, decimal places, etc.
+  formula?: string; // for Formula columns
+  relatedTableId?: string; // for Links/LinkToAnotherRecord
+  relationType?: string; // hm, bt, mm
+  fk_relation_column_id?: string; // for Lookup/Rollup
+  fk_lookup_column_id?: string; // for Lookup
+  fk_rollup_column_id?: string; // for Rollup
+  rollup_function?: string; // for Rollup
 }
 
 export interface NCTableMeta {
@@ -119,7 +126,17 @@ export async function addColumn(
   tableId: string,
   title: string,
   uidt: string = 'SingleLineText',
-  opts?: { options?: NCSelectOption[]; meta?: Record<string, unknown> }
+  opts?: {
+    options?: NCSelectOption[];
+    meta?: Record<string, unknown>;
+    formula_raw?: string;
+    childId?: string;
+    relationType?: string;
+    fk_relation_column_id?: string;
+    fk_lookup_column_id?: string;
+    fk_rollup_column_id?: string;
+    rollup_function?: string;
+  }
 ): Promise<{ column_id: string; title: string; type: string }> {
   return ncFetch(`/tables/${tableId}/columns`, {
     method: 'POST',
