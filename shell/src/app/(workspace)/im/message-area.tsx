@@ -8,10 +8,12 @@ import { ArrowLeft, Send, MoreHorizontal, Pencil, Trash2, Smile, Users, Hash, Re
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
+import { useT } from '@/lib/i18n';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😄', '🎉', '👀', '🚀'];
 
 export function MessageArea({ channelId }: { channelId: string }) {
+  const { t } = useT();
   const { messages, setMessages, setUsers, users, channels, setMobileView, addMessage, myUserId } = useIMStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -209,7 +211,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
           )}
         </div>
         {channelStats && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0" title={t('im.members')}>
             <Users className="h-3 w-3" />
             <span>{channelStats.member_count}</span>
           </div>
@@ -220,7 +222,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="px-4 py-2 space-y-1">
           {isLoading && (
-            <p className="text-sm text-muted-foreground py-8 text-center">加载中...</p>
+            <p className="text-sm text-muted-foreground py-8 text-center">{t('common.loading')}</p>
           )}
           {channelMessages.map((post, i) => {
             const user = users[post.user_id];
@@ -259,7 +261,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
                       {formatTime(post.create_at)}
                     </span>
                     {post.update_at > post.create_at && (
-                      <span className="text-[10px] text-muted-foreground/60">(已编辑)</span>
+                      <span className="text-[10px] text-muted-foreground/60">{t('im.edited')}</span>
                     )}
                   </div>
                 )}
@@ -290,8 +292,8 @@ export function MessageArea({ channelId }: { channelId: string }) {
                         autoFocus
                         rows={2}
                       />
-                      <button onClick={() => handleEdit(post.id, editText)} className="text-xs text-sidebar-primary hover:underline shrink-0 pb-1">保存</button>
-                      <button onClick={() => setEditingPostId(null)} className="text-xs text-muted-foreground hover:underline shrink-0 pb-1">取消</button>
+                      <button onClick={() => handleEdit(post.id, editText)} className="text-xs text-sidebar-primary hover:underline shrink-0 pb-1">{t('common.save')}</button>
+                      <button onClick={() => setEditingPostId(null)} className="text-xs text-muted-foreground hover:underline shrink-0 pb-1">{t('common.cancel')}</button>
                     </div>
                   ) : (
                     <MessageContent text={post.message} files={post.metadata?.files} />
@@ -346,7 +348,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
                       )}
                       <div className="border-t border-border my-1" />
                       {post.user_id === myUserId && (
-                        <MenuBtn icon={Trash2} label="删除" shortcut="" onClick={() => { setMenuPostId(null); if (confirm('删除此消息？')) handleDelete(post.id); }} danger />
+                        <MenuBtn icon={Trash2} label={t('common.delete')} shortcut="" onClick={() => { setMenuPostId(null); if (confirm(t('im.deleteConfirm'))) handleDelete(post.id); }} danger />
                       )}
                     </div>
                   </>
@@ -395,7 +397,7 @@ export function MessageArea({ channelId }: { channelId: string }) {
               onChange={e => { setInput(e.target.value); setCursorPos(e.target.selectionStart); autoResize(); }}
               onKeyDown={handleKeyDown}
               onSelect={e => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
-              placeholder={replyTo ? '回复消息...' : `发送到 ${channel?.display_name || '频道'}`}
+              placeholder={t('im.typeMessage')}
               rows={1}
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none px-3 pt-2.5 pb-1 max-h-32"
               style={{ minHeight: '24px' }}

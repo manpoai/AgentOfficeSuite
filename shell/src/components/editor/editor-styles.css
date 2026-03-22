@@ -174,6 +174,51 @@
   margin: 1.5rem 0;
 }
 
+/* Notice / Callout blocks */
+.outline-editor-content .notice-block {
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-left: 4px solid;
+}
+.outline-editor-content .notice-info {
+  background: hsl(210 60% 50% / 0.1);
+  border-left-color: hsl(210 60% 55%);
+}
+.outline-editor-content .notice-success {
+  background: hsl(142 50% 45% / 0.1);
+  border-left-color: hsl(142 50% 50%);
+}
+.outline-editor-content .notice-warning {
+  background: hsl(38 90% 50% / 0.1);
+  border-left-color: hsl(38 90% 55%);
+}
+.outline-editor-content .notice-tip {
+  background: hsl(270 50% 55% / 0.1);
+  border-left-color: hsl(270 50% 60%);
+}
+.outline-editor-content .notice-block p {
+  margin: 0.15rem 0;
+}
+
+/* Math block */
+.outline-editor-content .math-block {
+  background: var(--background, hsl(240 6% 10%));
+  border: 1px solid var(--border, hsl(240 4% 20%));
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  font-family: ui-monospace, 'SF Mono', 'Menlo', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+.outline-editor-content .math-block code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
 /* Images */
 .outline-editor-content img {
   max-width: 100%;

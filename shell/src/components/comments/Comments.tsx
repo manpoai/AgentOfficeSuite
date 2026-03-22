@@ -6,6 +6,7 @@ import { MessageCircle, Send, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Comment } from '@/lib/api/gateway';
 import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
+import { useT } from '@/lib/i18n';
 
 interface CommentsProps {
   /** Unique key for React Query caching */
@@ -22,18 +23,18 @@ interface CommentsProps {
   onQuoteConsumed?: () => void;
 }
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: (key: string, params?: Record<string, string | number>) => string): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return `${mins}分钟前`;
+  if (mins < 1) return t('comments.justNow');
+  if (mins < 60) return t('comments.minutesAgo', { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return t('comments.hoursAgo', { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}天前`;
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  if (days < 7) return t('comments.daysAgo', { n: days });
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function getInitial(name: string): string {
@@ -48,7 +49,9 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-export function Comments({ queryKey, fetchComments, postComment, label = '评论', initialQuote, onQuoteConsumed }: CommentsProps) {
+export function Comments({ queryKey, fetchComments, postComment, label, initialQuote, onQuoteConsumed }: CommentsProps) {
+  const { t } = useT();
+  const displayLabel = label || t('comments.title');
   const [expanded, setExpanded] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [posting, setPosting] = useState(false);
@@ -113,7 +116,7 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
         className="w-full flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <MessageCircle className="h-4 w-4" />
-        <span className="flex-1 text-left">{label} ({comments.length})</span>
+        <span className="flex-1 text-left">{displayLabel} ({comments.length})</span>
         {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
 
@@ -121,9 +124,9 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
         <div className="px-4 pb-3">
           {/* Comment list */}
           {isLoading ? (
-            <p className="text-xs text-muted-foreground py-2">加载评论...</p>
+            <p className="text-xs text-muted-foreground py-2">{t('common.loading')}</p>
           ) : comments.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-2">暂无评论</p>
+            <p className="text-xs text-muted-foreground py-2">—</p>
           ) : (
             <div className="space-y-3 mb-3 max-h-64 overflow-y-auto">
               {comments.map((c) => (
@@ -137,7 +140,7 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
                       <span className="text-xs font-medium text-foreground">{c.actor}</span>
-                      <span className="text-[10px] text-muted-foreground">{timeAgo(c.created_at)}</span>
+                      <span className="text-[10px] text-muted-foreground">{timeAgo(c.created_at, t)}</span>
                     </div>
                     <p className="text-xs text-foreground/80 mt-0.5 whitespace-pre-wrap break-words">{c.text}</p>
                   </div>
@@ -171,7 +174,7 @@ export function Comments({ queryKey, fetchComments, postComment, label = '评论
                 }
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePost(); }
               }}
-              placeholder="添加评论..."
+              placeholder={t('comments.placeholder')}
               className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 text-foreground outline-none placeholder:text-muted-foreground"
             />
             <button

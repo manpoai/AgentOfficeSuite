@@ -11,6 +11,7 @@ import { Editor } from '@/components/editor';
 import { Comments } from '@/components/comments/Comments';
 import { TableEditor } from '@/components/table-editor/TableEditor';
 import * as gw from '@/lib/api/gateway';
+import { useT } from '@/lib/i18n';
 
 type ContentItem = { type: 'doc'; id: string; title: string; subtitle: string; emoji?: string; updatedAt?: string; sortTime: number }
   | { type: 'table'; id: string; title: string; sortTime: number };
@@ -18,6 +19,7 @@ type ContentItem = { type: 'doc'; id: string; title: string; subtitle: string; e
 type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | null;
 
 export default function ContentPage() {
+  const { t } = useT();
   const [selection, setSelection] = useState<Selection>(null);
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [showNewMenu, setShowNewMenu] = useState(false);
@@ -59,7 +61,7 @@ export default function ContentPage() {
   const items: ContentItem[] = [];
   docs?.forEach(doc => items.push({
     type: 'doc', id: doc.id,
-    title: doc.emoji ? `${doc.emoji} ${doc.title || '无标题'}` : (doc.title || '无标题'),
+    title: doc.emoji ? `${doc.emoji} ${doc.title || t('content.untitled')}` : (doc.title || t('content.untitled')),
     subtitle: formatDate(doc.updatedAt),
     emoji: doc.emoji,
     updatedAt: doc.updatedAt,
@@ -106,7 +108,7 @@ export default function ContentPage() {
     if (!collectionId) return;
     setCreating(true);
     try {
-      const doc = await ol.createDocument('无标题', '', collectionId);
+      const doc = await ol.createDocument(t('content.untitled'), '', collectionId);
       refreshDocs();
       setSelection({ type: 'doc', id: doc.id });
       setMobileView('detail');
@@ -121,7 +123,7 @@ export default function ContentPage() {
     if (creating) return;
     setCreating(true);
     try {
-      const table = await nc.createTable('无标题表格', [
+      const table = await nc.createTable(t('content.untitledTable'), [
         { title: 'Name', uidt: 'SingleLineText' },
         { title: 'Notes', uidt: 'LongText' },
       ]);
@@ -146,12 +148,12 @@ export default function ContentPage() {
         mobileView === 'list' ? 'flex' : 'hidden md:flex'
       )}>
         <div className="p-3 border-b border-border flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">内容</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('content.title')}</h2>
           <div className="relative">
             <button
               onClick={() => setShowNewMenu(v => !v)}
               className="p-1 text-muted-foreground hover:text-foreground"
-              title="新建"
+              title={t('common.new')}
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -165,7 +167,7 @@ export default function ContentPage() {
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <FileText className="h-4 w-4 text-blue-400/70" />
-                    新建文档
+                    {t('content.newDoc')}
                   </button>
                   <button
                     onClick={() => { setShowNewMenu(false); handleCreateTable(); }}
@@ -173,7 +175,7 @@ export default function ContentPage() {
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <Table2 className="h-4 w-4 text-green-400/70" />
-                    新建数据表
+                    {t('content.newTable')}
                   </button>
                 </div>
               </>
@@ -186,7 +188,7 @@ export default function ContentPage() {
             <input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索文档..."
+              placeholder={t('content.searchDocs')}
               className="w-full bg-muted rounded-lg pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none"
             />
             {searchQuery && (
@@ -215,7 +217,7 @@ export default function ContentPage() {
               </div>
             )}
             {searchQuery.length >= 2 && displayItems.length === 0 && !isLoading && (
-              <p className="p-3 text-xs text-muted-foreground">未找到匹配的文档</p>
+              <p className="p-3 text-xs text-muted-foreground">{t('content.noMatch')}</p>
             )}
             {displayItems.map(item => {
               const isSelected = selection?.type === item.type && selection?.id === item.id;
@@ -269,8 +271,8 @@ export default function ContentPage() {
               <FileText className="h-8 w-8 opacity-20" />
               <Table2 className="h-8 w-8 opacity-20" />
             </div>
-            <p className="text-sm">选择文档或数据表</p>
-            <p className="text-xs text-muted-foreground/50">或点击左上角 + 新建</p>
+            <p className="text-sm">{t('content.selectHint')}</p>
+            <p className="text-xs text-muted-foreground/50">{t('content.createHint')}</p>
           </div>
         )}
       </div>
@@ -292,6 +294,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
   onSaved: () => void;
   onDeleted: () => void;
 }) {
+  const { t } = useT();
   const [showComments, setShowComments] = useState(false);
   const [showDocMenu, setShowDocMenu] = useState(false);
   const [commentQuote, setCommentQuote] = useState('');
@@ -360,7 +363,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
   };
 
   const handleDelete = async () => {
-    if (!confirm('确定删除这篇文档？')) return;
+    if (!confirm(t('content.deleteConfirm'))) return;
     setDeleting(true);
     try {
       await ol.deleteDocument(doc.id);
@@ -372,7 +375,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
     }
   };
 
-  const statusText = saveStatus === 'saving' ? '保存中...' : saveStatus === 'unsaved' ? '未保存' : saveStatus === 'error' ? '保存失败' : '';
+  const statusText = saveStatus === 'saving' ? t('content.saving') : saveStatus === 'unsaved' ? t('content.unsaved') : saveStatus === 'error' ? t('content.saveFailed') : '';
 
   return (
     <>
@@ -387,7 +390,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
               value={title}
               onChange={handleTitleChange}
               className="w-full text-sm font-semibold bg-transparent text-foreground outline-none"
-              placeholder="文档标题"
+              placeholder={t('content.docTitle')}
             />
           </div>
           {statusText && (
@@ -402,7 +405,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
               'p-1.5 rounded transition-colors shrink-0',
               showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground'
             )}
-            title="评论"
+            title={t('content.comments')}
           >
             <MessageSquareIcon className="h-4 w-4" />
           </button>
@@ -410,7 +413,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
             <button
               onClick={() => setShowDocMenu(v => !v)}
               className="p-1.5 text-muted-foreground hover:text-foreground shrink-0"
-              title="更多操作"
+              title={t('content.moreActions')}
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
@@ -418,10 +421,10 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowDocMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
-                  <DocMenuBtn icon={Star} label="收藏" onClick={() => setShowDocMenu(false)} />
-                  <DocMenuBtn icon={Clock} label="历史版本" onClick={() => setShowDocMenu(false)} />
-                  <DocMenuBtn icon={Copy} label="复制" onClick={() => { navigator.clipboard.writeText(doc.text); setShowDocMenu(false); }} />
-                  <DocMenuBtn icon={Download} label="下载" onClick={() => {
+                  <DocMenuBtn icon={Star} label={t('content.favorite')} onClick={() => setShowDocMenu(false)} />
+                  <DocMenuBtn icon={Clock} label={t('content.versionHistory')} onClick={() => setShowDocMenu(false)} />
+                  <DocMenuBtn icon={Copy} label={t('content.copy')} onClick={() => { navigator.clipboard.writeText(doc.text); setShowDocMenu(false); }} />
+                  <DocMenuBtn icon={Download} label={t('content.download')} onClick={() => {
                     const blob = new Blob([doc.text], { type: 'text/markdown' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
@@ -429,7 +432,7 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
                     setShowDocMenu(false);
                   }} />
                   <div className="border-t border-border my-1" />
-                  <DocMenuBtn icon={Trash2} label="删除" onClick={() => { setShowDocMenu(false); handleDelete(); }} danger />
+                  <DocMenuBtn icon={Trash2} label={t('content.delete')} onClick={() => { setShowDocMenu(false); handleDelete(); }} danger />
                 </div>
               </>
             )}
@@ -439,19 +442,19 @@ function DocPanel({ doc, onBack, onSaved, onDeleted }: {
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 mt-0.5 pl-0 md:pl-0">
           <Clock className="h-2.5 w-2.5" />
           <span>
-            {doc.updatedBy?.name || '未知'} 编辑于 {formatDate(doc.updatedAt)}
+            {doc.updatedBy?.name || '?'} {t('time.editedAt')} {formatDate(doc.updatedAt)}
           </span>
         </div>
       </div>
       <div className="flex-1 overflow-hidden flex flex-row">
         <div className="flex-1 overflow-hidden">
-          <Editor key={doc.id} defaultValue={doc.text} onChange={handleTextChange} placeholder="输入 / 打开命令菜单..." />
+          <Editor key={doc.id} defaultValue={doc.text} onChange={handleTextChange} placeholder={t('content.editorPlaceholder')} />
         </div>
         {/* Comments right panel */}
         {showComments && (
           <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
             <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-foreground">评论</h3>
+              <h3 className="text-xs font-semibold text-foreground">{t('content.comments')}</h3>
               <button onClick={() => setShowComments(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -499,8 +502,8 @@ function formatDate(isoStr: string): string {
   const now = new Date();
   const diff = now.getTime() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}分钟前`;
+  if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}小时前`;
-  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  if (hours < 24) return `${hours}h`;
+  return d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
 }

@@ -7,9 +7,11 @@ import * as mm from '@/lib/api/mm';
 import { ChannelList } from './channel-list';
 import { MessageArea } from './message-area';
 import { useMMPolling } from '@/lib/hooks/use-mm-websocket';
+import { useT } from '@/lib/i18n';
 
 export default function IMPage() {
   const { setChannels, setChannelMembers, setUsers, setMyUserId, activeChannelId, mobileView } = useIMStore();
+  const { t } = useT();
 
   // Real-time message polling
   useMMPolling();
@@ -87,7 +89,7 @@ export default function IMPage() {
           <MessageArea channelId={activeChannelId} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-            <p className="text-sm">选择一个频道开始聊天</p>
+            <p className="text-sm">{t('im.selectChannel')}</p>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
 import { usePathname, useRouter } from 'next/navigation';
-import { MessageSquare, FileText, CheckSquare, Users, Settings, Keyboard, Sun, Moon } from 'lucide-react';
+import { MessageSquare, FileText, CheckSquare, Users, Settings, Keyboard, Sun, Moon, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIMStore } from '@/lib/stores/im';
 import { useMemo, useState, useEffect } from 'react';
@@ -8,18 +8,24 @@ import { useQuery } from '@tanstack/react-query';
 import { useTheme } from 'next-themes';
 import * as mm from '@/lib/api/mm';
 import { CommandPalette } from './CommandPalette';
+import { useT, LOCALE_LABELS, type Locale } from '@/lib/i18n';
 
-const NAV_ITEMS = [
-  { id: 'im',       path: '/im',       label: 'IM',     icon: MessageSquare },
-  { id: 'content',  path: '/content',  label: '内容',   icon: FileText },
-  { id: 'tasks',    path: '/tasks',    label: '任务',   icon: CheckSquare },
-  { id: 'contacts', path: '/contacts', label: '联系人', icon: Users },
-] as const;
+const NAV_KEYS = ['im', 'content', 'tasks', 'contacts'] as const;
+const NAV_ICONS = { im: MessageSquare, content: FileText, tasks: CheckSquare, contacts: Users } as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showLangMenu, setShowLangMenu] = useState(false);
+  const { t, locale, setLocale } = useT();
+
+  const NAV_ITEMS = NAV_KEYS.map(id => ({
+    id,
+    path: `/${id}`,
+    label: t(`nav.${id}`),
+    icon: NAV_ICONS[id],
+  }));
 
   const { data: me } = useQuery({
     queryKey: ['mm-me'],
@@ -91,15 +97,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <button
           onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-          title={mounted && resolvedTheme === 'dark' ? '切换浅色' : '切换深色'}
+          title={mounted && resolvedTheme === 'dark' ? t('theme.toLight') : t('theme.toDark')}
           className="flex items-center justify-center w-12 h-12 rounded-xl text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition-colors"
         >
           {mounted && resolvedTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
 
+        <div className="relative">
+          <button
+            onClick={() => setShowLangMenu(v => !v)}
+            title={LOCALE_LABELS[locale]}
+            className="flex items-center justify-center w-12 h-12 rounded-xl text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition-colors"
+          >
+            <Globe className="h-4 w-4" />
+          </button>
+          {showLangMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
+              <div className="absolute left-full bottom-0 ml-2 z-50 bg-card border border-border rounded-lg shadow-xl py-1 w-28">
+                {(Object.entries(LOCALE_LABELS) as [Locale, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => { setLocale(key); setShowLangMenu(false); }}
+                    className={cn(
+                      'w-full text-left px-3 py-1.5 text-xs transition-colors',
+                      locale === key ? 'text-sidebar-primary font-medium bg-accent' : 'text-foreground hover:bg-accent/50'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         <button
           onClick={() => setShowShortcuts(true)}
-          title="快捷键 (?)"
+          title={`${t('shortcuts.title')} (?)`}
           className="flex items-center justify-center w-12 h-12 rounded-xl text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition-colors"
         >
           <Keyboard className="h-4 w-4" />
@@ -134,26 +169,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setShowShortcuts(false)} />
           <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card border border-border rounded-xl shadow-2xl w-[380px] max-h-[80vh] overflow-auto">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-foreground">键盘快捷键</h3>
+              <h3 className="text-sm font-semibold text-foreground">{t('shortcuts.title')}</h3>
               <button onClick={() => setShowShortcuts(false)} className="text-muted-foreground hover:text-foreground text-xs">ESC</button>
             </div>
             <div className="p-4 space-y-3">
-              <ShortcutGroup title="全局">
-                <ShortcutRow keys={['⌘', 'K']} desc="打开命令面板" />
-                <ShortcutRow keys={['?']} desc="打开此帮助" />
+              <ShortcutGroup title={t('shortcuts.global')}>
+                <ShortcutRow keys={['⌘', 'K']} desc={t('shortcuts.openCommandPalette')} />
+                <ShortcutRow keys={['?']} desc={t('shortcuts.openHelp')} />
               </ShortcutGroup>
-              <ShortcutGroup title="任务">
-                <ShortcutRow keys={['N']} desc="新建任务" />
+              <ShortcutGroup title={t('shortcuts.tasks')}>
+                <ShortcutRow keys={['N']} desc={t('shortcuts.newTask')} />
               </ShortcutGroup>
-              <ShortcutGroup title="IM">
-                <ShortcutRow keys={['Enter']} desc="发送消息" />
-                <ShortcutRow keys={['Shift', 'Enter']} desc="换行" />
-                <ShortcutRow keys={['Esc']} desc="取消编辑/回复" />
+              <ShortcutGroup title={t('shortcuts.im')}>
+                <ShortcutRow keys={['Enter']} desc={t('shortcuts.sendMessage')} />
+                <ShortcutRow keys={['Shift', 'Enter']} desc={t('shortcuts.newLine')} />
+                <ShortcutRow keys={['Esc']} desc={t('shortcuts.cancelEdit')} />
               </ShortcutGroup>
-              <ShortcutGroup title="数据表">
-                <ShortcutRow keys={['Tab']} desc="下一列" />
-                <ShortcutRow keys={['Enter']} desc="下一行" />
-                <ShortcutRow keys={['Esc']} desc="取消编辑" />
+              <ShortcutGroup title={t('shortcuts.dataTable')}>
+                <ShortcutRow keys={['Tab']} desc={t('shortcuts.nextCol')} />
+                <ShortcutRow keys={['Enter']} desc={t('shortcuts.nextRow')} />
+                <ShortcutRow keys={['Esc']} desc={t('shortcuts.cancel')} />
               </ShortcutGroup>
             </div>
           </div>

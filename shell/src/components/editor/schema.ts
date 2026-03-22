@@ -101,6 +101,28 @@ export const schema = new Schema({
         return ['li', { class: 'checkbox-item', 'data-checked': node.attrs.checked ? 'true' : 'false' }, 0];
       },
     },
+    container_notice: {
+      content: 'block+',
+      group: 'block',
+      defining: true,
+      attrs: { style: { default: 'info' } }, // info, warning, success, tip
+      parseDOM: [{ tag: 'div.notice-block', getAttrs(dom) {
+        return { style: (dom as HTMLElement).dataset.style || 'info' };
+      }}],
+      toDOM(node) {
+        return ['div', { class: `notice-block notice-${node.attrs.style}`, 'data-style': node.attrs.style }, 0];
+      },
+    },
+    math_block: {
+      content: 'text*',
+      marks: '',
+      group: 'block',
+      code: true,
+      defining: true,
+      atom: true,
+      parseDOM: [{ tag: 'div.math-block', preserveWhitespace: 'full' as const }],
+      toDOM() { return ['div', { class: 'math-block' }, ['code', 0]]; },
+    },
     image: {
       inline: false,
       attrs: { src: {}, alt: { default: null }, title: { default: null } },

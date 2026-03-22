@@ -7,6 +7,7 @@ import { MessageSquare, FileText, CheckSquare, Users, Settings, Search, ArrowRig
 import { cn } from '@/lib/utils';
 import * as gw from '@/lib/api/gateway';
 import * as ol from '@/lib/api/outline';
+import { useT } from '@/lib/i18n';
 
 interface CommandItem {
   id: string;
@@ -23,6 +24,7 @@ export function CommandPalette() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const { t } = useT();
 
   // Fetch data for search
   const { data: tasks } = useQuery({ queryKey: ['tasks'], queryFn: gw.listTasks, staleTime: 30_000 });
@@ -62,11 +64,11 @@ export function CommandPalette() {
 
     // Navigation commands (always available)
     const navItems = [
-      { label: 'IM / 消息', path: '/im', icon: <MessageSquare className="h-4 w-4" /> },
-      { label: '内容 / 文档', path: '/content', icon: <FileText className="h-4 w-4" /> },
-      { label: '任务', path: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
-      { label: '联系人 / Agent', path: '/contacts', icon: <Users className="h-4 w-4" /> },
-      { label: '设置', path: '/settings', icon: <Settings className="h-4 w-4" /> },
+      { label: t('command.navIM'), path: '/im', icon: <MessageSquare className="h-4 w-4" /> },
+      { label: t('command.navContent'), path: '/content', icon: <FileText className="h-4 w-4" /> },
+      { label: t('command.navTasks'), path: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
+      { label: t('command.navContacts'), path: '/contacts', icon: <Users className="h-4 w-4" /> },
+      { label: t('command.navSettings'), path: '/settings', icon: <Settings className="h-4 w-4" /> },
     ];
     navItems.forEach(n => {
       result.push({
@@ -74,20 +76,20 @@ export function CommandPalette() {
         label: n.label,
         icon: n.icon,
         action: () => navigate(n.path),
-        category: '导航',
+        category: t('command.catNav'),
       });
     });
 
     // Tasks
     if (tasks) {
-      tasks.forEach(t => {
+      tasks.forEach(tk => {
         result.push({
-          id: `task-${t.task_id}`,
-          label: t.title,
-          sublabel: t.assignees?.[0] || '',
+          id: `task-${tk.task_id}`,
+          label: tk.title,
+          sublabel: tk.assignees?.[0] || '',
           icon: <CheckSquare className="h-4 w-4 text-blue-400" />,
           action: () => navigate('/tasks'),
-          category: '任务',
+          category: t('command.catTasks'),
         });
       });
     }
@@ -101,7 +103,7 @@ export function CommandPalette() {
           sublabel: new Date(d.updatedAt).toLocaleDateString('zh-CN'),
           icon: <FileText className="h-4 w-4 text-blue-400" />,
           action: () => navigate('/content'),
-          category: '文档',
+          category: t('command.catDocs'),
         });
       });
     }
@@ -112,7 +114,7 @@ export function CommandPalette() {
         result.push({
           id: `agent-${a.name}`,
           label: a.display_name || a.name,
-          sublabel: a.online ? '在线' : '离线',
+          sublabel: a.online ? t('command.online') : t('command.offline'),
           icon: <Users className="h-4 w-4 text-green-400" />,
           action: () => navigate('/contacts'),
           category: 'Agent',
@@ -180,7 +182,7 @@ export function CommandPalette() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="搜索任务、文档、Agent，或跳转..."
+            placeholder={t('command.placeholder')}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">ESC</kbd>
@@ -189,7 +191,7 @@ export function CommandPalette() {
         {/* Results */}
         <div className="max-h-[50vh] overflow-y-auto py-1">
           {filtered.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-8">没有匹配结果</p>
+            <p className="text-sm text-muted-foreground text-center py-8">{t('command.noResults')}</p>
           )}
           {Array.from(grouped.entries()).map(([category, categoryItems]) => (
             <div key={category}>
@@ -224,9 +226,9 @@ export function CommandPalette() {
 
         {/* Footer */}
         <div className="px-4 py-2 border-t border-border flex items-center gap-4 text-[10px] text-muted-foreground">
-          <span><kbd className="bg-muted px-1 py-0.5 rounded">↑↓</kbd> 导航</span>
-          <span><kbd className="bg-muted px-1 py-0.5 rounded">Enter</kbd> 打开</span>
-          <span><kbd className="bg-muted px-1 py-0.5 rounded">Esc</kbd> 关闭</span>
+          <span><kbd className="bg-muted px-1 py-0.5 rounded">↑↓</kbd> {t('command.navHint').replace('↑↓ ', '')}</span>
+          <span><kbd className="bg-muted px-1 py-0.5 rounded">Enter</kbd> {t('command.enterHint').replace('Enter ', '')}</span>
+          <span><kbd className="bg-muted px-1 py-0.5 rounded">Esc</kbd> {t('command.escHint').replace('Esc ', '')}</span>
         </div>
       </div>
     </div>

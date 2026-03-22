@@ -7,6 +7,7 @@ import { Plugin, PluginKey } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { schema } from './schema';
 import { setBlockType, wrapIn } from 'prosemirror-commands';
+import { getT } from '@/lib/i18n';
 
 export const slashMenuKey = new PluginKey('slashMenu');
 
@@ -34,119 +35,122 @@ function wrapWithNotice(view: EditorView, style: string) {
   view.focus();
 }
 
-const SLASH_ITEMS: SlashMenuItem[] = [
-  // --- Headings ---
-  {
-    label: '标题 1', description: '大标题', icon: 'H1', keywords: 'heading h1',
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 1 })(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '标题 2', description: '中标题', icon: 'H2', keywords: 'heading h2',
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 2 })(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '标题 3', description: '小标题', icon: 'H3', keywords: 'heading h3',
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 3 })(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '标题 4', description: '四级标题', icon: 'H4', keywords: 'heading h4',
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 4 })(view.state, view.dispatch); view.focus(); },
-  },
-  // --- Lists ---
-  {
-    label: '无序列表', description: '项目符号列表', icon: '•', keywords: 'bullet list ul',
-    command: (view) => { wrapIn(schema.nodes.bullet_list)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '有序列表', description: '编号列表', icon: '1.', keywords: 'ordered list ol number',
-    command: (view) => { wrapIn(schema.nodes.ordered_list)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '待办列表', description: '任务清单', icon: '☑', keywords: 'todo task checkbox checklist',
-    command: (view) => { wrapIn(schema.nodes.checkbox_list)(view.state, view.dispatch); view.focus(); },
-  },
-  // --- Structure ---
-  {
-    label: '引用', description: '块引用', icon: '❝', keywords: 'quote blockquote',
-    command: (view) => { wrapIn(schema.nodes.blockquote)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '代码块', description: '代码片段', icon: '</>', keywords: 'code block pre',
-    command: (view) => { setBlockType(schema.nodes.code_block)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '分割线', description: '水平线', icon: '—', keywords: 'divider horizontal rule hr separator',
-    command: (view) => {
-      insertBlock(view, schema.nodes.horizontal_rule.create());
+function buildSlashItems(): SlashMenuItem[] {
+  const t = getT();
+  return [
+    // --- Headings ---
+    {
+      label: t('editor.heading1'), description: t('editor.heading1Desc'), icon: 'H1', keywords: 'heading h1',
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 1 })(view.state, view.dispatch); view.focus(); },
     },
-  },
-  {
-    label: '表格', description: '插入表格', icon: '⊞', keywords: 'table grid',
-    command: (view) => {
-      const { state, dispatch } = view;
-      const header = schema.nodes.table_header.createAndFill()!;
-      const headerRow = schema.nodes.table_row.create(null, [
-        header, schema.nodes.table_header.createAndFill()!, schema.nodes.table_header.createAndFill()!,
-      ]);
-      const cell = schema.nodes.table_cell.createAndFill()!;
-      const row = schema.nodes.table_row.create(null, [
-        cell, schema.nodes.table_cell.createAndFill()!, schema.nodes.table_cell.createAndFill()!,
-      ]);
-      const table = schema.nodes.table.create(null, [headerRow, row]);
-      dispatch(state.tr.replaceSelectionWith(table).scrollIntoView());
-      view.focus();
+    {
+      label: t('editor.heading2'), description: t('editor.heading2Desc'), icon: 'H2', keywords: 'heading h2',
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 2 })(view.state, view.dispatch); view.focus(); },
     },
-  },
-  // --- Media ---
-  {
-    label: '图片', description: '插入图片', icon: '🖼', keywords: 'image picture photo img',
-    command: (view) => {
-      const url = prompt('图片 URL:');
-      if (!url) return;
-      insertBlock(view, schema.nodes.image.create({ src: url, alt: '' }));
+    {
+      label: t('editor.heading3'), description: t('editor.heading3Desc'), icon: 'H3', keywords: 'heading h3',
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 3 })(view.state, view.dispatch); view.focus(); },
     },
-  },
-  // --- Notices / Callouts ---
-  {
-    label: '信息提示', description: '信息说明块', icon: 'ℹ', keywords: 'info notice callout tip blue',
-    command: (view) => { wrapWithNotice(view, 'info'); },
-  },
-  {
-    label: '成功提示', description: '成功状态块', icon: '✓', keywords: 'success notice callout green done',
-    command: (view) => { wrapWithNotice(view, 'success'); },
-  },
-  {
-    label: '警告提示', description: '警告注意块', icon: '⚠', keywords: 'warning notice callout alert orange caution',
-    command: (view) => { wrapWithNotice(view, 'warning'); },
-  },
-  {
-    label: '小贴士', description: '提示建议块', icon: '💡', keywords: 'tip notice callout hint purple suggestion',
-    command: (view) => { wrapWithNotice(view, 'tip'); },
-  },
-  // --- Advanced blocks ---
-  {
-    label: '数学公式', description: 'LaTeX 数学块', icon: '∑', keywords: 'math latex formula equation katex',
-    command: (view) => {
-      insertBlock(view, schema.nodes.math_block.create());
+    {
+      label: t('editor.heading4'), description: t('editor.heading4Desc'), icon: 'H4', keywords: 'heading h4',
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 4 })(view.state, view.dispatch); view.focus(); },
     },
-  },
-  {
-    label: '流程图', description: 'Mermaid 图表', icon: '⊡', keywords: 'mermaid diagram flowchart graph chart',
-    command: (view) => {
-      const { state, dispatch } = view;
-      const node = schema.nodes.code_block.create(
-        { language: 'mermaid' },
-        schema.text('graph TD\n  A[Start] --> B[End]')
-      );
-      dispatch(state.tr.replaceSelectionWith(node).scrollIntoView());
-      view.focus();
+    // --- Lists ---
+    {
+      label: t('editor.bulletList'), description: t('editor.bulletListDesc'), icon: '•', keywords: 'bullet list ul',
+      command: (view) => { wrapIn(schema.nodes.bullet_list)(view.state, view.dispatch); view.focus(); },
     },
-  },
-  {
-    label: '正文', description: '普通文本段落', icon: '¶', keywords: 'paragraph text plain normal',
-    command: (view) => { setBlockType(schema.nodes.paragraph)(view.state, view.dispatch); view.focus(); },
-  },
-];
+    {
+      label: t('editor.orderedList'), description: t('editor.orderedListDesc'), icon: '1.', keywords: 'ordered list ol number',
+      command: (view) => { wrapIn(schema.nodes.ordered_list)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.todoList'), description: t('editor.todoListDesc'), icon: '☑', keywords: 'todo task checkbox checklist',
+      command: (view) => { wrapIn(schema.nodes.checkbox_list)(view.state, view.dispatch); view.focus(); },
+    },
+    // --- Structure ---
+    {
+      label: t('editor.quote'), description: t('editor.quoteDesc'), icon: '❝', keywords: 'quote blockquote',
+      command: (view) => { wrapIn(schema.nodes.blockquote)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.codeBlock'), description: t('editor.codeBlockDesc'), icon: '</>', keywords: 'code block pre',
+      command: (view) => { setBlockType(schema.nodes.code_block)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.divider'), description: t('editor.dividerDesc'), icon: '—', keywords: 'divider horizontal rule hr separator',
+      command: (view) => {
+        insertBlock(view, schema.nodes.horizontal_rule.create());
+      },
+    },
+    {
+      label: t('editor.table'), description: t('editor.tableDesc'), icon: '⊞', keywords: 'table grid',
+      command: (view) => {
+        const { state, dispatch } = view;
+        const header = schema.nodes.table_header.createAndFill()!;
+        const headerRow = schema.nodes.table_row.create(null, [
+          header, schema.nodes.table_header.createAndFill()!, schema.nodes.table_header.createAndFill()!,
+        ]);
+        const cell = schema.nodes.table_cell.createAndFill()!;
+        const row = schema.nodes.table_row.create(null, [
+          cell, schema.nodes.table_cell.createAndFill()!, schema.nodes.table_cell.createAndFill()!,
+        ]);
+        const table = schema.nodes.table.create(null, [headerRow, row]);
+        dispatch(state.tr.replaceSelectionWith(table).scrollIntoView());
+        view.focus();
+      },
+    },
+    // --- Media ---
+    {
+      label: t('editor.image'), description: t('editor.imageDesc'), icon: '🖼', keywords: 'image picture photo img',
+      command: (view) => {
+        const url = prompt(t('editor.imagePrompt'));
+        if (!url) return;
+        insertBlock(view, schema.nodes.image.create({ src: url, alt: '' }));
+      },
+    },
+    // --- Notices / Callouts ---
+    {
+      label: t('editor.infoNotice'), description: t('editor.infoNoticeDesc'), icon: 'ℹ', keywords: 'info notice callout tip blue',
+      command: (view) => { wrapWithNotice(view, 'info'); },
+    },
+    {
+      label: t('editor.successNotice'), description: t('editor.successNoticeDesc'), icon: '✓', keywords: 'success notice callout green done',
+      command: (view) => { wrapWithNotice(view, 'success'); },
+    },
+    {
+      label: t('editor.warningNotice'), description: t('editor.warningNoticeDesc'), icon: '⚠', keywords: 'warning notice callout alert orange caution',
+      command: (view) => { wrapWithNotice(view, 'warning'); },
+    },
+    {
+      label: t('editor.tip'), description: t('editor.tipDesc'), icon: '💡', keywords: 'tip notice callout hint purple suggestion',
+      command: (view) => { wrapWithNotice(view, 'tip'); },
+    },
+    // --- Advanced blocks ---
+    {
+      label: t('editor.mathBlock'), description: t('editor.mathBlockDesc'), icon: '∑', keywords: 'math latex formula equation katex',
+      command: (view) => {
+        insertBlock(view, schema.nodes.math_block.create());
+      },
+    },
+    {
+      label: t('editor.mermaid'), description: t('editor.mermaidDesc'), icon: '⊡', keywords: 'mermaid diagram flowchart graph chart',
+      command: (view) => {
+        const { state, dispatch } = view;
+        const node = schema.nodes.code_block.create(
+          { language: 'mermaid' },
+          schema.text('graph TD\n  A[Start] --> B[End]')
+        );
+        dispatch(state.tr.replaceSelectionWith(node).scrollIntoView());
+        view.focus();
+      },
+    },
+    {
+      label: t('editor.paragraph'), description: t('editor.paragraphDesc'), icon: '¶', keywords: 'paragraph text plain normal',
+      command: (view) => { setBlockType(schema.nodes.paragraph)(view.state, view.dispatch); view.focus(); },
+    },
+  ];
+}
 
 function createMenuDOM(): HTMLDivElement {
   const el = document.createElement('div');
@@ -210,9 +214,10 @@ export function slashMenuPlugin(): Plugin {
   let slashPos = -1;
 
   function getFilteredItems(): SlashMenuItem[] {
-    if (!filterText) return SLASH_ITEMS;
+    const items = buildSlashItems();
+    if (!filterText) return items;
     const q = filterText.toLowerCase();
-    return SLASH_ITEMS.filter(item =>
+    return items.filter(item =>
       item.label.toLowerCase().includes(q) ||
       item.description.toLowerCase().includes(q) ||
       (item.keywords && item.keywords.toLowerCase().includes(q))

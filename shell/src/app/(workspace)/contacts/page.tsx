@@ -6,8 +6,10 @@ import { Users, Bot, Circle, Clock, MessageSquare, CheckSquare } from 'lucide-re
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useT } from '@/lib/i18n';
 
 export default function ContactsPage() {
+  const { t } = useT();
   const { data: agents, isLoading, error } = useQuery({
     queryKey: ['agents'],
     queryFn: gw.listAgents,
@@ -22,37 +24,37 @@ export default function ContactsPage() {
       {/* Agent list */}
       <div className="flex-1 flex flex-col">
         <div className="p-4 border-b border-border">
-          <h1 className="text-lg font-semibold text-foreground">Agent 管理</h1>
+          <h1 className="text-lg font-semibold text-foreground">{t('contacts.title')}</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {agents ? `${agents.length} 个 Agent` : '加载中...'}
+            {agents ? `${agents.length} ${t('contacts.count')}` : t('contacts.loading')}
           </p>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-6">
             {isLoading && (
-              <p className="text-sm text-muted-foreground text-center py-8">加载中...</p>
+              <p className="text-sm text-muted-foreground text-center py-8">{t('contacts.loading')}</p>
             )}
 
             {error && (
               <p className="text-sm text-destructive text-center py-8">
-                加载失败: {(error as Error).message}
+                {t('contacts.loadFailed')}: {(error as Error).message}
               </p>
             )}
 
             {activeAgents.length > 0 && (
-              <AgentSection title="在线" icon={Circle} agents={activeAgents} variant="online" />
+              <AgentSection title={t('contacts.online')} icon={Circle} agents={activeAgents} variant="online" />
             )}
 
             {offlineAgents.length > 0 && (
-              <AgentSection title="离线" icon={Circle} agents={offlineAgents} variant="offline" />
+              <AgentSection title={t('contacts.offline')} icon={Circle} agents={offlineAgents} variant="offline" />
             )}
 
             {agents && agents.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                 <Bot className="h-12 w-12 mb-4 opacity-30" />
-                <p className="text-sm">暂无 Agent</p>
-                <p className="text-xs mt-1">Agent 通过 self-register API 接入</p>
+                <p className="text-sm">{t('contacts.noAgents')}</p>
+                <p className="text-xs mt-1">{t('contacts.registerHint')}</p>
               </div>
             )}
           </div>
@@ -92,6 +94,7 @@ function AgentSection({
 }
 
 function AgentCard({ agent }: { agent: gw.Agent }) {
+  const { t } = useT();
   const statusColor = agent.online ? 'bg-green-500' : 'bg-muted-foreground';
   const router = useRouter();
 
@@ -126,20 +129,20 @@ function AgentCard({ agent }: { agent: gw.Agent }) {
             {agent.last_seen_at != null && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground flex-1">
                 <Clock className="h-3 w-3" />
-                <span>{formatRelativeTime(agent.last_seen_at)}</span>
+                <span>{formatRelativeTime(agent.last_seen_at, t)}</span>
               </div>
             )}
             <button
               onClick={() => router.push('/im')}
               className="p-1 text-muted-foreground hover:text-sidebar-primary transition-colors"
-              title="发消息"
+              title={t('contacts.sendMessage')}
             >
               <MessageSquare className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => router.push('/tasks')}
               className="p-1 text-muted-foreground hover:text-sidebar-primary transition-colors"
-              title="分配任务"
+              title={t('contacts.assignTask')}
             >
               <CheckSquare className="h-3.5 w-3.5" />
             </button>
@@ -150,13 +153,13 @@ function AgentCard({ agent }: { agent: gw.Agent }) {
   );
 }
 
-function formatRelativeTime(ts: number): string {
+function formatRelativeTime(ts: number, t: (key: string, params?: Record<string, string | number>) => string): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return `${mins}分钟前`;
+  if (mins < 1) return t('time.justNow');
+  if (mins < 60) return t('time.minutesAgo', { n: mins });
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}小时前`;
+  if (hours < 24) return t('time.hoursAgo', { n: hours });
   const days = Math.floor(hours / 24);
-  return `${days}天前`;
+  return t('time.daysAgo', { n: days });
 }

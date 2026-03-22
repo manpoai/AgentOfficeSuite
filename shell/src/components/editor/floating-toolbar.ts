@@ -6,6 +6,7 @@ import { Plugin, PluginKey } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { toggleMark, setBlockType, wrapIn } from 'prosemirror-commands';
 import { schema } from './schema';
+import { getT } from '@/lib/i18n';
 
 export const floatingToolbarKey = new PluginKey('floatingToolbar');
 
@@ -42,98 +43,100 @@ function isBlockActive(view: EditorView, nodeType: any, attrs?: Record<string, a
   return false;
 }
 
-const TOOLBAR_ACTIONS: ToolbarAction[] = [
-  // -- Inline marks --
-  {
-    label: '加粗', icon: 'B', mark: 'strong', section: 'inline',
-    command: (view) => { toggleMark(schema.marks.strong)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '斜体', icon: 'I', mark: 'em', section: 'inline',
-    command: (view) => { toggleMark(schema.marks.em)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '下划线', icon: 'U', mark: 'underline', section: 'inline',
-    command: (view) => { toggleMark(schema.marks.underline)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '删除线', icon: 'S', mark: 'strikethrough', section: 'inline',
-    command: (view) => { toggleMark(schema.marks.strikethrough)(view.state, view.dispatch); view.focus(); },
-  },
-  // -- Separator, then link/code --
-  {
-    label: '链接', icon: '🔗', section: 'block',
-    command: (view) => {
-      const { state, dispatch } = view;
-      const { from, to } = state.selection;
-      if (from === to) return;
-      const existingLink = state.doc.rangeHasMark(from, to, schema.marks.link);
-      if (existingLink) {
-        dispatch(state.tr.removeMark(from, to, schema.marks.link));
+function buildToolbarActions(): ToolbarAction[] {
+  const t = getT();
+  return [
+    // -- Inline marks --
+    {
+      label: t('editor.bold'), icon: 'B', mark: 'strong', section: 'inline',
+      command: (view) => { toggleMark(schema.marks.strong)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.italic'), icon: 'I', mark: 'em', section: 'inline',
+      command: (view) => { toggleMark(schema.marks.em)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.underline'), icon: 'U', mark: 'underline', section: 'inline',
+      command: (view) => { toggleMark(schema.marks.underline)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.strikethrough'), icon: 'S', mark: 'strikethrough', section: 'inline',
+      command: (view) => { toggleMark(schema.marks.strikethrough)(view.state, view.dispatch); view.focus(); },
+    },
+    // -- Separator, then link/code --
+    {
+      label: t('editor.link'), icon: '🔗', section: 'block',
+      command: (view) => {
+        const { state, dispatch } = view;
+        const { from, to } = state.selection;
+        if (from === to) return;
+        const existingLink = state.doc.rangeHasMark(from, to, schema.marks.link);
+        if (existingLink) {
+          dispatch(state.tr.removeMark(from, to, schema.marks.link));
+          view.focus();
+          return;
+        }
+        const href = prompt(t('editor.linkPrompt'));
+        if (href) {
+          dispatch(state.tr.addMark(from, to, schema.marks.link.create({ href })));
+        }
         view.focus();
-        return;
-      }
-      const href = prompt('链接地址：');
-      if (href) {
-        dispatch(state.tr.addMark(from, to, schema.marks.link.create({ href })));
-      }
-      view.focus();
+      },
     },
-  },
-  {
-    label: '行内代码', icon: '⟨⟩', mark: 'code', section: 'block',
-    command: (view) => { toggleMark(schema.marks.code)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '高亮', icon: '■', mark: 'highlight', section: 'block',
-    command: (view) => { toggleMark(schema.marks.highlight)(view.state, view.dispatch); view.focus(); },
-  },
-  // -- Separator, then headings --
-  {
-    label: '标题1', icon: 'H1', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 1 }),
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 1 })(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '标题2', icon: 'H2', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 2 }),
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 2 })(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '标题3', icon: 'H3', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 3 }),
-    command: (view) => { setBlockType(schema.nodes.heading, { level: 3 })(view.state, view.dispatch); view.focus(); },
-  },
-  // -- Separator, then block elements --
-  {
-    label: '引用', icon: '❝', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.blockquote),
-    command: (view) => { wrapIn(schema.nodes.blockquote)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '无序列表', icon: '•', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.bullet_list),
-    command: (view) => { wrapIn(schema.nodes.bullet_list)(view.state, view.dispatch); view.focus(); },
-  },
-  {
-    label: '有序列表', icon: '1.', section: 'block',
-    isActive: (view) => isBlockActive(view, schema.nodes.ordered_list),
-    command: (view) => { wrapIn(schema.nodes.ordered_list)(view.state, view.dispatch); view.focus(); },
-  },
-  // -- Comment --
-  {
-    label: '评论', icon: '💬', section: 'block',
-    command: (view) => {
-      const { state } = view;
-      const { from, to } = state.selection;
-      if (from === to) return;
-      const selectedText = state.doc.textBetween(from, to, ' ');
-      // Dispatch custom event to open comment panel with selected text
-      window.dispatchEvent(new CustomEvent('editor-comment', { detail: { text: selectedText } }));
-      view.focus();
+    {
+      label: t('editor.inlineCode'), icon: '⟨⟩', mark: 'code', section: 'block',
+      command: (view) => { toggleMark(schema.marks.code)(view.state, view.dispatch); view.focus(); },
     },
-  },
-];
+    {
+      label: t('editor.highlight'), icon: '■', mark: 'highlight', section: 'block',
+      command: (view) => { toggleMark(schema.marks.highlight)(view.state, view.dispatch); view.focus(); },
+    },
+    // -- Separator, then headings --
+    {
+      label: t('editor.heading1'), icon: 'H1', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 1 }),
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 1 })(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.heading2'), icon: 'H2', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 2 }),
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 2 })(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.heading3'), icon: 'H3', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 3 }),
+      command: (view) => { setBlockType(schema.nodes.heading, { level: 3 })(view.state, view.dispatch); view.focus(); },
+    },
+    // -- Separator, then block elements --
+    {
+      label: t('editor.quote'), icon: '❝', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.blockquote),
+      command: (view) => { wrapIn(schema.nodes.blockquote)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.bulletList'), icon: '•', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.bullet_list),
+      command: (view) => { wrapIn(schema.nodes.bullet_list)(view.state, view.dispatch); view.focus(); },
+    },
+    {
+      label: t('editor.orderedList'), icon: '1.', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.ordered_list),
+      command: (view) => { wrapIn(schema.nodes.ordered_list)(view.state, view.dispatch); view.focus(); },
+    },
+    // -- Comment --
+    {
+      label: t('editor.comment'), icon: '💬', section: 'block',
+      command: (view) => {
+        const { state } = view;
+        const { from, to } = state.selection;
+        if (from === to) return;
+        const selectedText = state.doc.textBetween(from, to, ' ');
+        window.dispatchEvent(new CustomEvent('editor-comment', { detail: { text: selectedText } }));
+        view.focus();
+      },
+    },
+  ];
+}
 
 function isMarkActive(view: EditorView, markName: string): boolean {
   const { state } = view;
@@ -169,6 +172,7 @@ function addSeparator(el: HTMLDivElement) {
 function renderToolbar(el: HTMLDivElement, view: EditorView) {
   el.innerHTML = '';
   let lastSection: ToolbarSection = 'inline';
+  const TOOLBAR_ACTIONS = buildToolbarActions();
 
   TOOLBAR_ACTIONS.forEach((action, i) => {
     // Add separator between sections

@@ -10,12 +10,13 @@ import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSe
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { Comments } from '@/components/comments/Comments';
 import { Filter, ChevronDown } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 const STATUS_CONFIG = {
-  todo: { label: '待做', icon: Circle, color: 'text-muted-foreground', bg: 'bg-muted', group: 'unstarted' },
-  in_progress: { label: '进行中', icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-500/10', group: 'started' },
-  done: { label: '完成', icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10', group: 'completed' },
-  cancelled: { label: '取消', icon: XCircle, color: 'text-muted-foreground', bg: 'bg-muted', group: 'cancelled' },
+  todo: { labelKey: 'tasks.todo', icon: Circle, color: 'text-muted-foreground', bg: 'bg-muted', group: 'unstarted' },
+  in_progress: { labelKey: 'tasks.inProgress', icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-500/10', group: 'started' },
+  done: { labelKey: 'tasks.done', icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10', group: 'completed' },
+  cancelled: { labelKey: 'tasks.cancelled', icon: XCircle, color: 'text-muted-foreground', bg: 'bg-muted', group: 'cancelled' },
 } as const;
 
 // Map Plane state groups back to our status keys
@@ -23,12 +24,12 @@ const GROUP_TO_STATUS: Record<string, keyof typeof STATUS_CONFIG> = {
   unstarted: 'todo', started: 'in_progress', completed: 'done', cancelled: 'cancelled',
 };
 
-const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
-  urgent: { label: '紧急', color: 'text-red-500' },
-  high: { label: '高', color: 'text-orange-500' },
-  medium: { label: '中', color: 'text-yellow-500' },
-  low: { label: '低', color: 'text-blue-400' },
-  none: { label: '无', color: 'text-muted-foreground' },
+const PRIORITY_CONFIG: Record<string, { labelKey: string; color: string }> = {
+  urgent: { labelKey: 'tasks.urgent', color: 'text-red-500' },
+  high: { labelKey: 'tasks.high', color: 'text-orange-500' },
+  medium: { labelKey: 'tasks.medium', color: 'text-yellow-500' },
+  low: { labelKey: 'tasks.low', color: 'text-blue-400' },
+  none: { labelKey: 'tasks.none', color: 'text-muted-foreground' },
 };
 
 type ViewMode = 'kanban' | 'list';
@@ -47,6 +48,7 @@ type TaskFilters = {
 };
 
 export default function TasksPage() {
+  const { t } = useT();
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -117,9 +119,9 @@ export default function TasksPage() {
         <div className="p-4 border-b border-border shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-lg font-semibold text-foreground">任务</h1>
+              <h1 className="text-lg font-semibold text-foreground">{t('tasks.title')}</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                {tasks ? (hasActiveFilters ? `${filteredTasks.length} / ${tasks.length} 个任务` : `${tasks.length} 个任务`) : '加载中...'}
+                {tasks ? (hasActiveFilters ? `${filteredTasks.length} / ${tasks.length}` : `${tasks.length}`) : t('common.loading')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -128,7 +130,7 @@ export default function TasksPage() {
                 <input
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="搜索任务..."
+                  placeholder={t('tasks.search')}
                   className="bg-muted rounded-lg pl-7 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none w-36 focus:w-48 transition-all"
                 />
                 {searchQuery && (
@@ -145,7 +147,7 @@ export default function TasksPage() {
                 )}
               >
                 <Filter className="h-3.5 w-3.5" />
-                筛选
+                {t('common.search')}
                 {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-sidebar-primary" />}
               </button>
               <button
@@ -153,7 +155,7 @@ export default function TasksPage() {
                 className="flex items-center gap-1 px-3 py-1.5 text-xs bg-sidebar-primary text-sidebar-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
               >
                 <Plus className="h-3.5 w-3.5" />
-                新建
+                {t('tasks.newTask')}
               </button>
               <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
                 <button
@@ -163,7 +165,7 @@ export default function TasksPage() {
                     viewMode === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
                   )}
                 >
-                  看板
+                  {t('tasks.kanban')}
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
@@ -172,7 +174,7 @@ export default function TasksPage() {
                     viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
                   )}
                 >
-                  列表
+                  {t('tasks.list')}
                 </button>
               </div>
             </div>
@@ -183,7 +185,7 @@ export default function TasksPage() {
             <div className="mt-3 flex items-center gap-3 flex-wrap">
               {/* Status filter */}
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-muted-foreground mr-1">状态:</span>
+                <span className="text-[10px] text-muted-foreground mr-1">{t('tasks.status')}:</span>
                 {(Object.entries(STATUS_CONFIG) as [string, typeof STATUS_CONFIG[keyof typeof STATUS_CONFIG]][]).map(([key, sc]) => {
                   const active = filters.status.has(key);
                   return (
@@ -195,7 +197,7 @@ export default function TasksPage() {
                       'text-[10px] px-2 py-0.5 rounded-full transition-colors',
                       active ? cn(sc.bg, sc.color, 'font-medium') : 'text-muted-foreground bg-muted hover:bg-accent/50'
                     )}>
-                      {sc.label}
+                      {t(sc.labelKey)}
                     </button>
                   );
                 })}
@@ -203,7 +205,7 @@ export default function TasksPage() {
 
               {/* Priority filter */}
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-muted-foreground mr-1">优先级:</span>
+                <span className="text-[10px] text-muted-foreground mr-1">{t('tasks.priority')}:</span>
                 {(['urgent', 'high', 'medium', 'low'] as const).map(p => {
                   const pc = PRIORITY_CONFIG[p];
                   const active = filters.priority.has(p);
@@ -216,7 +218,7 @@ export default function TasksPage() {
                       'text-[10px] px-2 py-0.5 rounded-full transition-colors',
                       active ? cn(pc.color, 'bg-accent font-medium') : 'text-muted-foreground bg-muted hover:bg-accent/50'
                     )}>
-                      {pc.label}
+                      {t(pc.labelKey)}
                     </button>
                   );
                 })}
@@ -225,7 +227,7 @@ export default function TasksPage() {
               {/* Assignee filter */}
               {agents && agents.length > 0 && (
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-muted-foreground mr-1">指派:</span>
+                  <span className="text-[10px] text-muted-foreground mr-1">{t('tasks.assignee')}:</span>
                   <select
                     value={filters.assignee}
                     onChange={e => setFilters({ ...filters, assignee: e.target.value })}
@@ -293,6 +295,7 @@ function KanbanView({ tasks, onSelect, onStatusChange }: {
   onSelect: (id: string) => void;
   onStatusChange: () => void;
 }) {
+  const { t } = useT();
   const columns: (keyof typeof STATUS_CONFIG)[] = ['todo', 'in_progress', 'done', 'cancelled'];
   const [activeTask, setActiveTask] = useState<gw.Task | null>(null);
 
@@ -340,7 +343,7 @@ function KanbanView({ tasks, onSelect, onStatusChange }: {
               <KanbanColumn key={status} id={status} collapsed={isEmpty}>
                 <div className="flex items-center gap-2 mb-3 px-1">
                   <Icon className={cn('h-4 w-4', config.color)} />
-                  <span className="text-sm font-medium text-foreground">{config.label}</span>
+                  <span className="text-sm font-medium text-foreground">{t(config.labelKey)}</span>
                   <span className={cn('text-xs', isEmpty ? 'text-muted-foreground/50' : 'text-muted-foreground')}>({statusTasks.length})</span>
                 </div>
                 <ScrollArea className="flex-1">
@@ -401,6 +404,7 @@ function TaskCard({ task, onClick, isDragging, dragHandleProps }: {
   isDragging?: boolean;
   dragHandleProps?: Record<string, any>;
 }) {
+  const { t } = useT();
   const priorityConfig = PRIORITY_CONFIG[task.priority || 'none'] || PRIORITY_CONFIG.none;
   return (
     <div className={cn(
@@ -421,7 +425,7 @@ function TaskCard({ task, onClick, isDragging, dragHandleProps }: {
           {task.priority && task.priority !== 'none' && (
             <span className={cn('text-[10px] flex items-center gap-0.5', priorityConfig.color)}>
               <ArrowUp className="h-3 w-3" />
-              {priorityConfig.label}
+              {t(priorityConfig.labelKey)}
             </span>
           )}
           {task.assignees && task.assignees.length > 0 && (
@@ -449,6 +453,7 @@ function TaskCard({ task, onClick, isDragging, dragHandleProps }: {
 // ═══════════════════════════════════════════════════
 
 function ListView({ tasks, onSelect, selectedId }: { tasks: gw.Task[]; onSelect: (id: string) => void; selectedId: string | null }) {
+  const { t } = useT();
   const [sortKey, setSortKey] = useState<'title' | 'status' | 'priority' | 'assignee' | 'target_date' | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -502,11 +507,11 @@ function ListView({ tasks, onSelect, selectedId }: { tasks: gw.Task[]; onSelect:
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/50 sticky top-0">
-              <SortHeader label="任务" field="title" />
-              <SortHeader label="状态" field="status" />
-              <SortHeader label="优先级" field="priority" />
-              <SortHeader label="指派" field="assignee" />
-              <SortHeader label="截止" field="target_date" />
+              <SortHeader label={t('tasks.taskTitle')} field="title" />
+              <SortHeader label={t('tasks.status')} field="status" />
+              <SortHeader label={t('tasks.priority')} field="priority" />
+              <SortHeader label={t('tasks.assignee')} field="assignee" />
+              <SortHeader label={t('tasks.dueDate')} field="target_date" />
             </tr>
           </thead>
           <tbody>
@@ -536,10 +541,10 @@ function ListView({ tasks, onSelect, selectedId }: { tasks: gw.Task[]; onSelect:
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className={cn('text-[10px] px-2 py-0.5 rounded-full', config.bg, config.color)}>{config.label}</span>
+                    <span className={cn('text-[10px] px-2 py-0.5 rounded-full', config.bg, config.color)}>{t(config.labelKey)}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className={cn('text-xs', pc.color)}>{pc.label}</span>
+                    <span className={cn('text-xs', pc.color)}>{t(pc.labelKey)}</span>
                   </td>
                   <td className="px-3 py-2.5">
                     <span className="text-xs text-muted-foreground">{task.assignees?.[0] || '—'}</span>
@@ -572,6 +577,7 @@ function ListView({ tasks, onSelect, selectedId }: { tasks: gw.Task[]; onSelect:
 // ═══════════════════════════════════════════════════
 
 function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose: () => void; onUpdated: () => void }) {
+  const { t } = useT();
   const [updating, setUpdating] = useState(false);
   const status = getTaskStatus(task);
   const priorityConfig = PRIORITY_CONFIG[task.priority || 'none'] || PRIORITY_CONFIG.none;
@@ -621,7 +627,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             value={task.title}
             onSave={val => patchField({ title: val })}
             className="text-base font-semibold"
-            placeholder="任务标题"
+            placeholder={t('tasks.taskTitle')}
           />
 
           {/* Description — editable with markdown preview */}
@@ -632,7 +638,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
 
           <div className="space-y-3 pt-2 border-t border-border">
             {/* Status */}
-            <DetailRow label="状态">
+            <DetailRow label={t('tasks.status')}>
               <div className="flex gap-1 flex-wrap">
                 {(Object.keys(STATUS_CONFIG) as (keyof typeof STATUS_CONFIG)[]).map(s => {
                   const sc = STATUS_CONFIG[s];
@@ -649,7 +655,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
                       )}
                     >
                       <Icon className="h-3 w-3" />
-                      {sc.label}
+                      {t(sc.labelKey)}
                     </button>
                   );
                 })}
@@ -657,9 +663,9 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             </DetailRow>
 
             {/* Priority — editable */}
-            <DetailRow label="优先级">
+            <DetailRow label={t('tasks.priority')}>
               <div className="flex gap-1">
-                {(Object.entries(PRIORITY_CONFIG) as [string, { label: string; color: string }][]).map(([p, pc]) => {
+                {(Object.entries(PRIORITY_CONFIG) as [string, { labelKey: string; color: string }][]).map(([p, pc]) => {
                   const isActive = (task.priority || 'none') === p;
                   return (
                     <button
@@ -671,7 +677,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
                         isActive ? cn(pc.color, 'font-medium bg-accent') : 'text-muted-foreground hover:bg-accent/50'
                       )}
                     >
-                      {pc.label}
+                      {t(pc.labelKey)}
                     </button>
                   );
                 })}
@@ -679,7 +685,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             </DetailRow>
 
             {/* Assignees */}
-            <DetailRow label="指派人">
+            <DetailRow label={t('tasks.assignee')}>
               <select
                 value={task.assignees?.[0] || ''}
                 onChange={e => patchField({ assignee_name: e.target.value || undefined })}
@@ -696,7 +702,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             </DetailRow>
 
             {/* Start Date */}
-            <DetailRow label="开始日期">
+            <DetailRow label={t('tasks.startDate')}>
               <input
                 type="date"
                 value={task.start_date || ''}
@@ -706,7 +712,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             </DetailRow>
 
             {/* Target Date */}
-            <DetailRow label="截止日期">
+            <DetailRow label={t('tasks.dueDate')}>
               <input
                 type="date"
                 value={task.target_date || ''}
@@ -716,7 +722,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
             </DetailRow>
 
             {/* Created */}
-            <DetailRow label="创建时间">
+            <DetailRow label="Created">
               <span className="text-xs text-foreground flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {formatTimestamp(task.created_at)}
@@ -725,7 +731,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
 
             {/* Updated */}
             {task.updated_at && (
-              <DetailRow label="更新时间">
+              <DetailRow label="Updated">
                 <span className="text-xs text-foreground">{formatTimestamp(task.updated_at)}</span>
               </DetailRow>
             )}
@@ -747,6 +753,7 @@ function TaskDetailPanel({ task, onClose, onUpdated }: { task: gw.Task; onClose:
 // ═══════════════════════════════════════════════════
 
 function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { t } = useT();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('none');
@@ -793,31 +800,31 @@ function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreate
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">标题 *</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.taskTitle')} *</label>
             <input
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="任务标题"
+              placeholder={t('tasks.taskTitle')}
               className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-sidebar-primary"
               autoFocus
             />
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">描述</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.description')}</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
-              placeholder="任务描述（可选）"
+              placeholder={t('tasks.description')}
               rows={3}
               className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none focus:ring-1 focus:ring-sidebar-primary"
             />
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">优先级</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.priority')}</label>
             <div className="flex gap-1">
-              {(Object.entries(PRIORITY_CONFIG) as [string, { label: string; color: string }][]).map(([p, pc]) => (
+              {(Object.entries(PRIORITY_CONFIG) as [string, { labelKey: string; color: string }][]).map(([p, pc]) => (
                 <button
                   key={p}
                   type="button"
@@ -827,14 +834,14 @@ function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreate
                     priority === p ? cn(pc.color, 'bg-accent font-medium') : 'text-muted-foreground bg-muted hover:bg-accent/50'
                   )}
                 >
-                  {pc.label}
+                  {t(pc.labelKey)}
                 </button>
               ))}
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground mb-1 block">指派给</label>
+            <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.assignee')}</label>
             <select
               value={assignee}
               onChange={e => setAssignee(e.target.value)}
@@ -851,7 +858,7 @@ function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreate
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">开始日期</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.startDate')}</label>
               <input
                 type="date"
                 value={startDate}
@@ -860,7 +867,7 @@ function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreate
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">截止日期</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t('tasks.dueDate')}</label>
               <input
                 type="date"
                 value={targetDate}
@@ -877,7 +884,7 @@ function CreateTaskPanel({ onClose, onCreated }: { onClose: () => void; onCreate
             disabled={!title.trim() || creating}
             className="w-full py-2 bg-sidebar-primary text-sidebar-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {creating ? '创建中...' : '创建任务'}
+            {creating ? t('common.loading') : t('tasks.createTask')}
           </button>
         </div>
       </ScrollArea>
