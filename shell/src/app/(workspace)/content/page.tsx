@@ -144,7 +144,7 @@ export default function ContentPage() {
     <div className="flex h-full overflow-hidden flex-col md:flex-row">
       {/* Unified content list sidebar */}
       <div className={cn(
-        'w-full md:w-72 border-r border-border bg-card flex flex-col shrink-0 overflow-hidden',
+        'w-full md:w-72 border-r border-border bg-card flex flex-col md:shrink-0 min-h-0 overflow-hidden',
         mobileView === 'list' ? 'flex' : 'hidden md:flex'
       )}>
         <div className="p-3 border-b border-border flex items-center justify-between">
