@@ -4,13 +4,28 @@
  */
 import { MarkdownParser, MarkdownSerializer } from 'prosemirror-markdown';
 import markdownIt from 'markdown-it';
+import container from 'markdown-it-container';
 import { schema } from './schema';
 import type { Node as PMNode } from 'prosemirror-model';
 
 const md = markdownIt('default', { html: false, breaks: false, linkify: true });
 md.enable('table');
 
+// Register container plugin for :::info, :::warning, :::tip, :::success callouts
+const noticeTypes = ['info', 'warning', 'tip', 'success'] as const;
+for (const type of noticeTypes) {
+  md.use(container, type);
+}
+
+// Build token mappings for container notices
+// MarkdownParser uses base name (e.g. 'container_info') and auto-matches _open/_close
+const containerTokens: Record<string, any> = {};
+for (const type of noticeTypes) {
+  containerTokens[`container_${type}`] = { block: 'container_notice', getAttrs: () => ({ style: type }) };
+}
+
 export const markdownParser = new MarkdownParser(schema, md, {
+  ...containerTokens,
   blockquote: { block: 'blockquote' },
   paragraph: { block: 'paragraph' },
   list_item: { block: 'list_item' },

@@ -27,12 +27,12 @@
   margin: 0 auto;
   font-size: 0.9375rem;
   line-height: 1.7;
-  color: var(--foreground, #e4e4e7);
+  color: hsl(var(--foreground, 0 0% 98%));
 }
 
 .outline-editor-content[data-placeholder]::before {
   content: attr(data-placeholder);
-  color: var(--muted-foreground, #71717a);
+  color: hsl(var(--muted-foreground, 0 0% 55%));
   position: absolute;
   pointer-events: none;
 }
@@ -99,7 +99,7 @@
 
 /* Inline code */
 .outline-editor-content code {
-  background: var(--muted, hsl(240 4% 16%));
+  background: hsl(var(--muted, 0 0% 18%));
   padding: 0.15em 0.35em;
   border-radius: 3px;
   font-family: ui-monospace, 'SF Mono', 'Menlo', monospace;
@@ -108,8 +108,8 @@
 
 /* Code blocks */
 .outline-editor-content pre {
-  background: var(--background, hsl(240 6% 10%));
-  border: 1px solid var(--border, hsl(240 4% 20%));
+  background: hsl(var(--background, 0 0% 9%));
+  border: 1px solid hsl(var(--border, 0 0% 20%));
   border-radius: 0.5rem;
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
@@ -152,7 +152,7 @@
   width: 1em;
   height: 1em;
   margin-top: 0.3em;
-  border: 2px solid var(--muted-foreground, #71717a);
+  border: 2px solid hsl(var(--muted-foreground, 0 0% 55%));
   border-radius: 3px;
   flex-shrink: 0;
 }
@@ -163,16 +163,16 @@
 
 /* Blockquote */
 .outline-editor-content blockquote {
-  border-left: 3px solid var(--border, hsl(240 4% 20%));
+  border-left: 3px solid hsl(var(--border, 0 0% 20%));
   padding-left: 1rem;
   margin: 0.75rem 0;
-  color: var(--muted-foreground, #a1a1aa);
+  color: hsl(var(--muted-foreground, 0 0% 55%));
 }
 
 /* Horizontal rule */
 .outline-editor-content hr {
   border: none;
-  border-top: 1px solid var(--border, hsl(240 4% 20%));
+  border-top: 1px solid hsl(var(--border, 0 0% 20%));
   margin: 1.5rem 0;
 }
 
@@ -205,8 +205,8 @@
 
 /* Math block */
 .outline-editor-content .math-block {
-  background: var(--background, hsl(240 6% 10%));
-  border: 1px solid var(--border, hsl(240 4% 20%));
+  background: hsl(var(--background, 0 0% 9%));
+  border: 1px solid hsl(var(--border, 0 0% 20%));
   border-radius: 0.5rem;
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
@@ -236,13 +236,13 @@
 }
 .outline-editor-content th,
 .outline-editor-content td {
-  border: 1px solid var(--border, hsl(240 4% 20%));
+  border: 1px solid hsl(var(--border, 0 0% 20%));
   padding: 0.4rem 0.6rem;
   text-align: left;
   font-size: 0.875rem;
 }
 .outline-editor-content th {
-  background: var(--muted, hsl(240 4% 16%));
+  background: hsl(var(--muted, 0 0% 18%));
   font-weight: 600;
 }
 
@@ -256,7 +256,7 @@
   position: absolute;
   top: -2px;
   width: 20px;
-  border-top: 1px solid var(--foreground, #e4e4e7);
+  border-top: 1px solid hsl(var(--foreground, 0 0% 98%));
   animation: ProseMirror-cursor-blink 1.1s steps(2) infinite;
 }
 @keyframes ProseMirror-cursor-blink {
