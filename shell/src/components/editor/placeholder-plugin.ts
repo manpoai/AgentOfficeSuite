@@ -43,10 +43,10 @@ export function placeholderPlugin(text: string): Plugin {
           );
         }
 
-        // Show "+" handle on the focused empty paragraph (if not the doc-empty placeholder)
+        // Show "+" handle on the focused empty paragraph at top level only (depth === 1)
         const { $from } = selection;
         const parentNode = $from.parent;
-        if (parentNode.type.name === 'paragraph' && parentNode.content.size === 0 && !isDocEmpty) {
+        if (parentNode.type.name === 'paragraph' && parentNode.content.size === 0 && !isDocEmpty && $from.depth === 1) {
           const pos = $from.before($from.depth);
           const end = $from.after($from.depth);
           decorations.push(

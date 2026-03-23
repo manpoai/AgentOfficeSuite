@@ -1086,13 +1086,15 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
     return () => window.removeEventListener('editor-comment', handler);
   }, []);
 
+  // Only reset local state when switching to a different document
   useEffect(() => {
     setTitle(doc.title);
     setEmoji(doc.emoji?.trim() || null);
     setText(doc.text);
     latestRef.current = { title: doc.title, text: doc.text, emoji: doc.emoji?.trim() || null };
     setSaveStatus('saved');
-  }, [doc.id, doc.title, doc.text, doc.emoji]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id]);
 
   // Close emoji picker on outside click
   useEffect(() => {

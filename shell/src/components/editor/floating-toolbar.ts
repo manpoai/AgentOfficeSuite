@@ -224,6 +224,8 @@ export function floatingToolbarPlugin(): Plugin {
   let isShown = false;
   let isHovering = false;
   let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+  let isMouseDown = false;
+  let showTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function showAt(view: EditorView, from: number, to: number) {
     if (!toolbarEl) return;
@@ -257,6 +259,7 @@ export function floatingToolbarPlugin(): Plugin {
 
   function scheduleHide() {
     if (hideTimeout) clearTimeout(hideTimeout);
+    if (showTimeout) { clearTimeout(showTimeout); showTimeout = null; }
     hideTimeout = setTimeout(() => {
       hideTimeout = null;
       hide();
@@ -270,6 +273,27 @@ export function floatingToolbarPlugin(): Plugin {
       toolbarEl.addEventListener('mouseenter', () => { isHovering = true; if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; } });
       toolbarEl.addEventListener('mouseleave', () => { isHovering = false; });
       document.body.appendChild(toolbarEl);
+
+      // Track mouse state to avoid showing toolbar during drag selection
+      const onMouseDown = () => { isMouseDown = true; if (showTimeout) { clearTimeout(showTimeout); showTimeout = null; } };
+      const onMouseUp = () => {
+        isMouseDown = false;
+        // After mouse up, show toolbar if there's a selection
+        showTimeout = setTimeout(() => {
+          showTimeout = null;
+          const { state } = editorView;
+          const { from, to, empty } = state.selection;
+          if (!empty && from !== to) {
+            const $from = state.doc.resolve(from);
+            if ($from.parent.type !== schema.nodes.code_block) {
+              showAt(editorView, from, to);
+            }
+          }
+        }, 50);
+      };
+      document.addEventListener('mousedown', onMouseDown);
+      document.addEventListener('mouseup', onMouseUp);
+
       return {
         update(view, prevState) {
           const { state } = view;
@@ -278,11 +302,13 @@ export function floatingToolbarPlugin(): Plugin {
 
           // Only show for non-empty text selections (not node selections)
           if (empty || from === to) {
-            // If hovering toolbar, don't hide immediately
             if (isHovering) return;
             scheduleHide();
             return;
           }
+
+          // Don't show while mouse is being dragged (active selection in progress)
+          if (isMouseDown) return;
 
           // Don't show in code blocks
           const $from = state.doc.resolve(from);
@@ -295,6 +321,9 @@ export function floatingToolbarPlugin(): Plugin {
         },
         destroy() {
           if (hideTimeout) clearTimeout(hideTimeout);
+          if (showTimeout) clearTimeout(showTimeout);
+          document.removeEventListener('mousedown', onMouseDown);
+          document.removeEventListener('mouseup', onMouseUp);
           toolbarEl?.remove();
           toolbarEl = null;
         },

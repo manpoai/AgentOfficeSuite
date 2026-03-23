@@ -106,11 +106,16 @@ export async function deleteDocument(id: string): Promise<void> {
 export async function uploadAttachment(file: File, documentId?: string): Promise<{ data: { url: string; name: string; size: number } }> {
   const form = new FormData();
   form.append('file', file);
+  form.append('name', file.name || 'image.png');
+  form.append('size', String(file.size));
   if (documentId) form.append('documentId', documentId);
   const res = await fetch(`${BASE}/attachments.create`, {
     method: 'POST',
     body: form,
   });
-  if (!res.ok) throw new Error(`Outline attachment upload: ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Outline attachment upload: ${res.status} ${errText}`);
+  }
   return res.json();
 }

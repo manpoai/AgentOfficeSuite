@@ -10,12 +10,12 @@
 }
 
 .outline-editor-mount {
-  padding: 0 1rem 2rem;
+  padding: 0 3rem 2rem;
 }
 
 /* Title wrapper — same horizontal padding as editor mount */
 .doc-title-wrap {
-  padding: 0 1rem;
+  padding: 0 3rem;
 }
 /* Title content — same max-width and centering as editor content */
 .doc-title-area {
