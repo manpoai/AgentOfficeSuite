@@ -103,22 +103,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         collapsed ? 'w-14' : 'w-40'
       )} style={{ backgroundColor: '#ECECEC' }}>
         {/* Logo */}
-        <div className="h-[52px] flex items-center px-1 overflow-hidden">
-          <span className="w-[48px] flex items-center justify-center shrink-0">
-            <span className="text-lg text-foreground font-[family-name:var(--font-allura)]">A</span>
-          </span>
-          <span className={cn('text-xl text-foreground font-[family-name:var(--font-allura)] whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>suite</span>
+        <div className="h-[52px] flex items-center px-3 overflow-hidden">
+          <span className={cn('text-xl text-foreground font-[family-name:var(--font-allura)] whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>Asuite</span>
         </div>
 
         {/* Search + Add */}
-        <div className="flex items-center gap-1 mb-1 px-1 overflow-hidden">
+        <div className="flex items-center gap-1 mb-1 px-2 overflow-hidden">
           <button
             className={cn(
               'flex items-center h-8 rounded-lg text-muted-foreground text-xs transition-all duration-200',
-              collapsed ? 'w-[48px] justify-center' : 'flex-1 px-2 bg-[#E1E2E3] border border-[#D7D9DA]'
+              collapsed ? 'w-8 justify-center' : 'flex-1 px-2 bg-[#E1E2E3] border border-[#D7D9DA]'
             )}
           >
-            <span className={cn(collapsed ? 'w-[48px]' : 'w-auto', 'flex items-center justify-center shrink-0')}>
+            <span className={cn(collapsed ? 'w-8' : 'w-auto', 'flex items-center justify-center shrink-0')}>
               <img src="/icons/icon-search.svg" alt="" className="h-3.5 w-3.5 opacity-50" />
             </span>
             <span className={cn('whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0 w-0' : 'opacity-100 ml-1.5')}>Search</span>
@@ -132,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Nav items — icon always at fixed position to avoid jump on collapse */}
-        <div className="flex flex-col gap-0.5 mt-1 px-1">
+        <div className="flex flex-col gap-0.5 mt-1 px-2">
           {NAV_ITEMS.map(item => {
             const isActive = activeModule === item.id;
             return (
@@ -149,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 {/* Fixed-width icon container — always centered in collapsed width */}
-                <span className="w-[48px] flex items-center justify-center shrink-0">
+                <span className="w-8 flex items-center justify-center shrink-0">
                   <img
                     src={item.icon}
                     alt=""
@@ -173,7 +170,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1" />
 
         {/* Settings + Collapse at bottom */}
-        <div className="mb-3 flex flex-col gap-0.5 px-1">
+        <div className="mb-3 flex flex-col gap-0.5 px-2">
           {/* Settings button with dropdown menu */}
           <div className="relative" ref={settingsRef}>
             <button
@@ -181,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               title={collapsed ? 'Settings' : undefined}
               className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors w-full overflow-hidden px-0"
             >
-              <span className="w-[48px] flex items-center justify-center shrink-0">
+              <span className="w-8 flex items-center justify-center shrink-0">
                 <img src="/icons/icon-settings.svg" alt="" className="h-4 w-4 opacity-50" />
               </span>
               <span className={cn('whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>Settings</span>
@@ -266,7 +263,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors overflow-hidden px-0"
           >
-            <span className="w-[48px] flex items-center justify-center shrink-0">
+            <span className="w-8 flex items-center justify-center shrink-0">
               {collapsed
                 ? <ChevronRight className="h-4 w-4" />
                 : <img src="/icons/icon-collapse.svg" alt="" className="h-4 w-4 opacity-50" />
