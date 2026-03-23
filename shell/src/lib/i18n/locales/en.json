@@ -181,7 +181,8 @@
     "linkPrompt": "Link URL:",
     "inlineCode": "Inline Code",
     "highlight": "Highlight",
-    "comment": "Comment"
+    "comment": "Comment",
+    "checkboxList": "Checkbox List"
   },
   "comments": {
     "title": "Comments",

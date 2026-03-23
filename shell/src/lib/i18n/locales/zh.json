@@ -181,7 +181,8 @@
     "linkPrompt": "链接地址：",
     "inlineCode": "行内代码",
     "highlight": "高亮",
-    "comment": "评论"
+    "comment": "评论",
+    "checkboxList": "待办列表"
   },
   "comments": {
     "title": "评论",

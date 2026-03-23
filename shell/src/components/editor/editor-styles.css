@@ -287,11 +287,16 @@
 /* Images */
 .outline-editor-content .image-node-wrapper {
   margin: 0.5rem 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .outline-editor-content .image-node-wrapper img {
   max-width: 100%;
   border-radius: 0.25rem;
   transition: outline 0.15s;
+}
+.outline-editor-content .image-node-wrapper img::selection {
+  background: transparent;
 }
 .outline-editor-content img {
   display: block;

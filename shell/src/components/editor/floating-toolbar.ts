@@ -2,9 +2,11 @@
  * Floating toolbar plugin for ProseMirror.
  * Appears when text is selected, showing inline formatting options.
  */
-import { Plugin, PluginKey } from 'prosemirror-state';
+import { Plugin, PluginKey, NodeSelection } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
-import { toggleMark, setBlockType, wrapIn } from 'prosemirror-commands';
+import { toggleMark, setBlockType, wrapIn, lift } from 'prosemirror-commands';
+import { liftListItem, wrapInList } from 'prosemirror-schema-list';
+import type { NodeType } from 'prosemirror-model';
 import { schema } from './schema';
 import { getT } from '@/lib/i18n';
 
@@ -21,7 +23,7 @@ interface ToolbarAction {
   command: (view: EditorView) => void;
 }
 
-function isBlockActive(view: EditorView, nodeType: any, attrs?: Record<string, any>): boolean {
+function isBlockActive(view: EditorView, nodeType: NodeType, attrs?: Record<string, any>): boolean {
   const { state } = view;
   const { $from } = state.selection;
   for (let d = $from.depth; d > 0; d--) {
@@ -33,7 +35,6 @@ function isBlockActive(view: EditorView, nodeType: any, attrs?: Record<string, a
       return true;
     }
   }
-  // Check parent
   if ($from.parent.type === nodeType) {
     if (attrs) {
       return Object.keys(attrs).every(k => $from.parent.attrs[k] === attrs[k]);
@@ -42,6 +43,99 @@ function isBlockActive(view: EditorView, nodeType: any, attrs?: Record<string, a
   }
   return false;
 }
+
+/** Check if cursor is inside any list */
+function isInList(view: EditorView): boolean {
+  const { $from } = view.state.selection;
+  for (let d = $from.depth; d > 0; d--) {
+    const t = $from.node(d).type;
+    if (t === schema.nodes.bullet_list || t === schema.nodes.ordered_list || t === schema.nodes.checkbox_list) return true;
+  }
+  return false;
+}
+
+/** Lift content out of all wrapping lists/blockquotes before changing block type */
+function liftOutOfWrapping(view: EditorView): boolean {
+  let changed = false;
+  // Try lifting out of list items first, then blockquotes
+  for (let i = 0; i < 5; i++) {
+    const { state } = view;
+    const { $from } = state.selection;
+    let lifted = false;
+    for (let d = $from.depth; d > 0; d--) {
+      const node = $from.node(d);
+      if (node.type === schema.nodes.list_item || node.type === schema.nodes.checkbox_item) {
+        if (liftListItem(node.type)(state, view.dispatch)) {
+          lifted = true;
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!lifted) break;
+  }
+  // Try lift from blockquote
+  if (lift(view.state, view.dispatch)) changed = true;
+  return changed;
+}
+
+/** Set heading: if in list, first lift out */
+function setHeading(view: EditorView, level: number) {
+  if (isBlockActive(view, schema.nodes.heading, { level })) {
+    // Toggle off: convert back to paragraph
+    setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+  } else {
+    if (isInList(view)) liftOutOfWrapping(view);
+    setBlockType(schema.nodes.heading, { level })(view.state, view.dispatch);
+  }
+  view.focus();
+}
+
+/** Wrap in list: if in another list type, lift out first */
+function toggleList(view: EditorView, listType: NodeType) {
+  if (isBlockActive(view, listType)) {
+    // Unwrap: lift out of list
+    const { $from } = view.state.selection;
+    for (let d = $from.depth; d > 0; d--) {
+      const node = $from.node(d);
+      if (node.type === schema.nodes.list_item || node.type === schema.nodes.checkbox_item) {
+        liftListItem(node.type)(view.state, view.dispatch);
+        break;
+      }
+    }
+  } else {
+    // If in a different list, lift out first
+    if (isInList(view)) liftOutOfWrapping(view);
+    // If in a heading, convert to paragraph first
+    if (isBlockActive(view, schema.nodes.heading)) {
+      setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+    }
+    wrapInList(listType)(view.state, view.dispatch);
+  }
+  view.focus();
+}
+
+/** Toggle blockquote */
+function toggleBlockquote(view: EditorView) {
+  if (isBlockActive(view, schema.nodes.blockquote)) {
+    lift(view.state, view.dispatch);
+  } else {
+    if (isInList(view)) liftOutOfWrapping(view);
+    wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
+  }
+  view.focus();
+}
+
+// Highlight colors matching Outline
+const HIGHLIGHT_COLORS = [
+  { name: 'Yellow', color: 'hsl(50 90% 60% / 0.3)', css: 'hsl(50 90% 60% / 0.3)' },
+  { name: 'Orange', color: 'hsl(25 90% 60% / 0.3)', css: 'hsl(25 90% 60% / 0.3)' },
+  { name: 'Red', color: 'hsl(0 80% 60% / 0.3)', css: 'hsl(0 80% 60% / 0.3)' },
+  { name: 'Pink', color: 'hsl(330 80% 65% / 0.3)', css: 'hsl(330 80% 65% / 0.3)' },
+  { name: 'Purple', color: 'hsl(270 60% 60% / 0.3)', css: 'hsl(270 60% 60% / 0.3)' },
+  { name: 'Blue', color: 'hsl(210 70% 55% / 0.3)', css: 'hsl(210 70% 55% / 0.3)' },
+  { name: 'Green', color: 'hsl(142 50% 50% / 0.3)', css: 'hsl(142 50% 50% / 0.3)' },
+];
 
 function buildToolbarActions(): ToolbarAction[] {
   const t = getT();
@@ -95,33 +189,38 @@ function buildToolbarActions(): ToolbarAction[] {
     {
       label: t('editor.heading1'), icon: 'H1', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 1 }),
-      command: (view) => { setBlockType(schema.nodes.heading, { level: 1 })(view.state, view.dispatch); view.focus(); },
+      command: (view) => setHeading(view, 1),
     },
     {
       label: t('editor.heading2'), icon: 'H2', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 2 }),
-      command: (view) => { setBlockType(schema.nodes.heading, { level: 2 })(view.state, view.dispatch); view.focus(); },
+      command: (view) => setHeading(view, 2),
     },
     {
       label: t('editor.heading3'), icon: 'H3', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.heading, { level: 3 }),
-      command: (view) => { setBlockType(schema.nodes.heading, { level: 3 })(view.state, view.dispatch); view.focus(); },
+      command: (view) => setHeading(view, 3),
     },
     // -- Separator, then block elements --
     {
       label: t('editor.quote'), icon: '❝', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.blockquote),
-      command: (view) => { wrapIn(schema.nodes.blockquote)(view.state, view.dispatch); view.focus(); },
+      command: (view) => toggleBlockquote(view),
     },
     {
       label: t('editor.bulletList'), icon: '•', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.bullet_list),
-      command: (view) => { wrapIn(schema.nodes.bullet_list)(view.state, view.dispatch); view.focus(); },
+      command: (view) => toggleList(view, schema.nodes.bullet_list),
     },
     {
       label: t('editor.orderedList'), icon: '1.', section: 'block',
       isActive: (view) => isBlockActive(view, schema.nodes.ordered_list),
-      command: (view) => { wrapIn(schema.nodes.ordered_list)(view.state, view.dispatch); view.focus(); },
+      command: (view) => toggleList(view, schema.nodes.ordered_list),
+    },
+    {
+      label: t('editor.checkboxList') || 'Checkbox', icon: '☑', section: 'block',
+      isActive: (view) => isBlockActive(view, schema.nodes.checkbox_list),
+      command: (view) => toggleList(view, schema.nodes.checkbox_list),
     },
     // -- Comment --
     {
@@ -169,9 +268,64 @@ function addSeparator(el: HTMLDivElement) {
   el.appendChild(sep);
 }
 
+/** Create a highlight color picker popup */
+function createHighlightPicker(view: EditorView, anchorBtn: HTMLElement, toolbarEl: HTMLDivElement): HTMLDivElement {
+  const picker = document.createElement('div');
+  picker.style.cssText = `
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: hsl(var(--popover, 0 0% 100%)); border: 1px solid hsl(var(--border, 0 0% 90%));
+    border-radius: 8px; padding: 6px; margin-bottom: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex; gap: 4px;
+  `;
+
+  for (const color of HIGHLIGHT_COLORS) {
+    const swatch = document.createElement('button');
+    swatch.style.cssText = `
+      width: 22px; height: 22px; border-radius: 4px; border: 1px solid hsl(var(--border, 0 0% 85%));
+      cursor: pointer; background: ${color.css}; padding: 0;
+    `;
+    swatch.title = color.name;
+    swatch.onmousedown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const { from, to } = view.state.selection;
+      if (from === to) return;
+      // Remove existing highlight first
+      let tr = view.state.tr.removeMark(from, to, schema.marks.highlight);
+      // Add new highlight (for now using default mark — color support would need schema change)
+      tr = tr.addMark(from, to, schema.marks.highlight.create());
+      view.dispatch(tr);
+      view.focus();
+      picker.remove();
+    };
+    picker.appendChild(swatch);
+  }
+
+  // Remove button
+  const removeBtn = document.createElement('button');
+  removeBtn.textContent = '✕';
+  removeBtn.style.cssText = `
+    width: 22px; height: 22px; border-radius: 4px; border: 1px solid hsl(var(--border, 0 0% 85%));
+    cursor: pointer; background: transparent; padding: 0; font-size: 11px;
+    color: hsl(var(--muted-foreground, 0 0% 45%));
+  `;
+  removeBtn.title = 'Remove highlight';
+  removeBtn.onmousedown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { from, to } = view.state.selection;
+    view.dispatch(view.state.tr.removeMark(from, to, schema.marks.highlight));
+    view.focus();
+    picker.remove();
+  };
+  picker.appendChild(removeBtn);
+
+  return picker;
+}
+
 function renderToolbar(el: HTMLDivElement, view: EditorView) {
   el.innerHTML = '';
-  let lastSection: ToolbarSection = 'inline';
   const TOOLBAR_ACTIONS = buildToolbarActions();
 
   TOOLBAR_ACTIONS.forEach((action, i) => {
@@ -179,7 +333,7 @@ function renderToolbar(el: HTMLDivElement, view: EditorView) {
     if (i > 0 && i === 4) addSeparator(el); // after S, before link
     if (i === 7) addSeparator(el); // before headings
     if (i === 10) addSeparator(el); // before block elements
-    if (i === 13) addSeparator(el); // before comment
+    if (i === 14) addSeparator(el); // before comment (now index 14 with checkbox added)
 
     const btn = document.createElement('button');
     const active = action.mark
@@ -207,15 +361,37 @@ function renderToolbar(el: HTMLDivElement, view: EditorView) {
     btn.onmouseleave = () => {
       if (!active) { btn.style.background = 'transparent'; btn.style.color = 'hsl(var(--muted-foreground, 0 0% 45%))'; }
     };
-    btn.onmousedown = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      action.command(view);
-      setTimeout(() => renderToolbar(el, view), 0);
-    };
-    el.appendChild(btn);
 
-    lastSection = action.section;
+    // Special handling for highlight — show color picker
+    if (action.mark === 'highlight') {
+      btn.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // If already highlighted, just toggle off
+        if (active) {
+          const { from, to } = view.state.selection;
+          view.dispatch(view.state.tr.removeMark(from, to, schema.marks.highlight));
+          view.focus();
+          setTimeout(() => renderToolbar(el, view), 0);
+          return;
+        }
+        // Show color picker
+        const existing = el.querySelector('.highlight-picker');
+        if (existing) { existing.remove(); return; }
+        const picker = createHighlightPicker(view, btn, el);
+        picker.className = 'highlight-picker';
+        btn.style.position = 'relative';
+        btn.appendChild(picker);
+      };
+    } else {
+      btn.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        action.command(view);
+        setTimeout(() => renderToolbar(el, view), 0);
+      };
+    }
+    el.appendChild(btn);
   });
 }
 
@@ -251,7 +427,6 @@ export function floatingToolbarPlugin(): Plugin {
 
   function hide() {
     if (!toolbarEl) return;
-    // Don't hide if mouse is over the toolbar
     if (isHovering) return;
     toolbarEl.style.display = 'none';
     isShown = false;
@@ -274,11 +449,9 @@ export function floatingToolbarPlugin(): Plugin {
       toolbarEl.addEventListener('mouseleave', () => { isHovering = false; });
       document.body.appendChild(toolbarEl);
 
-      // Track mouse state to avoid showing toolbar during drag selection
       const onMouseDown = () => { isMouseDown = true; if (showTimeout) { clearTimeout(showTimeout); showTimeout = null; } };
       const onMouseUp = () => {
         isMouseDown = false;
-        // After mouse up, show toolbar if there's a selection
         showTimeout = setTimeout(() => {
           showTimeout = null;
           const { state } = editorView;
@@ -300,17 +473,20 @@ export function floatingToolbarPlugin(): Plugin {
           const { selection } = state;
           const { from, to, empty } = selection;
 
-          // Only show for non-empty text selections (not node selections)
           if (empty || from === to) {
             if (isHovering) return;
             scheduleHide();
             return;
           }
 
-          // Don't show while mouse is being dragged (active selection in progress)
           if (isMouseDown) return;
 
-          // Don't show in code blocks
+          // Hide toolbar for node selections (e.g. image selected)
+          if (selection instanceof NodeSelection) {
+            scheduleHide();
+            return;
+          }
+
           const $from = state.doc.resolve(from);
           if ($from.parent.type === schema.nodes.code_block) {
             scheduleHide();

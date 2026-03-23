@@ -3,6 +3,7 @@
  * - math_block: KaTeX rendered LaTeX
  */
 import type { Node as PMNode } from 'prosemirror-model';
+import { NodeSelection } from 'prosemirror-state';
 import type { EditorView, NodeView } from 'prosemirror-view';
 
 /**
@@ -79,11 +80,16 @@ class ImageNodeView implements NodeView {
     this.img.style.borderRadius = '4px';
     this.img.draggable = false;
 
-    // Click to show toolbar
-    this.img.addEventListener('click', (e) => {
+    // Click to select this image node (shows blue border + image toolbar)
+    this.img.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.showToolbar();
+      const pos = this.getPos();
+      if (pos != null) {
+        const tr = this.view.state.tr.setSelection(NodeSelection.create(this.view.state.doc, pos));
+        this.view.dispatch(tr);
+        this.view.focus();
+      }
     });
 
     // Resize handle
@@ -236,7 +242,10 @@ class ImageNodeView implements NodeView {
     document.removeEventListener('click', this.handleOutsideClick);
   }
 
-  stopEvent() { return false; }
+  stopEvent(event: Event) {
+    // Stop click/mousedown from reaching ProseMirror so our NodeSelection handler works
+    return event.type === 'mousedown' || event.type === 'click';
+  }
   ignoreMutation() { return true; }
 }
 

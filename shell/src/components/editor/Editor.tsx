@@ -116,6 +116,8 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
         });
 
         viewRef.current = view;
+        // Expose view on DOM for testing/debugging
+        (editorRef.current as any).__pmView = view;
 
         if (autoFocus) {
           setTimeout(() => {
