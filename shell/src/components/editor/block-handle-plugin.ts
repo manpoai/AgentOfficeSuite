@@ -29,6 +29,32 @@ function blockAtCoords(view: EditorView, y: number): { pos: number; end: number;
   return { pos, end, node };
 }
 
+/** Find the nearest block-level DOM element at mouse Y for handle positioning */
+function nearestBlockDomAtY(view: EditorView, y: number): HTMLElement | null {
+  const coords = view.posAtCoords({ left: view.dom.getBoundingClientRect().left + 10, top: y });
+  if (!coords) return null;
+
+  const $pos = view.state.doc.resolve(coords.pos);
+  // Try progressively shallower depths to find the tightest block
+  // that has its own DOM element (paragraph inside list_item, list_item, etc.)
+  for (let d = $pos.depth; d >= 1; d--) {
+    const nodePos = $pos.before(d);
+    const domNode = view.nodeDOM(nodePos) as HTMLElement | null;
+    if (domNode && domNode.getBoundingClientRect) {
+      const rect = domNode.getBoundingClientRect();
+      // Only use this node if its top is reasonably close to the mouse Y
+      // (i.e., it's a tight-fitting block, not a giant wrapper)
+      if (rect.height < 200 || Math.abs(rect.top - y) < 100) {
+        return domNode;
+      }
+    }
+  }
+
+  // Fallback: use the deepest DOM node we can find
+  const deepPos = $pos.before($pos.depth >= 1 ? 1 : $pos.depth);
+  return view.nodeDOM(deepPos) as HTMLElement | null;
+}
+
 /** Block menu items */
 interface BlockMenuItem {
   label: string;
@@ -358,20 +384,30 @@ export function blockHandlePlugin(): Plugin {
     menuVisible = false;
   }
 
-  function positionHandle(view: EditorView, blockPos: number) {
+  function positionHandle(view: EditorView, blockPos: number, mouseY?: number) {
     if (!handle) return;
-
-    const node = view.state.doc.nodeAt(blockPos);
-    if (!node) return;
-
-    // Get the DOM element for this block position
-    const domNode = view.nodeDOM(blockPos) as HTMLElement | null;
-    if (!domNode || !domNode.getBoundingClientRect) return;
 
     const wrapper = handle.parentElement;
     if (!wrapper) return;
     const wrapperRect = wrapper.getBoundingClientRect();
-    const blockRect = domNode.getBoundingClientRect();
+
+    // Use nearestBlockDomAtY if mouseY is available — this finds the tightest
+    // block element near the cursor, even inside deep nesting (e.g. list items).
+    let blockRect: DOMRect | null = null;
+
+    if (mouseY != null) {
+      const nearDom = nearestBlockDomAtY(view, mouseY);
+      if (nearDom) {
+        blockRect = nearDom.getBoundingClientRect();
+      }
+    }
+
+    if (!blockRect) {
+      // Fallback: use the top-level block DOM node
+      const domNode = view.nodeDOM(blockPos) as HTMLElement | null;
+      if (!domNode || !domNode.getBoundingClientRect) return;
+      blockRect = domNode.getBoundingClientRect();
+    }
 
     // Position handle to the left of the block content
     handle.style.top = `${blockRect.top - wrapperRect.top + 2}px`;
@@ -451,7 +487,7 @@ export function blockHandlePlugin(): Plugin {
 
           if (result && handle) {
             currentBlockPos = result.pos;
-            positionHandle(view, result.pos);
+            positionHandle(view, result.pos, mouseEvent.clientY);
           } else if (handle) {
             handle.style.opacity = '0';
             currentBlockPos = null;
