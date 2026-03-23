@@ -1182,6 +1182,11 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 )}
               </span>
             ))}
+            {/* Timestamp + author in breadcrumb bar */}
+            <span className="text-[11px] text-muted-foreground/50 ml-2 shrink-0">
+              {formatRelativeTime(doc.updatedAt)}
+              {doc.updatedBy?.name && <span> · {doc.updatedBy.name}</span>}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1290,11 +1295,7 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 </div>
               )}
             </div>
-            {/* Meta info below title */}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60 mt-3 mb-4">
-              <span>{formatRelativeTime(doc.updatedAt)}</span>
-              {doc.updatedBy?.name && <span>· {doc.updatedBy.name}</span>}
-            </div>
+            <div className="mb-4" />
           </div>
           </div>
 
