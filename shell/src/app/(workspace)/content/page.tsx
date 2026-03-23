@@ -641,7 +641,7 @@ export default function ContentPage() {
     <div className="flex h-full overflow-hidden flex-col md:flex-row">
       {/* Document Library sidebar */}
       <div className={cn(
-        'w-full md:w-[260px] border-r border-border bg-[#F5F5F5] dark:bg-card flex flex-col md:shrink-0 min-h-0 overflow-hidden',
+        'w-full md:w-[260px] border-r border-border bg-[#F5F5F5] dark:bg-sidebar flex flex-col md:shrink-0 min-h-0 overflow-hidden',
         mobileView === 'list' ? 'flex' : 'hidden md:flex'
       )}>
         {/* Header */}

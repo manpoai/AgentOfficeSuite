@@ -99,9 +99,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen w-screen flex-col md:flex-row bg-background text-foreground">
       {/* Desktop sidebar — hidden on mobile */}
       <nav className={cn(
-        'hidden md:flex flex-col border-r border-border shrink-0 transition-all duration-200 ease-in-out relative overflow-hidden',
+        'hidden md:flex flex-col border-r border-border shrink-0 transition-all duration-200 ease-in-out relative overflow-hidden bg-[#ECECEC] dark:bg-sidebar',
         collapsed ? 'w-14' : 'w-40'
-      )} style={{ backgroundColor: '#ECECEC' }}>
+      )}>
         {/* Logo */}
         <div className="h-[52px] flex items-center px-3 overflow-hidden">
           <span className={cn('text-xl text-foreground font-[family-name:var(--font-allura)] whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>Asuite</span>
@@ -112,7 +112,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             className={cn(
               'flex items-center h-8 rounded-lg text-muted-foreground text-xs transition-all duration-200',
-              collapsed ? 'w-8 justify-center' : 'flex-1 px-2 bg-[#E1E2E3] border border-[#D7D9DA]'
+              collapsed ? 'w-8 justify-center' : 'flex-1 px-2 bg-[#E1E2E3] dark:bg-white/10 border border-[#D7D9DA] dark:border-white/10'
             )}
           >
             <span className={cn(collapsed ? 'w-8' : 'w-auto', 'flex items-center justify-center shrink-0')}>
@@ -122,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <button className={cn(
             'flex items-center justify-center h-8 w-8 shrink-0 rounded-lg text-muted-foreground transition-all duration-200',
-            collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 bg-[#E1E2E3] border border-[#D7D9DA]'
+            collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100 bg-[#E1E2E3] dark:bg-white/10 border border-[#D7D9DA] dark:border-white/10'
           )}>
             <img src="/icons/icon-plus.svg" alt="" className="h-3.5 w-3.5 opacity-50" />
           </button>
@@ -142,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   'text-left px-0',
                   isActive
                     ? 'text-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-black/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10'
                 )}
               >
                 {/* Fixed-width icon container — always centered in collapsed width */}
@@ -176,7 +176,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setShowSettings(v => !v)}
               title={collapsed ? 'Settings' : undefined}
-              className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors w-full overflow-hidden px-0"
+              className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors w-full overflow-hidden px-0"
             >
               <span className="w-8 flex items-center justify-center shrink-0">
                 <img src="/icons/icon-settings.svg" alt="" className="h-4 w-4 opacity-50" />
@@ -261,7 +261,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             onClick={toggleCollapse}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors overflow-hidden px-0"
+            className="flex items-center h-8 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors overflow-hidden px-0"
           >
             <span className="w-8 flex items-center justify-center shrink-0">
               {collapsed
@@ -283,8 +283,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
 
       {/* Mobile bottom tab bar — visible only on mobile */}
-      <nav className="flex md:hidden items-center justify-around border-t border-border px-1 shrink-0"
-           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)', backgroundColor: '#ECECEC' }}>
+      <nav className="flex md:hidden items-center justify-around border-t border-border px-1 shrink-0 bg-[#ECECEC] dark:bg-sidebar"
+           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {NAV_ITEMS.map(item => {
           const isActive = activeModule === item.id;
           return (
