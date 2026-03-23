@@ -265,7 +265,6 @@ export const markdownSerializer = new MarkdownSerializer(
     },
     image(state, node) {
       state.write(`![${state.esc(node.attrs.alt || '')}](${state.esc(node.attrs.src)}${node.attrs.title ? ` "${state.esc(node.attrs.title)}"` : ''})`);
-      state.closeBlock(node);
     },
     hard_break(state, node, parent, index) {
       for (let i = index + 1; i < parent.childCount; i++) {

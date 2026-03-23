@@ -18,9 +18,10 @@ async function uploadAndInsert(view: EditorView, file: File, pos: number, docId?
   const reader = new FileReader();
   reader.onload = async () => {
     const dataUrl = reader.result as string;
-    // Insert placeholder image
+    // Insert placeholder image (wrapped in a paragraph since image is inline)
     const placeholderNode = imageType.create({ src: dataUrl, alt: file.name, title: file.name });
-    let tr = view.state.tr.insert(pos, placeholderNode);
+    const para = schema.nodes.paragraph.create(null, placeholderNode);
+    let tr = view.state.tr.insert(pos, para);
     view.dispatch(tr);
 
     try {

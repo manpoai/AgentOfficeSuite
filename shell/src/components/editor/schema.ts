@@ -124,7 +124,7 @@ export const schema = new Schema({
       toDOM() { return ['div', { class: 'math-block' }, ['code', 0]]; },
     },
     image: {
-      inline: false,
+      inline: true,
       attrs: {
         src: {},
         alt: { default: null },
@@ -132,7 +132,7 @@ export const schema = new Schema({
         width: { default: null },
         align: { default: null }, // 'left' | 'center' | 'right'
       },
-      group: 'block',
+      group: 'inline',
       draggable: true,
       parseDOM: [{ tag: 'img[src]', getAttrs(dom) {
         const el = dom as HTMLElement;
