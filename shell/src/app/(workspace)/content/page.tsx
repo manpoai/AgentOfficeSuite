@@ -15,12 +15,16 @@ import { useT } from '@/lib/i18n';
 import {
   DndContext,
   closestCenter,
+  pointerWithin,
+  rectIntersection,
   PointerSensor,
   useSensor,
   useSensors,
   DragOverlay,
   type DragStartEvent,
   type DragEndEvent,
+  type DragOverEvent,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -29,6 +33,9 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+/** Where to drop: before/after = reorder, inside = reparent */
+type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | null;
 
 // ═══════════════════════════════════════════════════
 // Types
@@ -84,6 +91,7 @@ export default function ContentPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [treeState, setTreeState] = useState<TreeState>(() => loadTreeState());
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+  const [dropIntent, setDropIntent] = useState<DropIntent>(null);
   const queryClient = useQueryClient();
 
   const { data: docs, isLoading: docsLoading } = useQuery({
@@ -277,33 +285,71 @@ export default function ContentPage() {
     const collectionId = collections?.[0]?.id;
     if (!collectionId) return;
     setCreating(true);
+
+    // Optimistic: generate a temp ID and insert into cache immediately
+    const tempId = `temp-${Date.now()}`;
+    const optimisticDoc: ol.OLDocument = {
+      id: tempId,
+      title: t('content.untitled'),
+      text: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      publishedAt: null,
+      archivedAt: null,
+      deletedAt: null,
+      collectionId,
+      parentDocumentId: parentNodeId ? (effectiveNodes.get(parentNodeId)?.type === 'doc' ? effectiveNodes.get(parentNodeId)!.rawId : null) : null,
+      createdBy: { id: '', name: '' },
+      updatedBy: { id: '', name: '' },
+      revision: 0,
+    };
+
+    // Insert optimistic doc into cache
+    queryClient.setQueryData<ol.OLDocument[]>(['outline-docs'], old => [...(old || []), optimisticDoc]);
+
+    if (parentNodeId) {
+      const parentNode = effectiveNodes.get(parentNodeId);
+      if (parentNode?.type === 'table') {
+        updateTreeParent(`doc:${tempId}`, parentNodeId);
+      }
+      setExpandedIds(prev => new Set(prev).add(parentNodeId));
+    }
+
     try {
-      // Determine Outline parent document ID
       let parentDocId: string | undefined;
       if (parentNodeId) {
         const parentNode = effectiveNodes.get(parentNodeId);
-        if (parentNode?.type === 'doc') {
-          parentDocId = parentNode.rawId;
-        }
+        if (parentNode?.type === 'doc') parentDocId = parentNode.rawId;
       }
       const doc = await ol.createDocument(t('content.untitled'), '', collectionId, parentDocId);
-      const newNodeId = `doc:${doc.id}`;
 
-      // If parent is a table, store in treeState
-      if (parentNodeId) {
-        const parentNode = effectiveNodes.get(parentNodeId);
-        if (parentNode?.type === 'table') {
-          updateTreeParent(newNodeId, parentNodeId);
-        }
-        // Expand parent
-        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      // Replace temp doc with real one in cache
+      queryClient.setQueryData<ol.OLDocument[]>(['outline-docs'], old =>
+        (old || []).map(d => d.id === tempId ? doc : d)
+      );
+
+      // Fix treeState if parent was a table (replace temp ID)
+      if (parentNodeId && effectiveNodes.get(parentNodeId)?.type === 'table') {
+        setTreeState(prev => {
+          const next = { children: { ...prev.children }, parents: { ...prev.parents } };
+          delete next.parents[`doc:${tempId}`];
+          next.parents[`doc:${doc.id}`] = parentNodeId;
+          for (const [k, v] of Object.entries(next.children)) {
+            next.children[k] = v.map(id => id === `doc:${tempId}` ? `doc:${doc.id}` : id);
+          }
+          saveTreeState(next);
+          return next;
+        });
       }
 
-      refreshDocs();
       setSelection({ type: 'doc', id: doc.id });
       setMobileView('detail');
     } catch (e) {
       console.error('Create doc failed:', e);
+      // Remove optimistic doc on error
+      queryClient.setQueryData<ol.OLDocument[]>(['outline-docs'], old =>
+        (old || []).filter(d => d.id !== tempId)
+      );
     } finally {
       setCreating(false);
     }
@@ -312,25 +358,54 @@ export default function ContentPage() {
   const handleCreateTable = async (parentNodeId?: string) => {
     if (creating) return;
     setCreating(true);
+
+    // Optimistic: insert temp table into cache
+    const tempId = `temp-${Date.now()}`;
+    const optimisticTable: nc.NCTable = {
+      id: tempId,
+      title: t('content.untitledTable'),
+      created_at: new Date().toISOString(),
+    };
+    queryClient.setQueryData<nc.NCTable[]>(['nc-tables'], old => [...(old || []), optimisticTable]);
+
+    if (parentNodeId) {
+      updateTreeParent(`table:${tempId}`, parentNodeId);
+      setExpandedIds(prev => new Set(prev).add(parentNodeId));
+    }
+
     try {
       const table = await nc.createTable(t('content.untitledTable'), [
         { title: 'Name', uidt: 'SingleLineText' },
         { title: 'Notes', uidt: 'LongText' },
       ]);
       const tableId = table.id || (table as any).table_id;
-      const newNodeId = `table:${tableId}`;
 
-      // Store parent in treeState if creating as child
+      // Replace temp with real in cache
+      queryClient.setQueryData<nc.NCTable[]>(['nc-tables'], old =>
+        (old || []).map(t => t.id === tempId ? { ...table, id: tableId } : t)
+      );
+
+      // Fix treeState (replace temp ID)
       if (parentNodeId) {
-        updateTreeParent(newNodeId, parentNodeId);
-        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+        setTreeState(prev => {
+          const next = { children: { ...prev.children }, parents: { ...prev.parents } };
+          delete next.parents[`table:${tempId}`];
+          next.parents[`table:${tableId}`] = parentNodeId;
+          for (const [k, v] of Object.entries(next.children)) {
+            next.children[k] = v.map(id => id === `table:${tempId}` ? `table:${tableId}` : id);
+          }
+          saveTreeState(next);
+          return next;
+        });
       }
 
-      refreshTables();
       setSelection({ type: 'table', id: tableId });
       setMobileView('detail');
     } catch (e) {
       console.error('Create table failed:', e);
+      queryClient.setQueryData<nc.NCTable[]>(['nc-tables'], old =>
+        (old || []).filter(t => t.id !== tempId)
+      );
     } finally {
       setCreating(false);
     }
@@ -358,42 +433,166 @@ export default function ContentPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
+  // Check if nodeId is a descendant of ancestorId (prevent circular reparenting)
+  const isDescendant = useCallback((nodeId: string, ancestorId: string): boolean => {
+    const children = childrenMap.get(ancestorId);
+    if (!children) return false;
+    for (const childId of children) {
+      if (childId === nodeId) return true;
+      if (isDescendant(nodeId, childId)) return true;
+    }
+    return false;
+  }, [childrenMap]);
+
   const handleDragStart = (event: DragStartEvent) => {
     setDragActiveId(event.active.id as string);
+    setDropIntent(null);
+  };
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      setDropIntent(null);
+      return;
+    }
+    const overId = over.id as string;
+    // Use pointer Y position relative to the over element to determine intent
+    const overRect = over.rect;
+    const pointerY = (event.activatorEvent as PointerEvent)?.clientY;
+    // Use delta to compute current pointer position
+    const currentY = pointerY != null ? pointerY + (event.delta?.y || 0) : null;
+
+    if (!overRect || currentY == null) {
+      setDropIntent({ overId, position: 'inside' });
+      return;
+    }
+
+    const top = overRect.top;
+    const height = overRect.height;
+    const relativeY = currentY - top;
+    const ratio = relativeY / height;
+
+    // Top 25% = before, bottom 25% = after, middle 50% = inside (become child)
+    let position: 'before' | 'after' | 'inside';
+    if (ratio < 0.25) position = 'before';
+    else if (ratio > 0.75) position = 'after';
+    else position = 'inside';
+
+    setDropIntent({ overId, position });
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    const intent = dropIntent;
     setDragActiveId(null);
+    setDropIntent(null);
+
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     const activeId = active.id as string;
     const overId = over.id as string;
-
-    // Find which list (root or parent's children) both belong to
     const activeNode = effectiveNodes.get(activeId);
     const overNode = effectiveNodes.get(overId);
     if (!activeNode || !overNode) return;
 
-    // Determine the parent context: both must share the same parent for reorder
-    const activeParent = activeNode.parentId || '__root__';
-    const overParent = overNode.parentId || '__root__';
+    const position = intent?.overId === overId ? intent.position : 'after';
 
-    if (activeParent === overParent) {
-      // Same parent — reorder within
-      const siblings = activeParent === '__root__' ? [...rootIds] : [...(childrenMap.get(activeParent) || [])];
-      const oldIndex = siblings.indexOf(activeId);
-      const newIndex = siblings.indexOf(overId);
-      if (oldIndex < 0 || newIndex < 0) return;
+    if (position === 'inside') {
+      // Reparent: make activeNode a child of overNode
+      // Prevent circular: can't drop a parent into its own descendant
+      if (isDescendant(overId, activeId)) return;
 
-      const reordered = arrayMove(siblings, oldIndex, newIndex);
+      // Remove from old parent's children list in treeState
+      const oldParent = activeNode.parentId || '__root__';
       setTreeState(prev => {
-        const next = { ...prev, children: { ...prev.children, [activeParent]: reordered } };
+        const next = {
+          children: { ...prev.children },
+          parents: { ...prev.parents },
+        };
+        // Remove from old parent
+        if (next.children[oldParent]) {
+          next.children[oldParent] = next.children[oldParent].filter(id => id !== activeId);
+        }
+        // For doc→doc native parents, we also need treeState override
+        next.parents[activeId] = overId;
+        // Add to new parent's children
+        const newChildren = [...(next.children[overId] || [])];
+        if (!newChildren.includes(activeId)) newChildren.push(activeId);
+        next.children[overId] = newChildren;
         saveTreeState(next);
         return next;
       });
+
+      // If both are docs, also move in Outline API
+      if (activeNode.type === 'doc' && overNode.type === 'doc') {
+        ol.moveDocument(activeNode.rawId, overNode.rawId).catch(e => console.error('Move doc failed:', e));
+      }
+
+      // Expand the target so user sees the dropped item
+      setExpandedIds(prev => new Set(prev).add(overId));
+    } else {
+      // Reorder: place activeNode before/after overNode
+      const overParent = overNode.parentId || '__root__';
+      const activeParent = activeNode.parentId || '__root__';
+
+      if (activeParent === overParent) {
+        // Same parent — simple reorder
+        const siblings = overParent === '__root__' ? [...rootIds] : [...(childrenMap.get(overParent) || [])];
+        const oldIndex = siblings.indexOf(activeId);
+        const newIndex = siblings.indexOf(overId);
+        if (oldIndex < 0 || newIndex < 0) return;
+        const reordered = arrayMove(siblings, oldIndex, newIndex);
+        setTreeState(prev => {
+          const next = { ...prev, children: { ...prev.children, [overParent]: reordered } };
+          saveTreeState(next);
+          return next;
+        });
+      } else {
+        // Cross-parent: move to overNode's parent, inserting before/after overNode
+        if (isDescendant(overId, activeId)) return;
+
+        setTreeState(prev => {
+          const next = {
+            children: { ...prev.children },
+            parents: { ...prev.parents },
+          };
+          // Remove from old parent
+          if (next.children[activeParent]) {
+            next.children[activeParent] = next.children[activeParent].filter(id => id !== activeId);
+          }
+          // Set new parent
+          if (overParent === '__root__') {
+            delete next.parents[activeId];
+          } else {
+            next.parents[activeId] = overParent;
+          }
+          // Insert into new parent's children list
+          const newSiblings = [...(next.children[overParent] || [])];
+          // Remove if already present
+          const existingIdx = newSiblings.indexOf(activeId);
+          if (existingIdx >= 0) newSiblings.splice(existingIdx, 1);
+          const overIdx = newSiblings.indexOf(overId);
+          const insertIdx = position === 'before' ? overIdx : overIdx + 1;
+          newSiblings.splice(insertIdx >= 0 ? insertIdx : newSiblings.length, 0, activeId);
+          next.children[overParent] = newSiblings;
+          saveTreeState(next);
+          return next;
+        });
+
+        // If doc moving to/from doc parent, update in Outline
+        if (activeNode.type === 'doc') {
+          if (overParent !== '__root__') {
+            const newParentNode = effectiveNodes.get(overParent);
+            if (newParentNode?.type === 'doc') {
+              ol.moveDocument(activeNode.rawId, newParentNode.rawId).catch(e => console.error('Move doc failed:', e));
+            }
+          } else {
+            // Moving to root
+            ol.moveDocument(activeNode.rawId, null).catch(e => console.error('Move doc failed:', e));
+          }
+        }
+      }
     }
-    // Cross-parent drag could be implemented later if needed
   };
 
   // Breadcrumb
@@ -510,6 +709,7 @@ export default function ContentPage() {
                 sensors={sensors}
                 collisionDetection={closestCenter}
                 onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
               >
                 <SortableContext items={flatVisibleIds} strategy={verticalListSortingStrategy}>
@@ -527,6 +727,8 @@ export default function ContentPage() {
                       onCreateTable={handleCreateTable}
                       depth={0}
                       creating={creating}
+                      dropIntent={dropIntent}
+                      dragActiveId={dragActiveId}
                     />
                   ))}
                 </SortableContext>
@@ -589,7 +791,7 @@ export default function ContentPage() {
 
 function TreeNodeRecursive({
   nodeId, nodes, childrenMap, selection, expandedIds, onSelect, onToggle,
-  onCreateDoc, onCreateTable, depth, creating,
+  onCreateDoc, onCreateTable, depth, creating, dropIntent, dragActiveId,
 }: {
   nodeId: string;
   nodes: Map<string, ContentNode>;
@@ -602,6 +804,8 @@ function TreeNodeRecursive({
   onCreateTable: (parentId?: string) => void;
   depth: number;
   creating: boolean;
+  dropIntent: DropIntent;
+  dragActiveId: string | null;
 }) {
   const node = nodes.get(nodeId);
   if (!node) return null;
@@ -610,6 +814,10 @@ function TreeNodeRecursive({
   const hasChildren = children.length > 0;
   const isExpanded = expandedIds.has(nodeId);
   const isSelected = selection?.type === node.type && selection?.id === node.rawId;
+
+  // Drop indicators for this node
+  const isDropTarget = dropIntent?.overId === nodeId && dragActiveId !== nodeId;
+  const dropPosition = isDropTarget ? dropIntent!.position : null;
 
   return (
     <div>
@@ -627,6 +835,7 @@ function TreeNodeRecursive({
           else onCreateTable(nodeId);
         }}
         creating={creating}
+        dropPosition={dropPosition}
       />
       {hasChildren && isExpanded && (
         <div>
@@ -644,6 +853,8 @@ function TreeNodeRecursive({
               onCreateTable={onCreateTable}
               depth={depth + 1}
               creating={creating}
+              dropIntent={dropIntent}
+              dragActiveId={dragActiveId}
             />
           ))}
         </div>
@@ -657,7 +868,7 @@ function TreeNodeRecursive({
 // ═══════════════════════════════════════════════════
 
 function SortableTreeNode({
-  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, creating,
+  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, creating, dropPosition,
 }: {
   nodeId: string;
   node: ContentNode;
@@ -669,6 +880,7 @@ function SortableTreeNode({
   depth: number;
   onCreateChild: (type: 'doc' | 'table') => void;
   creating?: boolean;
+  dropPosition?: 'before' | 'after' | 'inside' | null;
 }) {
   const { t } = useT();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: nodeId });
@@ -681,13 +893,18 @@ function SortableTreeNode({
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style} {...attributes} className="relative">
+      {/* Drop indicator: before */}
+      {dropPosition === 'before' && (
+        <div className="absolute top-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10" />
+      )}
       <div
         className={cn(
           'group relative flex items-center gap-1 py-1.5 px-1 text-sm transition-colors rounded-lg cursor-pointer',
           isSelected
             ? 'bg-[#D6DFF6] dark:bg-sidebar-accent text-sidebar-primary dark:text-sidebar-primary-foreground'
-            : 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50'
+            : 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50',
+          dropPosition === 'inside' && 'ring-2 ring-blue-500 ring-inset bg-blue-50 dark:bg-blue-950/30'
         )}
         style={{ paddingLeft: `${4 + depth * 16}px` }}
         onClick={onSelect}
@@ -756,6 +973,10 @@ function SortableTreeNode({
           </button>
         </div>
       </div>
+      {/* Drop indicator: after */}
+      {dropPosition === 'after' && (
+        <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10" />
+      )}
     </div>
   );
 }
