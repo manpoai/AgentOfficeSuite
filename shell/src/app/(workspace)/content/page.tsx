@@ -1229,10 +1229,10 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
       {/* Content area */}
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
         <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto">
-          {/* Title area — inside scrollable content */}
-          <div className="max-w-[48rem] mx-auto w-full px-4 pt-8 pb-0">
+          {/* Title area — uses same max-width and centering as editor content */}
+          <div className="doc-title-area">
             <div
-              className="group/title relative flex items-start gap-2"
+              className="group/title relative flex items-start gap-3"
               onMouseEnter={() => setShowTitleIcon(true)}
               onMouseLeave={() => { if (!showEmojiPicker) setShowTitleIcon(false); }}
             >
@@ -1241,32 +1241,29 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 {emoji ? (
                   <button
                     onClick={() => setShowEmojiPicker(v => !v)}
-                    className="text-3xl leading-none mt-1 hover:opacity-70 transition-opacity"
+                    className="text-4xl leading-none mt-1.5 hover:opacity-70 transition-opacity"
                     title="Change icon"
                   >
                     {emoji}
                   </button>
-                ) : (
+                ) : showTitleIcon ? (
                   <button
                     onClick={() => setShowEmojiPicker(v => !v)}
-                    className={cn(
-                      'p-1 mt-2 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-black/5 transition-all',
-                      showTitleIcon ? 'opacity-100' : 'opacity-0'
-                    )}
+                    className="p-1.5 mt-2 rounded text-muted-foreground/40 hover:text-muted-foreground hover:bg-black/5 transition-all"
                     title="Add icon"
                   >
-                    <Smile className="h-5 w-5" />
+                    <Smile className="h-6 w-6" />
                   </button>
-                )}
+                ) : null}
                 {/* Emoji picker dropdown */}
                 {showEmojiPicker && (
-                  <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-2 w-[260px]">
-                    <div className="grid grid-cols-10 gap-0.5">
+                  <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-xl p-3 w-[280px]">
+                    <div className="grid grid-cols-10 gap-1">
                       {COMMON_EMOJIS.map(em => (
                         <button
                           key={em}
                           onClick={() => handleEmojiSelect(em)}
-                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent text-base leading-none"
+                          className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent text-lg leading-none"
                         >
                           {em}
                         </button>
@@ -1274,10 +1271,10 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                     </div>
                     {emoji && (
                       <>
-                        <div className="border-t border-border my-1.5" />
+                        <div className="border-t border-border my-2" />
                         <button
                           onClick={() => handleEmojiSelect(null)}
-                          className="w-full text-xs text-muted-foreground hover:text-foreground py-1 rounded hover:bg-accent transition-colors"
+                          className="w-full text-xs text-muted-foreground hover:text-foreground py-1.5 rounded hover:bg-accent transition-colors"
                         >
                           Remove icon
                         </button>
@@ -1291,11 +1288,11 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 value={title}
                 onChange={handleTitleChange}
                 placeholder={t('content.untitled')}
-                className="flex-1 text-3xl font-bold text-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30"
+                className="flex-1 text-[2.5rem] font-bold text-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 leading-tight"
               />
             </div>
             {/* Meta info below title */}
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2 mb-4">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-3 mb-2">
               <span>{formatRelativeTime(doc.updatedAt)}</span>
               {doc.updatedBy?.name && <span>· {doc.updatedBy.name}</span>}
             </div>

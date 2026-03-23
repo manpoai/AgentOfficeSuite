@@ -19,6 +19,13 @@
   padding: 0 1rem 1rem;
 }
 
+/* Title area above editor — same max-width and horizontal alignment */
+.doc-title-area {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 3rem 1rem 0;
+}
+
 .outline-editor-content {
   outline: none;
   max-width: 48rem;
