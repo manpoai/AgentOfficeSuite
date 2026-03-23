@@ -51,6 +51,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           { imageUploadPlugin },
           { placeholderPlugin },
           { blockHandlePlugin },
+          { tableMenuPlugin },
         ] = await Promise.all([
           import('prosemirror-state'),
           import('prosemirror-view'),
@@ -68,6 +69,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           import('./image-plugin'),
           import('./placeholder-plugin'),
           import('./block-handle-plugin'),
+          import('./table-menu-plugin'),
         ]);
 
         if (destroyed) return;
@@ -96,6 +98,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           plugins.push(imageUploadPlugin(() => documentId));
           plugins.push(placeholderPlugin(placeholder || ''));
           plugins.push(blockHandlePlugin());
+          plugins.push(tableMenuPlugin());
         }
 
         const state = EditorState.create({ doc, plugins });
