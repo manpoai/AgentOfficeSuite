@@ -9,7 +9,7 @@ import { useT } from '@/lib/i18n';
 interface Props {
   doc: OLDocument;
   onClose: () => void;
-  onRestored: () => void;
+  onRestored: () => void | Promise<void>;
 }
 
 export default function RevisionHistory({ doc, onClose, onRestored }: Props) {
@@ -52,7 +52,7 @@ export default function RevisionHistory({ doc, onClose, onRestored }: Props) {
     setRestoring(true);
     try {
       await ol.restoreRevision(doc.id, selectedId);
-      onRestored();
+      await onRestored();
       onClose();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Restore failed');

@@ -773,7 +773,7 @@ export default function ContentPage() {
       )}>
         {selectedDoc && selection?.type === 'doc' ? (
           <DocPanel
-            key={selectedDoc.id}
+            key={`${selectedDoc.id}-${selectedDoc.updatedAt}`}
             doc={selectedDoc}
             breadcrumb={getBreadcrumb(selectedDoc.id)}
             onBack={() => setMobileView('list')}
@@ -1419,8 +1419,9 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
         <RevisionHistory
           doc={doc}
           onClose={() => setShowHistory(false)}
-          onRestored={() => {
-            queryClient.invalidateQueries({ queryKey: ['outline-doc', doc.id] });
+          onRestored={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['outline-doc', doc.id] });
+            await queryClient.invalidateQueries({ queryKey: ['outline-docs'] });
             onSaved();
           }}
         />
