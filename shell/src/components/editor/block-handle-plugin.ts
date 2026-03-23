@@ -369,11 +369,13 @@ export function blockHandlePlugin(): Plugin {
     const domNode = view.nodeDOM(blockPos) as HTMLElement | null;
     if (!domNode || !domNode.getBoundingClientRect) return;
 
-    const editorRect = view.dom.getBoundingClientRect();
+    const wrapper = handle.parentElement;
+    if (!wrapper) return;
+    const wrapperRect = wrapper.getBoundingClientRect();
     const blockRect = domNode.getBoundingClientRect();
 
     // Position handle on the left of the block, vertically at the first line
-    handle.style.top = `${blockRect.top - editorRect.top}px`;
+    handle.style.top = `${blockRect.top - wrapperRect.top}px`;
     handle.style.opacity = '0.5';
   }
 
@@ -389,9 +391,11 @@ export function blockHandlePlugin(): Plugin {
     key: blockHandleKey,
     view(editorView) {
       handle = createHandle();
-      // Position container relative to editor
-      editorView.dom.style.position = 'relative';
-      editorView.dom.appendChild(handle);
+      // Append to the editor mount wrapper (parent of ProseMirror contentEditable)
+      // ProseMirror manages its own DOM and will remove foreign children
+      const wrapper = editorView.dom.parentElement || editorView.dom;
+      wrapper.style.position = 'relative';
+      wrapper.appendChild(handle);
 
       // Click handle → toggle menu
       handle.addEventListener('mousedown', (e) => {
