@@ -19,18 +19,13 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
+  useDraggable,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
   type DragMoveEvent,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { arrayMove } from '@dnd-kit/sortable';
 
 /** Where to drop: before/after = reorder, inside = reparent */
 type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | null;
@@ -231,22 +226,6 @@ export default function ContentPage() {
 
     return { childrenMap: cMap, rootIds: roots };
   }, [effectiveNodes, treeState]);
-
-  // Flatten tree for DnD sortable context (visible items only)
-  const flatVisibleIds = useMemo(() => {
-    const result: string[] = [];
-    const walk = (ids: string[]) => {
-      for (const id of ids) {
-        result.push(id);
-        if (expandedIds.has(id)) {
-          const children = childrenMap.get(id);
-          if (children) walk(children);
-        }
-      }
-    };
-    walk(rootIds);
-    return result;
-  }, [rootIds, childrenMap, expandedIds]);
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -750,28 +729,26 @@ export default function ContentPage() {
                 onDragMove={updateDropIntent}
                 onDragEnd={handleDragEnd}
               >
-                <SortableContext items={flatVisibleIds} strategy={verticalListSortingStrategy}>
-                  {rootIds.map(nodeId => (
-                    <TreeNodeRecursive
-                      key={nodeId}
-                      nodeId={nodeId}
-                      nodes={effectiveNodes}
-                      childrenMap={childrenMap}
-                      selection={selection}
-                      expandedIds={expandedIds}
-                      onSelect={handleSelect}
-                      onToggle={toggleExpand}
-                      onCreateDoc={handleCreateDoc}
-                      onCreateTable={handleCreateTable}
-                      depth={0}
-                      creating={creating}
-                      dropIntent={dropIntent}
-                      dragActiveId={dragActiveId}
-                    />
-                  ))}
-                </SortableContext>
+                {rootIds.map(nodeId => (
+                  <TreeNodeRecursive
+                    key={nodeId}
+                    nodeId={nodeId}
+                    nodes={effectiveNodes}
+                    childrenMap={childrenMap}
+                    selection={selection}
+                    expandedIds={expandedIds}
+                    onSelect={handleSelect}
+                    onToggle={toggleExpand}
+                    onCreateDoc={handleCreateDoc}
+                    onCreateTable={handleCreateTable}
+                    depth={0}
+                    creating={creating}
+                    dropIntent={dropIntent}
+                    dragActiveId={dragActiveId}
+                  />
+                ))}
 
-                <DragOverlay>
+                <DragOverlay dropAnimation={null}>
                   {dragActiveNode && (
                     <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
                       {dragActiveNode.type === 'table'
@@ -859,7 +836,7 @@ function TreeNodeRecursive({
 
   return (
     <div>
-      <SortableTreeNode
+      <DraggableTreeNode
         nodeId={nodeId}
         node={node}
         isSelected={isSelected}
@@ -874,6 +851,7 @@ function TreeNodeRecursive({
         }}
         creating={creating}
         dropPosition={dropPosition}
+        isDragActive={dragActiveId === nodeId}
       />
       {hasChildren && isExpanded && (
         <div>
@@ -902,11 +880,11 @@ function TreeNodeRecursive({
 }
 
 // ═══════════════════════════════════════════════════
-// Sortable tree node (with DnD + hover actions)
+// Draggable tree node (stays in place while dragging, grayed out)
 // ═══════════════════════════════════════════════════
 
-function SortableTreeNode({
-  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, creating, dropPosition,
+function DraggableTreeNode({
+  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, creating, dropPosition, isDragActive,
 }: {
   nodeId: string;
   node: ContentNode;
@@ -919,19 +897,14 @@ function SortableTreeNode({
   onCreateChild: (type: 'doc' | 'table') => void;
   creating?: boolean;
   dropPosition?: 'before' | 'after' | 'inside' | null;
+  isDragActive?: boolean;
 }) {
   const { t } = useT();
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: nodeId });
+  const { attributes, listeners, setNodeRef } = useDraggable({ id: nodeId });
   const [showAddMenu, setShowAddMenu] = useState(false);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
-
   return (
-    <div ref={setNodeRef} style={style} {...attributes} className="relative" data-tree-id={nodeId}>
+    <div ref={setNodeRef} className="relative" data-tree-id={nodeId}>
       {/* Drop indicator: before */}
       {dropPosition === 'before' && (
         <div className="absolute top-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10" />
@@ -939,9 +912,10 @@ function SortableTreeNode({
       <div
         className={cn(
           'group relative flex items-center gap-1 py-1.5 px-1 text-sm transition-colors rounded-lg cursor-pointer',
-          isSelected
+          isDragActive && 'opacity-40',
+          isSelected && !isDragActive
             ? 'bg-[#D6DFF6] dark:bg-sidebar-accent text-sidebar-primary dark:text-sidebar-primary-foreground'
-            : 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50',
+            : !isDragActive && 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50',
           dropPosition === 'inside' && 'ring-2 ring-blue-500 ring-inset bg-blue-50 dark:bg-blue-950/30'
         )}
         style={{ paddingLeft: `${4 + depth * 16}px` }}
@@ -965,8 +939,8 @@ function SortableTreeNode({
           : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
         }
 
-        {/* Title */}
-        <span className="truncate flex-1" {...listeners}>{node.title}</span>
+        {/* Title — drag handle */}
+        <span className="truncate flex-1" {...attributes} {...listeners}>{node.title}</span>
 
         {/* Hover actions: Add + More */}
         <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
