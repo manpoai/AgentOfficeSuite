@@ -60,6 +60,7 @@ class ImageNodeView implements NodeView {
   dom: HTMLElement;
   private img: HTMLImageElement;
   private toolbar: HTMLElement;
+  private sizeLabel: HTMLElement | null = null;
   private resizing = false;
 
   constructor(private node: PMNode, private view: EditorView, private getPos: () => number | undefined) {
@@ -80,7 +81,7 @@ class ImageNodeView implements NodeView {
     this.img.style.borderRadius = '4px';
     this.img.draggable = false;
 
-    // Click to select this image node (shows blue border + image toolbar)
+    // Click to select this image node
     this.img.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -116,13 +117,13 @@ class ImageNodeView implements NodeView {
       const onMove = (ev: MouseEvent) => {
         const newW = Math.max(50, startW + (ev.clientX - startX));
         this.img.style.width = `${newW}px`;
+        this.updateSizeLabel();
       };
       const onUp = () => {
         this.resizing = false;
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         resizeHandle.style.opacity = '0';
-        // Commit width
         const pos = this.getPos();
         if (pos != null) {
           const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
@@ -136,61 +137,8 @@ class ImageNodeView implements NodeView {
       document.addEventListener('mouseup', onUp);
     });
 
-    // Toolbar (hidden by default)
-    this.toolbar = document.createElement('div');
-    this.toolbar.className = 'image-toolbar';
-    this.toolbar.style.cssText = 'display:none;position:absolute;top:-36px;left:50%;transform:translateX(-50%);background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:8px;padding:2px;box-shadow:0 2px 8px rgba(0,0,0,0.12);z-index:20;white-space:nowrap;';
-
-    const alignBtns = [
-      { label: '◀', align: 'left', title: 'Align left' },
-      { label: '▬', align: 'center', title: 'Center' },
-      { label: '▶', align: 'right', title: 'Align right' },
-    ];
-    for (const btn of alignBtns) {
-      const b = document.createElement('button');
-      b.textContent = btn.label;
-      b.title = btn.title;
-      b.style.cssText = `padding:4px 8px;border:none;background:${node.attrs.align === btn.align ? 'hsl(var(--accent))' : 'transparent'};cursor:pointer;border-radius:4px;font-size:12px;color:hsl(var(--foreground));`;
-      b.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const pos = this.getPos();
-        if (pos != null) {
-          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
-            ...this.node.attrs,
-            align: btn.align,
-          });
-          this.view.dispatch(tr);
-        }
-        this.hideToolbar();
-      });
-      this.toolbar.appendChild(b);
-    }
-
-    // Size presets
-    const sizes = ['25%', '50%', '75%', '100%'];
-    const sep = document.createElement('span');
-    sep.style.cssText = 'display:inline-block;width:1px;height:20px;background:hsl(var(--border));margin:0 2px;vertical-align:middle;';
-    this.toolbar.appendChild(sep);
-    for (const size of sizes) {
-      const b = document.createElement('button');
-      b.textContent = size;
-      b.style.cssText = 'padding:4px 6px;border:none;background:transparent;cursor:pointer;border-radius:4px;font-size:11px;color:hsl(var(--muted-foreground));';
-      b.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const pos = this.getPos();
-        if (pos != null) {
-          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
-            ...this.node.attrs,
-            width: size,
-          });
-          this.view.dispatch(tr);
-        }
-        this.hideToolbar();
-      });
-      this.toolbar.appendChild(b);
-    }
+    // Toolbar (Outline-style: layout + dimensions + actions)
+    this.toolbar = this.buildToolbar();
 
     const toolbarContainer = document.createElement('div');
     toolbarContainer.style.cssText = 'position:relative;display:inline-block;';
@@ -199,8 +147,175 @@ class ImageNodeView implements NodeView {
 
     this.dom.appendChild(toolbarContainer);
 
-    // Close toolbar on outside click
+    // Update dimensions once image loads
+    this.img.addEventListener('load', () => this.updateSizeLabel());
+
     document.addEventListener('click', this.handleOutsideClick);
+  }
+
+  private buildToolbar(): HTMLElement {
+    const tb = document.createElement('div');
+    tb.className = 'image-toolbar';
+    tb.style.cssText = 'display:none;position:absolute;top:-44px;left:50%;transform:translateX(-50%);background:hsl(var(--card, 0 0% 100%));border:1px solid hsl(var(--border, 0 0% 90%));border-radius:8px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.12);z-index:20;white-space:nowrap;display:none;';
+
+    const btnStyle = 'padding:6px 8px;border:none;background:transparent;cursor:pointer;border-radius:4px;font-size:13px;color:hsl(var(--foreground, 0 0% 9%));line-height:1;';
+    const btnActiveStyle = 'padding:6px 8px;border:none;background:hsl(var(--accent, 0 0% 96%));cursor:pointer;border-radius:4px;font-size:13px;color:hsl(var(--foreground, 0 0% 9%));line-height:1;';
+
+    // Layout/alignment buttons (matching Outline's 5-button layout)
+    const layouts = [
+      { svg: this.svgIcon('alignLeft'), align: 'left', title: 'Align left' },
+      { svg: this.svgIcon('alignCenter'), align: 'center', title: 'Center' },
+      { svg: this.svgIcon('alignRight'), align: 'right', title: 'Align right' },
+      { svg: this.svgIcon('fullWidth'), align: 'full', title: 'Full width' },
+      { svg: this.svgIcon('fitWidth'), align: 'fit', title: 'Fit to page' },
+    ];
+
+    for (const layout of layouts) {
+      const b = document.createElement('button');
+      b.innerHTML = layout.svg;
+      b.title = layout.title;
+      b.style.cssText = (this.node.attrs.align === layout.align) ? btnActiveStyle : btnStyle;
+      b.addEventListener('mouseenter', () => { b.style.background = 'hsl(var(--accent, 0 0% 96%))'; });
+      b.addEventListener('mouseleave', () => { b.style.background = (this.node.attrs.align === layout.align) ? 'hsl(var(--accent, 0 0% 96%))' : 'transparent'; });
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const pos = this.getPos();
+        if (pos != null) {
+          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+            ...this.node.attrs,
+            align: layout.align,
+          });
+          this.view.dispatch(tr);
+        }
+      });
+      tb.appendChild(b);
+    }
+
+    // Separator
+    tb.appendChild(this.createSep());
+
+    // Dimensions display
+    this.sizeLabel = document.createElement('span');
+    this.sizeLabel.style.cssText = 'padding:4px 8px;font-size:12px;color:hsl(var(--muted-foreground, 0 0% 45%));user-select:none;white-space:nowrap;';
+    this.sizeLabel.textContent = '…';
+    tb.appendChild(this.sizeLabel);
+
+    // Separator
+    tb.appendChild(this.createSep());
+
+    // Action buttons
+    const actions = [
+      { svg: this.svgIcon('download'), title: 'Download', action: () => this.downloadImage() },
+      { svg: this.svgIcon('replace'), title: 'Replace', action: () => this.replaceImage() },
+      { svg: this.svgIcon('delete'), title: 'Delete', action: () => this.deleteImage() },
+      { svg: this.svgIcon('link'), title: 'Copy link', action: () => this.copyLink() },
+      { svg: this.svgIcon('caption'), title: 'Alt text', action: () => this.editAltText() },
+    ];
+
+    for (const act of actions) {
+      const b = document.createElement('button');
+      b.innerHTML = act.svg;
+      b.title = act.title;
+      b.style.cssText = btnStyle;
+      b.addEventListener('mouseenter', () => { b.style.background = 'hsl(var(--accent, 0 0% 96%))'; });
+      b.addEventListener('mouseleave', () => { b.style.background = 'transparent'; });
+      b.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        act.action();
+      });
+      tb.appendChild(b);
+    }
+
+    return tb;
+  }
+
+  private createSep(): HTMLElement {
+    const sep = document.createElement('span');
+    sep.style.cssText = 'display:inline-block;width:1px;height:20px;background:hsl(var(--border, 0 0% 90%));margin:0 2px;vertical-align:middle;';
+    return sep;
+  }
+
+  private svgIcon(name: string): string {
+    const icons: Record<string, string> = {
+      alignLeft: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+      alignCenter: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>',
+      alignRight: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+      fullWidth: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>',
+      fitWidth: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 8 3 12 7 16"/><polyline points="17 8 21 12 17 16"/><line x1="3" y1="12" x2="21" y2="12"/></svg>',
+      download: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+      replace: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>',
+      delete: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      link: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+      caption: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+    };
+    return icons[name] || '';
+  }
+
+  private updateSizeLabel() {
+    if (!this.sizeLabel) return;
+    const w = this.img.naturalWidth || this.img.offsetWidth;
+    const h = this.img.naturalHeight || this.img.offsetHeight;
+    if (w && h) {
+      this.sizeLabel.textContent = `${w} × ${h}`;
+    }
+  }
+
+  private downloadImage() {
+    const a = document.createElement('a');
+    a.href = this.img.src;
+    a.download = this.node.attrs.alt || 'image';
+    a.click();
+  }
+
+  private replaceImage() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const pos = this.getPos();
+        if (pos != null && typeof reader.result === 'string') {
+          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+            ...this.node.attrs,
+            src: reader.result,
+          });
+          this.view.dispatch(tr);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    input.click();
+  }
+
+  private deleteImage() {
+    const pos = this.getPos();
+    if (pos == null) return;
+    const tr = this.view.state.tr.delete(pos, pos + this.node.nodeSize);
+    this.view.dispatch(tr);
+  }
+
+  private copyLink() {
+    navigator.clipboard.writeText(this.img.src).catch(() => {});
+  }
+
+  private editAltText() {
+    const current = this.node.attrs.alt || '';
+    const alt = prompt('Alt text:', current);
+    if (alt !== null && alt !== current) {
+      const pos = this.getPos();
+      if (pos != null) {
+        const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+          ...this.node.attrs,
+          alt,
+        });
+        this.view.dispatch(tr);
+      }
+    }
   }
 
   private handleOutsideClick = (e: MouseEvent) => {
@@ -210,7 +325,9 @@ class ImageNodeView implements NodeView {
   };
 
   private showToolbar() {
-    this.toolbar.style.display = 'block';
+    this.toolbar.style.display = 'flex';
+    this.toolbar.style.alignItems = 'center';
+    this.updateSizeLabel();
   }
 
   private hideToolbar() {
@@ -229,12 +346,16 @@ class ImageNodeView implements NodeView {
   }
 
   selectNode() {
-    this.img.style.outline = '2px solid hsl(var(--primary))';
+    this.dom.classList.add('image-selected');
+    this.img.style.outline = '2px solid hsl(var(--primary, 220 90% 56%))';
+    this.img.style.outlineOffset = '2px';
     this.showToolbar();
   }
 
   deselectNode() {
+    this.dom.classList.remove('image-selected');
     this.img.style.outline = 'none';
+    this.img.style.outlineOffset = '';
     this.hideToolbar();
   }
 
@@ -243,7 +364,6 @@ class ImageNodeView implements NodeView {
   }
 
   stopEvent(event: Event) {
-    // Stop click/mousedown from reaching ProseMirror so our NodeSelection handler works
     return event.type === 'mousedown' || event.type === 'click';
   }
   ignoreMutation() { return true; }

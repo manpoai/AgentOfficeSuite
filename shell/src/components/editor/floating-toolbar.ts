@@ -455,7 +455,13 @@ export function floatingToolbarPlugin(): Plugin {
         showTimeout = setTimeout(() => {
           showTimeout = null;
           const { state } = editorView;
-          const { from, to, empty } = state.selection;
+          const { selection } = state;
+          // Don't show text toolbar for node selections (e.g. image)
+          if (selection instanceof NodeSelection) {
+            scheduleHide();
+            return;
+          }
+          const { from, to, empty } = selection;
           if (!empty && from !== to) {
             const $from = state.doc.resolve(from);
             if ($from.parent.type !== schema.nodes.code_block) {
