@@ -1182,11 +1182,11 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 )}
               </span>
             ))}
-            {/* Timestamp + author in breadcrumb bar */}
-            <span className="text-[11px] text-muted-foreground/50 ml-2 shrink-0">
-              {formatRelativeTime(doc.updatedAt)}
-              {doc.updatedBy?.name && <span> · {doc.updatedBy.name}</span>}
-            </span>
+          </div>
+          {/* Timestamp + author on second line */}
+          <div className="text-[11px] text-muted-foreground/50 mt-0.5">
+            {formatRelativeTime(doc.updatedAt)}
+            {doc.updatedBy?.name && <span> · {doc.updatedBy.name}</span>}
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1235,12 +1235,12 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
         <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto">
           {/* Title area — Outline style: emoji inline when set, hover icon positioned outside */}
-          <div className="doc-title-wrap">
           <div
-            className="doc-title-area group/title"
+            className="doc-title-wrap"
             onMouseEnter={() => setShowTitleIcon(true)}
             onMouseLeave={() => { if (!showEmojiPicker) setShowTitleIcon(false); }}
           >
+          <div className="doc-title-area group/title">
             <div className="relative flex items-center" ref={emojiPickerRef}>
               {/* Emoji or hover icon — absolute positioned to the LEFT, outside content area */}
               {emoji ? (
@@ -1295,7 +1295,7 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
                 </div>
               )}
             </div>
-            <div className="mb-4" />
+            <div className="mb-8" />
           </div>
           </div>
 
