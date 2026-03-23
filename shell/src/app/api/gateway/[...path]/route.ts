@@ -11,22 +11,22 @@ export async function GET(req: NextRequest, { params }: { params: { path: string
 }
 
 export async function POST(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path, await req.text());
+  return proxy(req, params.path, true);
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path, await req.text());
+  return proxy(req, params.path, true);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path, await req.text());
+  return proxy(req, params.path, true);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { path: string[] } }) {
   return proxy(req, params.path);
 }
 
-async function proxy(req: NextRequest, pathParts: string[], body?: string) {
+async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
   const gwPath = '/api/' + pathParts.join('/');
   const url = new URL(gwPath, GW_URL);
 
@@ -36,16 +36,29 @@ async function proxy(req: NextRequest, pathParts: string[], body?: string) {
     'Authorization': `Bearer ${GW_TOKEN}`,
   };
 
-  const ct = req.headers.get('content-type');
-  if (ct) headers['Content-Type'] = ct;
+  const ct = req.headers.get('content-type') || '';
+  const isMultipart = ct.includes('multipart/form-data');
+
+  // For multipart/form-data, pass body as raw bytes to preserve the boundary
+  // For other content types, pass as text and set Content-Type
+  let body: BodyInit | undefined;
+  if (hasBody) {
+    if (isMultipart) {
+      body = await req.arrayBuffer();
+      headers['Content-Type'] = ct; // Preserve original with boundary
+    } else {
+      body = await req.text();
+      if (ct) headers['Content-Type'] = ct;
+    }
+  }
 
   const resp = await fetch(url.toString(), {
     method: req.method,
     headers,
-    body: body || undefined,
+    body,
   });
 
-  const data = await resp.text();
+  const data = await resp.arrayBuffer();
   return new NextResponse(data, {
     status: resp.status,
     headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json' },
