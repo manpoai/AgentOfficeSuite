@@ -6,24 +6,18 @@
 /* ProseMirror Editor Styles — Outline-compatible */
 
 .outline-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
   position: relative;
 }
 
 .outline-editor-mount {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 1rem 1rem;
+  padding: 0 1rem 2rem;
 }
 
-/* Title area above editor — same max-width and horizontal alignment */
+/* Title area above editor — shares the same container scroll */
 .doc-title-area {
   max-width: 48rem;
   margin: 0 auto;
-  padding: 3rem 1rem 0;
+  padding: 3.5rem 1rem 0;
 }
 
 .outline-editor-content {

@@ -1057,7 +1057,7 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
   const [showDocMenu, setShowDocMenu] = useState(false);
   const [commentQuote, setCommentQuote] = useState('');
   const [title, setTitle] = useState(doc.title);
-  const [emoji, setEmoji] = useState<string | null>(doc.emoji || null);
+  const [emoji, setEmoji] = useState<string | null>(doc.emoji?.trim() || null);
   const [text, setText] = useState(doc.text);
   const [deleting, setDeleting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
@@ -1088,9 +1088,9 @@ function DocPanel({ doc, breadcrumb, onBack, onSaved, onDeleted, onNavigate }: {
 
   useEffect(() => {
     setTitle(doc.title);
-    setEmoji(doc.emoji || null);
+    setEmoji(doc.emoji?.trim() || null);
     setText(doc.text);
-    latestRef.current = { title: doc.title, text: doc.text, emoji: doc.emoji || null };
+    latestRef.current = { title: doc.title, text: doc.text, emoji: doc.emoji?.trim() || null };
     setSaveStatus('saved');
   }, [doc.id, doc.title, doc.text, doc.emoji]);
 
