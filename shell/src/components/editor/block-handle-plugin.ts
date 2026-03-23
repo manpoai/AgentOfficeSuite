@@ -251,7 +251,6 @@ export function blockHandlePlugin(): Plugin {
     el.innerHTML = '⠿'; // Braille pattern as drag dots
     el.style.cssText = `
       position: absolute;
-      left: -28px;
       width: 20px;
       height: 20px;
       display: flex;
@@ -374,8 +373,9 @@ export function blockHandlePlugin(): Plugin {
     const wrapperRect = wrapper.getBoundingClientRect();
     const blockRect = domNode.getBoundingClientRect();
 
-    // Position handle on the left of the block, vertically at the first line
-    handle.style.top = `${blockRect.top - wrapperRect.top}px`;
+    // Position handle to the left of the block content
+    handle.style.top = `${blockRect.top - wrapperRect.top + 2}px`;
+    handle.style.left = `${blockRect.left - wrapperRect.left - 28}px`;
     handle.style.opacity = '0.5';
   }
 
