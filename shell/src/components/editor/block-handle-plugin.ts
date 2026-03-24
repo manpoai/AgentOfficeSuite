@@ -26,14 +26,27 @@ const LIST_ITEM_TYPES = new Set(['list_item', 'checkbox_item']);
 function blockAtCoords(view: EditorView, y: number): { pos: number; end: number; node: any; dom: HTMLElement | null; depth: number; parentListPos: number | null } | null {
   const editorRect = view.dom.getBoundingClientRect();
 
-  // Try posAtCoords at several x positions for robustness (images, indented blocks)
+  // Try posAtCoords at several x positions for robustness
+  // Use multiple x positions: left edge, indented (for lists), and center
   let coords = view.posAtCoords({ left: editorRect.left + 10, top: y });
+  if (!coords) coords = view.posAtCoords({ left: editorRect.left + 60, top: y });
   if (!coords) coords = view.posAtCoords({ left: editorRect.left + editorRect.width / 2, top: y });
   if (!coords) return null;
 
   let $pos = view.state.doc.resolve(coords.pos);
 
-  // If depth is 0 (doc level), try to find the closest top-level child by walking DOM children
+  // If depth is 0 (doc level), try harder with DOM scan
+  if ($pos.depth < 1) {
+    // Try indented x position first (might land inside list content)
+    const altCoords = view.posAtCoords({ left: editorRect.left + 60, top: y });
+    if (altCoords) {
+      const alt$pos = view.state.doc.resolve(altCoords.pos);
+      if (alt$pos.depth >= 1) {
+        $pos = alt$pos;
+      }
+    }
+  }
+
   if ($pos.depth < 1) {
     // Fallback: scan top-level children by DOM bounding rects
     const found = findBlockByDOMScan(view, y);
@@ -460,11 +473,16 @@ export function blockHandlePlugin(): Plugin {
     if (!handleEl) return;
 
     // Hysteresis: if mouse is still within the current block's rect, don't re-resolve
+    // Skip hysteresis for list containers — need to re-resolve to find individual list items
     if (currentBlockDom && currentBlockPos != null) {
-      const rect = currentBlockDom.getBoundingClientRect();
-      if (y >= rect.top && y <= rect.bottom) {
-        // Still in same block — keep handle where it is
-        return;
+      const tag = currentBlockDom.tagName?.toLowerCase();
+      const isListContainer = tag === 'ol' || tag === 'ul';
+      if (!isListContainer) {
+        const rect = currentBlockDom.getBoundingClientRect();
+        if (y >= rect.top && y <= rect.bottom) {
+          // Still in same block — keep handle where it is
+          return;
+        }
       }
     }
 
@@ -478,8 +496,8 @@ export function blockHandlePlugin(): Plugin {
       return;
     }
 
-    // Skip empty paragraphs
-    if (isEmptyParagraph(result.node)) {
+    // Skip empty paragraphs and list containers (handle shows on list items, not whole lists)
+    if (isEmptyParagraph(result.node) || LIST_TYPES.has(result.node.type.name)) {
       handleEl.style.opacity = '0';
       currentBlockPos = null;
       currentBlockDepth = 1;
