@@ -24,6 +24,14 @@
   padding-top: 3.5rem;
 }
 
+/* Full width mode */
+.doc-full-width .doc-title-area {
+  max-width: none;
+}
+.doc-full-width .outline-editor-content {
+  max-width: none;
+}
+
 .outline-editor-content {
   outline: none;
   max-width: 48rem;
@@ -219,6 +227,11 @@
 .outline-editor-content li { margin: 0.15rem 0; }
 .outline-editor-content li p { margin: 0; }
 
+/* Hide list marker when list item only contains an image */
+.outline-editor-content li:has(> p > .image-node-wrapper:only-child) {
+  list-style: none;
+}
+
 /* Checkbox list */
 .outline-editor-content ul.checkbox-list {
   list-style: none;
@@ -230,26 +243,7 @@
   gap: 0.5rem;
   padding: 0.1rem 0;
 }
-.outline-editor-content li.checkbox-item::before {
-  content: '';
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  margin-top: 0.25em;
-  border: 2px solid hsl(var(--muted-foreground, 0 0% 45%));
-  border-radius: 3px;
-  flex-shrink: 0;
-  background: transparent;
-}
-.outline-editor-content li.checkbox-item[data-checked="true"]::before {
-  background: hsl(var(--sidebar-primary, 228 80% 50%));
-  border-color: hsl(var(--sidebar-primary, 228 80% 50%));
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3E%3C/svg%3E");
-  background-size: 12px 12px;
-  background-position: center;
-  background-repeat: no-repeat;
-}
+/* Checkbox rendered by NodeView (node-views.ts) — no ::before needed */
 
 /* Blockquote */
 .outline-editor-content blockquote {
@@ -329,6 +323,23 @@
 }
 .outline-editor-content .image-node-wrapper img::selection {
   background: transparent;
+}
+/* Image selected state — blue overlay when part of text selection */
+.outline-editor-content .image-node-wrapper.image-in-selection img {
+  outline: 2px solid hsl(var(--sidebar-primary, 220 80% 60%));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.outline-editor-content .image-node-wrapper.image-in-selection {
+  position: relative;
+}
+.outline-editor-content .image-node-wrapper.image-in-selection::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: hsl(var(--sidebar-primary, 220 80% 60%) / 0.15);
+  border-radius: 4px;
+  pointer-events: none;
 }
 .outline-editor-content img {
   display: block;
@@ -415,4 +426,361 @@
 .resize-cursor {
   cursor: ew-resize;
   cursor: col-resize;
+}
+
+/* ── Table Menu Plugin ──────────────────────────────────────────── */
+
+/* Container — positioned relative to editor mount */
+.tm-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 25;
+  pointer-events: none;
+}
+.tm-container > * {
+  pointer-events: auto;
+}
+
+/* ── Top bar (column controls) ─────────────────────────────────── */
+.tm-top-bar {
+  position: absolute;
+  display: flex;
+  align-items: stretch;
+  height: 14px;
+  user-select: none;
+}
+
+.tm-col-section {
+  flex-shrink: 0;
+  height: 100%;
+  background: hsl(var(--muted, 0 0% 96%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+.tm-col-section:hover {
+  background: hsl(var(--primary, 220 80% 60%) / 0.15);
+  border-color: hsl(var(--primary, 220 80% 60%) / 0.4);
+}
+
+/* ── Left bar (row controls) ───────────────────────────────────── */
+.tm-left-bar {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 14px;
+  user-select: none;
+}
+
+.tm-row-section {
+  flex-shrink: 0;
+  width: 100%;
+  background: hsl(var(--muted, 0 0% 96%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+.tm-row-section:hover {
+  background: hsl(var(--primary, 220 80% 60%) / 0.15);
+  border-color: hsl(var(--primary, 220 80% 60%) / 0.4);
+}
+
+/* ── Insertion dots ────────────────────────────────────────────── */
+.tm-insert-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* Column insertion dots (between column sections in the top bar) */
+.tm-insert-dot-col {
+  width: 10px;
+  height: 14px;
+}
+.tm-insert-dot-col::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: hsl(var(--muted-foreground, 0 0% 45%) / 0.4);
+  transition: all 0.15s;
+}
+.tm-insert-dot-col:hover::before {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: hsl(var(--primary, 220 80% 60%));
+}
+.tm-insert-dot-col:hover::after {
+  content: '+';
+  position: absolute;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  line-height: 1;
+  z-index: 1;
+}
+
+/* Row insertion dots (between row sections in the left bar) */
+.tm-insert-dot-row {
+  width: 14px;
+  height: 10px;
+}
+.tm-insert-dot-row::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: hsl(var(--muted-foreground, 0 0% 45%) / 0.4);
+  transition: all 0.15s;
+}
+.tm-insert-dot-row:hover::before {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: hsl(var(--primary, 220 80% 60%));
+}
+.tm-insert-dot-row:hover::after {
+  content: '+';
+  position: absolute;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  line-height: 1;
+  z-index: 1;
+}
+
+/* Insertion line effect on hover */
+
+/* ── Toolbar-style menu (column bar) ──────────────────────────── */
+.tm-toolbar-menu {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: hsl(var(--card, 0 0% 100%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
+  border-radius: 8px;
+  padding: 4px 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  animation: tmMenuFadeIn 0.1s ease-out;
+}
+
+.tm-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  color: hsl(var(--foreground, 0 0% 9%));
+  transition: background 0.1s;
+  padding: 0;
+}
+.tm-icon-btn:hover {
+  background: hsl(var(--accent, 0 0% 96%));
+}
+.tm-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tm-icon-sep {
+  width: 1px;
+  height: 20px;
+  background: hsl(var(--border, 0 0% 90%));
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ── Context menus (dropdown) ─────────────────────────────────── */
+.tm-context-menu {
+  position: absolute;
+  background: hsl(var(--card, 0 0% 100%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  z-index: 51;
+  min-width: 180px;
+  animation: tmMenuFadeIn 0.1s ease-out;
+}
+
+@keyframes tmMenuFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tm-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  color: hsl(var(--foreground, 0 0% 9%));
+  text-align: left;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.1s;
+}
+.tm-menu-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground, 0 0% 45%));
+}
+.tm-menu-icon svg {
+  width: 14px;
+  height: 14px;
+}
+.tm-menu-item:hover {
+  background: hsl(var(--accent, 0 0% 96%));
+}
+
+.tm-menu-item-danger {
+  color: hsl(0 72% 51%);
+}
+.tm-menu-item-danger:hover {
+  background: hsl(0 72% 51% / 0.1);
+}
+
+.tm-menu-item-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.tm-menu-sep {
+  height: 1px;
+  background: hsl(var(--border, 0 0% 90%));
+  margin: 4px 8px;
+}
+
+/* ── Cell selection toolbar ────────────────────────────────────── */
+.tm-cell-toolbar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: hsl(var(--card, 0 0% 100%));
+  border: 1px solid hsl(var(--border, 0 0% 90%));
+  border-radius: 8px;
+  padding: 4px 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  z-index: 40;
+  white-space: nowrap;
+  animation: tmMenuFadeIn 0.1s ease-out;
+}
+
+.tm-toolbar-btn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  color: hsl(var(--foreground, 0 0% 9%));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  line-height: 1;
+  transition: background 0.1s;
+}
+.tm-toolbar-btn:hover {
+  background: hsl(var(--accent, 0 0% 96%));
+}
+
+.tm-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: hsl(var(--border, 0 0% 90%));
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* ── Table cell background support ─────────────────────────────── */
+.outline-editor-content td[data-background],
+.outline-editor-content th[data-background] {
+  /* Background is set via inline style by ProseMirror */
+}
+
+/* ── Search match highlights ─────────────────────────────────── */
+.outline-editor-content .search-match {
+  background: hsl(50 100% 60% / 0.4);
+  border-radius: 2px;
+}
+.outline-editor-content .search-match-current {
+  background: hsl(30 100% 50% / 0.5);
+  outline: 2px solid hsl(30 100% 50% / 0.6);
+  outline-offset: -1px;
+  border-radius: 2px;
+}
+
+/* ── Comment marker highlights ──────────────────────────────── */
+
+/* Normal state: subtle underline on unresolved, non-draft comments */
+.outline-editor-content .comment-marker:not([data-resolved]):not([data-draft]) {
+  text-decoration: underline 2px rgba(43, 194, 255, 0.5);
+  transition: background 100ms ease-in-out;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+/* Draft comments by the current user also show styling */
+.outline-editor-content .comment-marker[data-draft] {
+  text-decoration: underline 2px rgba(43, 194, 255, 0.5);
+  transition: background 100ms ease-in-out;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+/* Hover state: background highlight */
+.outline-editor-content .comment-marker:not([data-resolved]):not([data-draft]):hover,
+.outline-editor-content .comment-marker[data-draft]:hover {
+  background: rgba(43, 194, 255, 0.5);
+}
+
+.outline-editor-content .comment-marker:not([data-resolved]):not([data-draft]):hover *,
+.outline-editor-content .comment-marker[data-draft]:hover * {
+  background: transparent !important;
+}
+
+/* Focused/active state: stronger highlight when comment is selected in sidebar */
+.outline-editor-content .comment-marker.comment-focused {
+  background: rgba(43, 194, 255, 0.5);
+  text-decoration: underline 2px rgba(43, 194, 255, 0.5);
+}
+.outline-editor-content .comment-marker.comment-focused * {
+  background: transparent !important;
+}
+
+/* Resolved comments: no styling */
+.outline-editor-content .comment-marker[data-resolved] {
+  background: transparent !important;
+  border: none !important;
+  text-decoration: none !important;
+}
+
+/* ── Revision diff highlights ────────────────────────────────── */
+.outline-editor-content .revision-diff-added {
+  background: hsl(210 80% 60% / 0.2);
+  border-radius: 2px;
 }
