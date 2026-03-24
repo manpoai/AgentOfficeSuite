@@ -81,48 +81,53 @@ function smartListBackspace(state: EditorState, dispatch?: (tr: Transaction) => 
     const node = $from.node(d);
     if (node.type === schema.nodes.list_item || node.type === schema.nodes.checkbox_item) {
       // Check if cursor is at the very start of the list item
-      // (all ancestor offsets between list item and cursor must be 0)
       let atStart = true;
       for (let dd = d + 1; dd <= $from.depth; dd++) {
         if ($from.index(dd - 1) !== 0) { atStart = false; break; }
       }
       if (!atStart) return false;
 
-      // Check if the list item is empty (just an empty paragraph)
+      // Check if the list item is empty
       const listItemIsEmpty = node.childCount === 1
         && node.firstChild!.type === schema.nodes.paragraph
         && node.firstChild!.content.size === 0;
 
+      const listDepth = d - 1;
+      const listNode = $from.node(listDepth);
+      const listItemIndex = $from.index(listDepth);
+
       if (listItemIsEmpty) {
-        // Find the parent list node
-        const listDepth = d - 1;
-        const listNode = $from.node(listDepth);
-        const listItemIndex = $from.index(listDepth);
-
         if (dispatch) {
-          // Delete the entire empty list item
-          const listItemStart = $from.before(d);
-          const listItemEnd = $from.after(d);
           const tr = state.tr;
+          const emptyPara = schema.nodes.paragraph.create();
 
-          // If this is the only item in the list, delete the whole list
           if (listNode.childCount === 1) {
+            // Only item in list: replace entire list with empty paragraph
             const listStart = $from.before(listDepth);
             const listEnd = $from.after(listDepth);
-            tr.delete(listStart, listEnd);
-            // Place cursor — if there's content before, go to end of it
-            const cursorPos = Math.max(0, listStart);
-            const $pos = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
-            // Find nearest valid cursor position
-            const sel = TextSelection.findFrom($pos, -1) || TextSelection.findFrom($pos, 1);
-            if (sel) tr.setSelection(sel);
+            tr.replaceWith(listStart, listEnd, emptyPara);
+            tr.setSelection(TextSelection.create(tr.doc, listStart + 1));
           } else {
+            // Multiple items: replace this list item with a paragraph after the list.
+            // Use a single replaceWith so position math stays clean.
+            const listItemStart = $from.before(d);
+            const listEnd = $from.after(listDepth);
+            // Delete from list item start to end of list, then insert
+            // remaining list items (if any after this one) + empty paragraph
+            // Simpler: just delete the list item, then insert paragraph after list
+            const listItemEnd = $from.after(d);
+            // Step 1: replace the empty list_item range with nothing
             tr.delete(listItemStart, listItemEnd);
-            // Place cursor at end of previous list item or before the list
-            const cursorPos = Math.max(0, listItemStart);
-            const $pos = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
-            const sel = TextSelection.findFrom($pos, -1) || TextSelection.findFrom($pos, 1);
-            if (sel) tr.setSelection(sel);
+            // Step 2: insert empty paragraph after the (now shorter) list
+            // Use tr.mapping to map the original listEnd position
+            const mappedListEnd = tr.mapping.map(listEnd);
+            // The mapped position is right after the list's closing tag
+            // But we need to insert at the block boundary after the list
+            // Since we deleted inside the list, mappedListEnd should be
+            // right at the end of the list. Insert paragraph there.
+            tr.insert(mappedListEnd, emptyPara);
+            // Cursor inside the new paragraph: mappedListEnd + 1 (inside para)
+            tr.setSelection(TextSelection.create(tr.doc, mappedListEnd + 1));
           }
           dispatch(tr.scrollIntoView());
         }
