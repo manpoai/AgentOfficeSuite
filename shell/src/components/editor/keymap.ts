@@ -87,58 +87,49 @@ function smartListBackspace(state: EditorState, dispatch?: (tr: Transaction) => 
       }
       if (!atStart) return false;
 
-      // Check if the list item is empty
-      const listItemIsEmpty = node.childCount === 1
-        && node.firstChild!.type === schema.nodes.paragraph
-        && node.firstChild!.content.size === 0;
-
-      const listDepth = d - 1;
-      const listNode = $from.node(listDepth);
-      const listItemIndex = $from.index(listDepth);
-
-      if (listItemIsEmpty) {
-        if (dispatch) {
-          const tr = state.tr;
-          const emptyPara = schema.nodes.paragraph.create();
-
-          if (listNode.childCount === 1) {
-            // Only item in list: replace entire list with empty paragraph
-            const listStart = $from.before(listDepth);
-            const listEnd = $from.after(listDepth);
-            tr.replaceWith(listStart, listEnd, emptyPara);
-            tr.setSelection(TextSelection.create(tr.doc, listStart + 1));
-          } else {
-            // Multiple items: replace this list item with a paragraph after the list.
-            // Use a single replaceWith so position math stays clean.
-            const listItemStart = $from.before(d);
-            const listEnd = $from.after(listDepth);
-            // Delete from list item start to end of list, then insert
-            // remaining list items (if any after this one) + empty paragraph
-            // Simpler: just delete the list item, then insert paragraph after list
-            const listItemEnd = $from.after(d);
-            // Step 1: replace the empty list_item range with nothing
-            tr.delete(listItemStart, listItemEnd);
-            // Step 2: insert empty paragraph after the (now shorter) list
-            // Use tr.mapping to map the original listEnd position
-            const mappedListEnd = tr.mapping.map(listEnd);
-            // The mapped position is right after the list's closing tag
-            // But we need to insert at the block boundary after the list
-            // Since we deleted inside the list, mappedListEnd should be
-            // right at the end of the list. Insert paragraph there.
-            tr.insert(mappedListEnd, emptyPara);
-            // Cursor inside the new paragraph: mappedListEnd + 1 (inside para)
-            tr.setSelection(TextSelection.create(tr.doc, mappedListEnd + 1));
-          }
-          dispatch(tr.scrollIntoView());
-        }
-        return true;
-      }
-
-      // Non-empty list item: lift out one level (outdent)
+      // Lift the list item out one level (empty → becomes paragraph, non-empty → outdents)
       return liftListItem(node.type)(state, dispatch);
     }
   }
   return false;
+}
+
+/**
+ * Prevent joinBackward from merging an empty paragraph back into a preceding list.
+ * When cursor is at the start of an empty paragraph right after a list,
+ * delete the paragraph and move cursor to end of the list's last item.
+ */
+function preventJoinIntoList(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { $from, empty } = state.selection;
+  if (!empty) return false;
+  if ($from.parentOffset !== 0) return false;
+  // Must be a direct child of doc (top-level paragraph)
+  if ($from.depth !== 1) return false;
+  // Current block must be an empty paragraph
+  const currentBlock = $from.parent;
+  if (currentBlock.type !== schema.nodes.paragraph) return false;
+  if (currentBlock.content.size !== 0) return false;
+  // Previous sibling must be a list
+  const topIndex = $from.index(0);
+  if (topIndex === 0) return false;
+  const prevBlock = state.doc.child(topIndex - 1);
+  const isListType = prevBlock.type === schema.nodes.ordered_list
+    || prevBlock.type === schema.nodes.bullet_list
+    || prevBlock.type === schema.nodes.checkbox_list;
+  if (!isListType) return false;
+
+  if (dispatch) {
+    // Delete the empty paragraph
+    const blockStart = $from.before(1);
+    const blockEnd = $from.after(1);
+    const tr = state.tr.delete(blockStart, blockEnd);
+    // Place cursor at the end of the last item in the previous list
+    const $pos = tr.doc.resolve(Math.max(0, blockStart));
+    const sel = TextSelection.findFrom($pos, -1);
+    if (sel) tr.setSelection(sel);
+    dispatch(tr.scrollIntoView());
+  }
+  return true;
 }
 
 /**
@@ -341,7 +332,7 @@ export function buildKeymap() {
   });
 
   // Backspace: custom handlers before default behavior
-  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, smartListBackspace, joinBackward, selectNodeBackward);
+  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, smartListBackspace, preventJoinIntoList, joinBackward, selectNodeBackward);
 
   // Delete (forward): protect images from forward-delete joining
   keys['Delete'] = chainCommands(deleteSelection, protectAtomOnDelete, joinForward, selectNodeForward);
