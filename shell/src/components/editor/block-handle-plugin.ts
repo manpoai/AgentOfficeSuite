@@ -151,6 +151,15 @@ function buildMenuItems(): BlockMenuItem[] {
       action: (view, pos) => wrapBlockInNode(view, pos, 'blockquote'),
     },
     {
+      label: t('editor.copy') || 'Copy',
+      icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="12" height="12" rx="2"/><path d="M16 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/></svg>`,
+      separator: true,
+      action: (view, pos) => {
+        const node = view.state.doc.nodeAt(pos);
+        if (node) navigator.clipboard.writeText(node.textContent).catch(() => {});
+      },
+    },
+    {
       label: t('content.delete') || 'Delete',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`,
       separator: true,

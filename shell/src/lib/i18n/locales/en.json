@@ -200,7 +200,8 @@
     "inlineCode": "Inline Code",
     "highlight": "Highlight",
     "comment": "Comment",
-    "checkboxList": "Checkbox List"
+    "checkboxList": "Checkbox List",
+    "copy": "Copy"
   },
   "comments": {
     "title": "Comments",

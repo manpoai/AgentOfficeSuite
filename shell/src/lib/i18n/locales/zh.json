@@ -200,7 +200,8 @@
     "inlineCode": "行内代码",
     "highlight": "高亮",
     "comment": "评论",
-    "checkboxList": "待办列表"
+    "checkboxList": "待办列表",
+    "copy": "复制"
   },
   "comments": {
     "title": "评论",
