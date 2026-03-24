@@ -10,6 +10,17 @@ const tNodes = tableNodes({
   cellContent: 'inline*',
   cellAttributes: {
     alignment: { default: null },
+    background: {
+      default: null,
+      getFromDOM(dom: HTMLElement) {
+        return dom.style.backgroundColor || null;
+      },
+      setDOMAttr(value: unknown, attrs: Record<string, unknown>) {
+        if (value) {
+          attrs.style = ((attrs.style as string) || '') + `background-color: ${value};`;
+        }
+      },
+    },
   },
 });
 
@@ -79,7 +90,7 @@ export const schema = new Schema({
       },
     },
     list_item: {
-      content: 'paragraph block*',
+      content: '(paragraph | heading) block*',
       parseDOM: [{ tag: 'li' }],
       toDOM() { return ['li', 0]; },
       defining: true,
@@ -91,7 +102,7 @@ export const schema = new Schema({
       toDOM() { return ['ul', { class: 'checkbox-list' }, 0]; },
     },
     checkbox_item: {
-      content: 'paragraph block*',
+      content: '(paragraph | heading) block*',
       attrs: { checked: { default: false } },
       defining: true,
       parseDOM: [{ tag: 'li.checkbox-item', getAttrs(dom) {
@@ -134,6 +145,7 @@ export const schema = new Schema({
       },
       group: 'inline',
       draggable: true,
+      atom: true,
       parseDOM: [{ tag: 'img[src]', getAttrs(dom) {
         const el = dom as HTMLElement;
         return {
@@ -198,9 +210,53 @@ export const schema = new Schema({
       }}],
       toDOM(node) { return ['a', { href: node.attrs.href, title: node.attrs.title, rel: 'noopener noreferrer nofollow' }, 0]; },
     },
+    comment: {
+      excludes: '',
+      attrs: {
+        id: { default: '' },
+        userId: { default: '' },
+        resolved: { default: false },
+        draft: { default: false },
+      },
+      inclusive: false,
+      parseDOM: [{ tag: 'span.comment-marker', getAttrs(dom) {
+        return {
+          id: (dom as HTMLElement).id?.replace('comment-', '') || '',
+          userId: (dom as HTMLElement).getAttribute('data-user-id') || '',
+          resolved: !!(dom as HTMLElement).getAttribute('data-resolved'),
+          draft: !!(dom as HTMLElement).getAttribute('data-draft'),
+        };
+      }}],
+      toDOM(mark) {
+        const attrs: Record<string, string> = {
+          class: 'comment-marker',
+          id: `comment-${mark.attrs.id}`,
+        };
+        if (mark.attrs.resolved) attrs['data-resolved'] = 'true';
+        if (mark.attrs.draft) attrs['data-draft'] = 'true';
+        if (mark.attrs.userId) attrs['data-user-id'] = mark.attrs.userId;
+        return ['span', attrs, 0];
+      },
+    },
     highlight: {
-      parseDOM: [{ tag: 'mark' }],
-      toDOM() { return ['mark', 0]; },
+      attrs: { color: { default: '' } },
+      parseDOM: [
+        { tag: 'mark', getAttrs(dom) {
+          const bg = (dom as HTMLElement).style.backgroundColor || (dom as HTMLElement).dataset.color || '';
+          return { color: bg };
+        }},
+        { tag: 'span.highlight', getAttrs(dom) {
+          return { color: (dom as HTMLElement).style.backgroundColor || '' };
+        }},
+      ],
+      toDOM(mark) {
+        const attrs: Record<string, string> = {};
+        if (mark.attrs.color) {
+          attrs.style = `background-color: ${mark.attrs.color}`;
+          attrs['data-color'] = mark.attrs.color;
+        }
+        return ['mark', attrs, 0];
+      },
     },
   },
 });

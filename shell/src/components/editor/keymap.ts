@@ -3,6 +3,7 @@
  */
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap, toggleMark, setBlockType, wrapIn, chainCommands, exitCode, joinUp, joinDown, lift, selectParentNode, deleteSelection, joinBackward, selectNodeBackward, joinForward, selectNodeForward } from 'prosemirror-commands';
+import { TextSelection } from 'prosemirror-state';
 import { undo, redo } from 'prosemirror-history';
 import { liftListItem, sinkListItem, splitListItem } from 'prosemirror-schema-list';
 import type { EditorState, Transaction } from 'prosemirror-state';
@@ -94,26 +95,46 @@ function deleteEmptyFirstBlock(state: EditorState, dispatch?: (tr: Transaction) 
 }
 
 /**
- * Item 12: Protect images from accidental deletion.
- * When pressing Backspace on an empty line that follows a paragraph containing
- * an image, delete the empty line instead of joining (which would delete the image).
+ * Protect inline atoms (images) from accidental deletion via Backspace.
+ * Based on Outline's DeleteNearAtom extension (GitHub Issue #10681).
+ *
+ * Handles two cases:
+ * 1. Inline case: cursor is right after a single-char text node, and the node
+ *    after cursor is an inline atom → delete only the text character.
+ * 2. Block case: cursor is at start of empty block, previous block contains
+ *    an image → delete the empty block instead of joining.
  */
-function protectImageOnBackspace(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
-  const { $from, empty } = state.selection;
+function protectAtomOnBackspace(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { selection } = state;
+
+  // Case 1: Inline atom protection (Outline's approach)
+  if (selection instanceof TextSelection) {
+    const { $cursor } = selection;
+    if ($cursor) {
+      const nodeBefore = $cursor.nodeBefore;
+      const nodeAfter = $cursor.nodeAfter;
+      // If text node before cursor has only 1 char and after cursor is an inline atom
+      if (nodeBefore?.isText && nodeBefore.nodeSize === 1 && nodeAfter?.isAtom && nodeAfter.isInline) {
+        if (dispatch) {
+          dispatch(state.tr.delete($cursor.pos - 1, $cursor.pos).scrollIntoView());
+        }
+        return true;
+      }
+    }
+  }
+
+  // Case 2: Block-level protection
+  const { $from, empty } = selection;
   if (!empty) return false;
   if ($from.parentOffset !== 0) return false;
 
-  // Find the position of the current top-level block
   const topIndex = $from.index(0);
-
-  // Current block must be empty
   const currentBlock = $from.parent;
   const currentIsEmpty = currentBlock.content.size === 0;
 
   if (!currentIsEmpty) return false;
-  if (topIndex === 0) return false; // no previous block
+  if (topIndex === 0) return false;
 
-  // Check previous block: does it contain an image?
   const prevBlock = state.doc.child(topIndex - 1);
   let hasImage = false;
   prevBlock.descendants((node) => {
@@ -123,28 +144,53 @@ function protectImageOnBackspace(state: EditorState, dispatch?: (tr: Transaction
 
   if (!hasImage) return false;
 
-  // Delete the current empty block instead of joining with the previous one
   if (dispatch) {
     let blockStart = 0;
     for (let i = 0; i < topIndex; i++) {
       blockStart += state.doc.child(i).nodeSize;
     }
     const blockEnd = blockStart + state.doc.child(topIndex).nodeSize;
-    const tr = state.tr.delete(blockStart, blockEnd);
-    dispatch(tr.scrollIntoView());
+    dispatch(state.tr.delete(blockStart, blockEnd).scrollIntoView());
   }
   return true;
 }
 
 /**
- * Prevent Delete (forward) on a block that would merge into a block containing an image.
- * Also prevent Backspace from deleting a block that itself contains only an image.
+ * Protect inline atoms (images) from accidental deletion via Delete (forward).
+ * Handles two cases:
+ * 1. Inline case: cursor is at start of a single-char text node, and the node
+ *    after that text is an inline atom → delete only the text character.
+ * 2. Block case: cursor is at end of block, next block contains an image →
+ *    if current block is empty, delete it; otherwise block the join.
  */
-function protectImageOnDelete(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
-  const { $from, empty } = state.selection;
+function protectAtomOnDelete(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { selection } = state;
+
+  // Case 1: Inline atom protection (Outline's approach)
+  if (selection instanceof TextSelection) {
+    const { $cursor } = selection;
+    if ($cursor && $cursor.textOffset === 0) {
+      const nodeAfter = $cursor.nodeAfter;
+      if (nodeAfter?.isText && nodeAfter.nodeSize === 1) {
+        const textEndPos = $cursor.pos + nodeAfter.nodeSize;
+        if (textEndPos < $cursor.end()) {
+          const $afterText = state.doc.resolve(textEndPos);
+          const nodeAfterText = $afterText.nodeAfter;
+          if (nodeAfterText?.isAtom && nodeAfterText.isInline) {
+            if (dispatch) {
+              dispatch(state.tr.delete($cursor.pos, $cursor.pos + 1).scrollIntoView());
+            }
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // Case 2: Block-level protection
+  const { $from, empty } = selection;
   if (!empty) return false;
 
-  // Check if we're at the end of a block and next block has an image
   const topIndex = $from.index(0);
   const atEnd = $from.parentOffset === $from.parent.content.size;
 
@@ -157,7 +203,6 @@ function protectImageOnDelete(state: EditorState, dispatch?: (tr: Transaction) =
     });
 
     if (hasImage) {
-      // If current block is empty, delete it; otherwise just prevent the join
       if ($from.parent.content.size === 0 && dispatch) {
         let blockStart = 0;
         for (let i = 0; i < topIndex; i++) {
@@ -217,10 +262,10 @@ export function buildKeymap() {
   });
 
   // Backspace: custom handlers before default behavior
-  keys['Backspace'] = chainCommands(deleteSelection, protectImageOnBackspace, deleteEmptyFirstBlock, joinBackward, selectNodeBackward);
+  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, joinBackward, selectNodeBackward);
 
   // Delete (forward): protect images from forward-delete joining
-  keys['Delete'] = chainCommands(deleteSelection, protectImageOnDelete, joinForward, selectNodeForward);
+  keys['Delete'] = chainCommands(deleteSelection, protectAtomOnDelete, joinForward, selectNodeForward);
 
   // Structural
   keys['Alt-ArrowUp'] = joinUp;
