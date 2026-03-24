@@ -303,6 +303,12 @@ export const markdownParser = new MarkdownParser(schema, md, {
 
 export function parseMarkdown(markdown: string): PMNode | null {
   try {
+    // Clean up stale trailing backslashes from hard_break round-trip bugs.
+    // Strips trailing `\` sequences from lines where they serve no purpose:
+    // - End of document
+    // - Lines that are only whitespace + backslashes (empty list items with stale \)
+    markdown = markdown.replace(/^(\s*(?:\d+\.\s*|[-*+]\s*|>?\s*))\\+\s*$/gm, '$1');
+    markdown = markdown.replace(/\\+\s*$/, '');
     return markdownParser.parse(markdown);
   } catch (e: any) {
     console.error('Markdown parse error:', e.message);
