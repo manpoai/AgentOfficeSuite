@@ -67,6 +67,35 @@ function smartListLift(state: EditorState, dispatch?: (tr: Transaction) => void)
 }
 
 /**
+ * Smart Backspace for list items: when cursor is at the very start of a list
+ * item, lift it out (outdent) instead of using joinBackward which can cause
+ * destructive merges with complex nested list content.
+ */
+function smartListBackspace(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { $from, empty } = state.selection;
+  if (!empty) return false;
+  if ($from.parentOffset !== 0) return false;
+
+  // Find enclosing list_item or checkbox_item
+  for (let d = $from.depth; d >= 1; d--) {
+    const node = $from.node(d);
+    if (node.type === schema.nodes.list_item || node.type === schema.nodes.checkbox_item) {
+      // Check if cursor is at the very start of the list item
+      // (all ancestor offsets between list item and cursor must be 0)
+      let atStart = true;
+      for (let dd = d + 1; dd <= $from.depth; dd++) {
+        if ($from.index(dd - 1) !== 0) { atStart = false; break; }
+      }
+      if (!atStart) return false;
+
+      // Lift the list item out one level
+      return liftListItem(node.type)(state, dispatch);
+    }
+  }
+  return false;
+}
+
+/**
  * Item 7: Delete empty first line in body.
  * When cursor is at the start of the first block and it's empty,
  * delete that block (if there's a next block to move to).
@@ -262,7 +291,7 @@ export function buildKeymap() {
   });
 
   // Backspace: custom handlers before default behavior
-  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, joinBackward, selectNodeBackward);
+  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, smartListBackspace, joinBackward, selectNodeBackward);
 
   // Delete (forward): protect images from forward-delete joining
   keys['Delete'] = chainCommands(deleteSelection, protectAtomOnDelete, joinForward, selectNodeForward);
