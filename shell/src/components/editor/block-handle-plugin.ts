@@ -17,6 +17,8 @@ export const blockHandleKey = new PluginKey('blockHandle');
 
 const LIST_TYPES = new Set(['bullet_list', 'ordered_list', 'checkbox_list']);
 const LIST_ITEM_TYPES = new Set(['list_item', 'checkbox_item']);
+// Node types where menu should only show copy + delete (no type conversion)
+const OPAQUE_BLOCK_TYPES = new Set(['table', 'image']);
 
 /**
  * Resolve a mouse-Y to the block under it.
@@ -27,10 +29,12 @@ function blockAtCoords(view: EditorView, y: number): { pos: number; end: number;
   const editorRect = view.dom.getBoundingClientRect();
 
   // Try posAtCoords at several x positions for robustness
-  // Use multiple x positions: left edge, indented (for lists), and center
+  // Use multiple x positions: left edge, indented (for lists), center, and right
   let coords = view.posAtCoords({ left: editorRect.left + 10, top: y });
   if (!coords) coords = view.posAtCoords({ left: editorRect.left + 60, top: y });
   if (!coords) coords = view.posAtCoords({ left: editorRect.left + editorRect.width / 2, top: y });
+  // Try the very left edge — helps when hovering over contenteditable=false (images)
+  if (!coords) coords = view.posAtCoords({ left: editorRect.left + 1, top: y });
   if (!coords) return null;
 
   let $pos = view.state.doc.resolve(coords.pos);
@@ -104,6 +108,8 @@ interface BlockMenuItem {
   action: (view: EditorView, blockPos: number) => void;
   separator?: boolean;
   danger?: boolean;
+  /** If set, only show this item for these block type categories */
+  scope?: 'all' | 'opaque-only';
 }
 
 function buildMenuItems(): BlockMenuItem[] {
@@ -396,6 +402,24 @@ export function blockHandlePlugin(): Plugin {
     if (!handleEl) return;
     const handleRect = handleEl.getBoundingClientRect();
 
+    // Determine if this block is an "opaque" type (table, image) that only supports copy+delete
+    const blockNode = view.state.doc.nodeAt(blockPos);
+    let isOpaque = false;
+    if (blockNode) {
+      // Check the block itself or if it's a paragraph containing only an image
+      if (blockNode.type.name === 'table') {
+        isOpaque = true;
+      } else if (blockNode.type.name === 'paragraph') {
+        let hasImage = false;
+        let hasOther = false;
+        blockNode.forEach((child: any) => {
+          if (child.type.name === 'image') hasImage = true;
+          else hasOther = true;
+        });
+        if (hasImage && !hasOther) isOpaque = true;
+      }
+    }
+
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position: fixed; inset: 0; z-index: 999;';
     overlay.addEventListener('mousedown', (e) => { e.preventDefault(); hideMenu(); });
@@ -423,7 +447,14 @@ export function blockHandlePlugin(): Plugin {
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 
-    const items = buildMenuItems();
+    let items = buildMenuItems();
+    // For opaque blocks (table, image-only paragraph), only show copy + delete
+    if (isOpaque) {
+      items = items.filter(item => {
+        const label = item.label.toLowerCase();
+        return item.danger || label.includes('copy') || label.includes('复制');
+      });
+    }
     for (const item of items) {
       if (item.separator) {
         const sep = document.createElement('div');
@@ -473,11 +504,11 @@ export function blockHandlePlugin(): Plugin {
     if (!handleEl) return;
 
     // Hysteresis: if mouse is still within the current block's rect, don't re-resolve
-    // Skip hysteresis for list containers — need to re-resolve to find individual list items
+    // Skip hysteresis for list containers and tables — need to re-resolve within them
     if (currentBlockDom && currentBlockPos != null) {
       const tag = currentBlockDom.tagName?.toLowerCase();
-      const isListContainer = tag === 'ol' || tag === 'ul';
-      if (!isListContainer) {
+      const skipHysteresis = tag === 'ol' || tag === 'ul' || tag === 'table';
+      if (!skipHysteresis) {
         const rect = currentBlockDom.getBoundingClientRect();
         if (y >= rect.top && y <= rect.bottom) {
           // Still in same block — keep handle where it is
