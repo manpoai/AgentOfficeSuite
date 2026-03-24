@@ -3,7 +3,7 @@
  */
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap, toggleMark, setBlockType, wrapIn, chainCommands, exitCode, joinUp, joinDown, lift, selectParentNode, deleteSelection, joinBackward, selectNodeBackward, joinForward, selectNodeForward } from 'prosemirror-commands';
-import { TextSelection } from 'prosemirror-state';
+import { TextSelection, NodeSelection } from 'prosemirror-state';
 import { undo, redo } from 'prosemirror-history';
 import { liftListItem, sinkListItem, splitListItem } from 'prosemirror-schema-list';
 import type { EditorState, Transaction } from 'prosemirror-state';
@@ -189,24 +189,48 @@ function protectAtomOnBackspace(state: EditorState, dispatch?: (tr: Transaction)
     }
   }
 
-  // Case 2: Block-level protection — only for direct children of doc (depth === 1)
-  // When cursor is inside a list item or other nested structure, don't apply this.
+  // Case 2: Block-level protection — cursor at start of empty block,
+  // previous block contains an image → delete empty block, select image
   const { $from, empty } = selection;
   if (!empty) return false;
   if ($from.parentOffset !== 0) return false;
-  // Only apply when cursor is at depth 1 (direct paragraph child of doc)
-  if ($from.depth !== 1) return false;
 
-  const topIndex = $from.index(0);
   const currentBlock = $from.parent;
   const currentIsEmpty = currentBlock.content.size === 0;
-
   if (!currentIsEmpty) return false;
-  if (topIndex === 0) return false;
 
-  const prevBlock = state.doc.child(topIndex - 1);
+  // Find the previous sibling block at any depth
+  // Walk up to find the level where we have a previous sibling
+  let prevNode: any = null;
+  let prevPos = -1;
+  let deleteFrom = -1;
+  let deleteTo = -1;
+
+  for (let d = $from.depth; d >= 1; d--) {
+    const indexInParent = $from.index(d - 1);
+    if (indexInParent > 0) {
+      // There's a previous sibling at this depth
+      const parent = $from.node(d - 1);
+      prevNode = parent.child(indexInParent - 1);
+      // Calculate position of previous sibling
+      prevPos = $from.before(d);
+      // Walk backwards to find the start of the previous sibling
+      let p = $from.before(d - 1) + 1; // start of parent's content
+      for (let i = 0; i < indexInParent - 1; i++) {
+        p += parent.child(i).nodeSize;
+      }
+      prevPos = p; // position of previous sibling
+      deleteFrom = $from.before(d);
+      deleteTo = $from.after(d);
+      break;
+    }
+  }
+
+  if (!prevNode) return false;
+
+  // Check if previous sibling contains an image
   let hasImage = false;
-  prevBlock.descendants((node) => {
+  prevNode.descendants((node: any) => {
     if (node.type === schema.nodes.image) hasImage = true;
     return !hasImage;
   });
@@ -214,12 +238,22 @@ function protectAtomOnBackspace(state: EditorState, dispatch?: (tr: Transaction)
   if (!hasImage) return false;
 
   if (dispatch) {
-    let blockStart = 0;
-    for (let i = 0; i < topIndex; i++) {
-      blockStart += state.doc.child(i).nodeSize;
+    // Delete the empty block and select the image in the previous block
+    const tr = state.tr.delete(deleteFrom, deleteTo);
+    // Find the image node position to select it
+    const mappedPrevPos = tr.mapping.map(prevPos);
+    let imagePos = -1;
+    tr.doc.nodeAt(mappedPrevPos)?.descendants((node: any, pos: number) => {
+      if (node.type === schema.nodes.image && imagePos === -1) {
+        imagePos = mappedPrevPos + 1 + pos; // +1 for paragraph open tag offset
+      }
+      return imagePos === -1;
+    });
+    if (imagePos >= 0) {
+      // Select the image node
+      tr.setSelection(NodeSelection.create(tr.doc, imagePos));
     }
-    const blockEnd = blockStart + state.doc.child(topIndex).nodeSize;
-    dispatch(state.tr.delete(blockStart, blockEnd).scrollIntoView());
+    dispatch(tr.scrollIntoView());
   }
   return true;
 }
