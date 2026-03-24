@@ -88,7 +88,48 @@ function smartListBackspace(state: EditorState, dispatch?: (tr: Transaction) => 
       }
       if (!atStart) return false;
 
-      // Lift the list item out one level
+      // Check if the list item is empty (just an empty paragraph)
+      const listItemIsEmpty = node.childCount === 1
+        && node.firstChild!.type === schema.nodes.paragraph
+        && node.firstChild!.content.size === 0;
+
+      if (listItemIsEmpty) {
+        // Find the parent list node
+        const listDepth = d - 1;
+        const listNode = $from.node(listDepth);
+        const listItemIndex = $from.index(listDepth);
+
+        if (dispatch) {
+          // Delete the entire empty list item
+          const listItemStart = $from.before(d);
+          const listItemEnd = $from.after(d);
+          const tr = state.tr;
+
+          // If this is the only item in the list, delete the whole list
+          if (listNode.childCount === 1) {
+            const listStart = $from.before(listDepth);
+            const listEnd = $from.after(listDepth);
+            tr.delete(listStart, listEnd);
+            // Place cursor — if there's content before, go to end of it
+            const cursorPos = Math.max(0, listStart);
+            const $pos = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
+            // Find nearest valid cursor position
+            const sel = TextSelection.findFrom($pos, -1) || TextSelection.findFrom($pos, 1);
+            if (sel) tr.setSelection(sel);
+          } else {
+            tr.delete(listItemStart, listItemEnd);
+            // Place cursor at end of previous list item or before the list
+            const cursorPos = Math.max(0, listItemStart);
+            const $pos = tr.doc.resolve(Math.min(cursorPos, tr.doc.content.size));
+            const sel = TextSelection.findFrom($pos, -1) || TextSelection.findFrom($pos, 1);
+            if (sel) tr.setSelection(sel);
+          }
+          dispatch(tr.scrollIntoView());
+        }
+        return true;
+      }
+
+      // Non-empty list item: lift out one level (outdent)
       return liftListItem(node.type)(state, dispatch);
     }
   }
