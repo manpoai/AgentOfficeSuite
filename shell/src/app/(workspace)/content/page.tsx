@@ -1171,14 +1171,10 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
   const { t } = useT();
   const queryClient = useQueryClient();
 
-  // Fetch comments via Outline API (includes resolved status)
-  const { data: olComments = [] } = useQuery({
-    queryKey: ['doc-comments-raw', doc.id],
-    queryFn: () => ol.listComments(doc.id),
-  });
-  // Convert Outline comments to the Comment shape expected by the Comments component
-  const docComments = useMemo(() => {
-    return olComments.map(c => ({
+  // Shared comment fetch function — used by both highlight extraction and Comments component
+  const fetchDocComments = useCallback(async () => {
+    const comments = await ol.listComments(doc.id);
+    return comments.map(c => ({
       id: c.id,
       text: ol.proseMirrorToText(c.data),
       actor: c.createdBy?.name || 'Unknown',
@@ -1188,7 +1184,13 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
       created_at: c.createdAt,
       updated_at: c.updatedAt,
     }));
-  }, [olComments]);
+  }, [doc.id]);
+
+  // Fetch comments — shared query key with Comments component so invalidation works
+  const { data: docComments = [] } = useQuery({
+    queryKey: ['doc-comments', doc.id],
+    queryFn: fetchDocComments,
+  });
   // Extract quoted text from comments for editor highlighting
   const commentHighlightQuotes = useMemo(() => {
     return docComments
@@ -1368,7 +1370,9 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
         const savingEmoji = latestRef.current.emoji;
         // Don't send URL-based icons to Outline (they're stored in NocoDB)
         const outlineEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
-        await ol.updateDocument(saveDocId, savingTitle, savingText, outlineEmoji);
+        // Only send title if it's non-empty — never overwrite a real title with empty
+        const titleToSave = savingTitle?.trim() ? savingTitle : undefined;
+        await ol.updateDocument(saveDocId, titleToSave, savingText, outlineEmoji);
         // Only update cache if no newer save has been scheduled since this one started
         if (saveVersionRef.current !== thisVersion) return;
         // Update the cached doc so switching away and back preserves edits
@@ -1382,7 +1386,8 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
         // Only update status if still on the same doc
         if (saveDocId === docIdRef.current) {
           setSaveStatus('saved');
-          onSaved();
+          // Don't call onSaved() here — it triggers a full doc list refetch which is slow.
+          // The optimistic cache updates above already keep the sidebar in sync.
         }
       } catch (e) {
         console.error('Auto-save failed:', e);
@@ -1682,19 +1687,7 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
           <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
             <Comments
               queryKey={['doc-comments', doc.id]}
-              fetchComments={async () => {
-                const comments = await ol.listComments(doc.id);
-                return comments.map(c => ({
-                  id: c.id,
-                  text: ol.proseMirrorToText(c.data),
-                  actor: c.createdBy?.name || 'Unknown',
-                  parent_id: c.parentCommentId || null,
-                  resolved_by: c.resolvedBy || null,
-                  resolved_at: c.resolvedAt || null,
-                  created_at: c.createdAt,
-                  updated_at: c.updatedAt,
-                }));
-              }}
+              fetchComments={fetchDocComments}
               postComment={(text) => gw.commentOnDoc(doc.id, text)}
               editComment={async (commentId, text) => {
                 await ol.updateComment(commentId, ol.textToProseMirror(text));
