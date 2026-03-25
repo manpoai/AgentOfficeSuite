@@ -780,7 +780,7 @@ app.post('/api/data/tables', authenticateAgent, async (req, res) => {
     ...(c.required !== undefined ? { rqd: c.required } : {}),
   });
   const fullColumns = [
-    ...(hasPk ? [] : [{ column_name: 'Id', title: 'Id', uidt: 'ID', pk: true, ai: true }]),
+    ...(hasPk ? [] : [{ column_name: 'Id', title: 'Id', uidt: 'SingleLineText', pk: true }]),
     ...columns.map(normalizeCol),
     { column_name: 'created_by', title: 'created_by', uidt: 'SingleLineText' },
   ];
@@ -797,9 +797,11 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
   const result = await nc('GET', `/api/v1/db/meta/tables/${req.params.table_id}`);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   const t = result.data;
+  // Reverse-map NocoDB UIType names to Shell names
+  const UIDT_REVERSE = { 'CreateTime': 'CreatedTime', 'Collaborator': 'User', 'Decimal': 'Number', 'Currency': 'Number', 'Percent': 'Number' };
   const columns = (t.columns || []).map(c => {
     const col = {
-      column_id: c.id, title: c.title, type: c.uidt,
+      column_id: c.id, title: c.title, type: UIDT_REVERSE[c.uidt] || c.uidt,
       primary_key: !!c.pk, required: !!c.rqd,
     };
     // Pass through select options
@@ -849,18 +851,35 @@ app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
     }
     return view;
   });
-  res.json({ table_id: t.id, title: t.title, columns, views });
+  res.json({ table_id: t.id, title: t.title, columns, views, created_at: t.created_at, updated_at: t.updated_at });
 });
 
 // Add a column to a table
 // Body: { title: string, uidt: string, options?: [{title, color}] }
 app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, res) => {
   if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
-  const { title, uidt = 'SingleLineText', options, meta } = req.body;
+  const { title, uidt: rawUidt = 'SingleLineText', options, meta } = req.body;
   if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
+  // Map Shell type names to NocoDB v0.202 UIType names
+  // NocoDB v0.202: CreateTime ✓, LastModifiedTime ✓, Collaborator ✓
+  // NOT supported: CreatedBy, LastModifiedBy, User (use Collaborator instead)
+  const UIDT_MAP = {
+    'CreatedTime': 'CreateTime',
+    'LastModifiedTime': 'LastModifiedTime',
+    'CreatedBy': 'CreatedBy',           // NocoDB v0.202 does NOT support — will return error
+    'LastModifiedBy': 'LastModifiedBy', // NocoDB v0.202 does NOT support — will return error
+    'User': 'Collaborator',            // NocoDB v0.202 uses Collaborator, not User
+  };
+  let uidt = UIDT_MAP[rawUidt] || rawUidt;
+  // Number with decimals > 0 should use Decimal uidt to preserve precision
+  if (uidt === 'Number' && meta && meta.decimals && meta.decimals > 0) {
+    uidt = 'Decimal';
+  }
   const body = { column_name: title, title, uidt };
-  if (options && (uidt === 'SingleSelect' || uidt === 'MultiSelect')) {
-    body.colOptions = { options: options.map((o, i) => ({ title: o.title || o, color: o.color, order: i + 1 })) };
+  if (uidt === 'SingleSelect' || uidt === 'MultiSelect') {
+    // Always provide colOptions for select types — NocoDB crashes on row updates if colOptions is null
+    const optsList = (options || []).filter(o => o && (o.title || typeof o === 'string'));
+    body.colOptions = { options: optsList.map((o, i) => ({ title: o.title || o, color: o.color, order: i + 1 })) };
   }
   if (meta) body.meta = meta;
   // Formula
@@ -869,39 +888,50 @@ app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, re
   }
   // Links (relation between tables)
   if ((uidt === 'Links' || uidt === 'LinkToAnotherRecord') && req.body.childId) {
-    body.colOptions = {
-      type: req.body.relationType || 'mm',
-      fk_related_model_id: req.body.childId,
-    };
+    // NocoDB requires parentId (current table) and childId (target table) as top-level properties
+    body.parentId = req.params.table_id;
+    body.childId = req.body.childId;
+    body.type = req.body.relationType || 'mm';
   }
-  // Lookup
+  // Lookup — NocoDB v0.202 expects fk_* at top level, NOT in colOptions
   if (uidt === 'Lookup' && req.body.fk_relation_column_id && req.body.fk_lookup_column_id) {
-    body.colOptions = {
-      fk_relation_column_id: req.body.fk_relation_column_id,
-      fk_lookup_column_id: req.body.fk_lookup_column_id,
-    };
+    body.fk_relation_column_id = req.body.fk_relation_column_id;
+    body.fk_lookup_column_id = req.body.fk_lookup_column_id;
   }
-  // Rollup
+  // Rollup — same as Lookup, top-level properties
   if (uidt === 'Rollup' && req.body.fk_relation_column_id && req.body.fk_rollup_column_id) {
-    body.colOptions = {
-      fk_relation_column_id: req.body.fk_relation_column_id,
-      fk_rollup_column_id: req.body.fk_rollup_column_id,
-      rollup_function: req.body.rollup_function || 'count',
-    };
+    body.fk_relation_column_id = req.body.fk_relation_column_id;
+    body.fk_rollup_column_id = req.body.fk_rollup_column_id;
+    body.rollup_function = req.body.rollup_function || 'count';
   }
   const result = await nc('POST', `/api/v1/db/meta/tables/${req.params.table_id}/columns`, body);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   const c = result.data;
-  res.status(201).json({ column_id: c.id, title: c.title, type: c.uidt });
+  // NocoDB returns table object for Links, column object for others
+  if (c.columns) {
+    // Links: find the newly created column by matching title
+    const newCol = c.columns.find(col => col.title === title);
+    res.status(201).json({ column_id: newCol?.id || c.id, title: title, type: uidt });
+  } else {
+    res.status(201).json({ column_id: c.id, title: c.title, type: c.uidt });
+  }
 });
 
-// Update a column (rename or change type)
-// Body: { title?: string, uidt?: string }
+// Update a column (rename, change type, update options)
+// Body: { title?: string, uidt?: string, options?: [{title, color?}] }
 app.patch('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
   if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
   const body = {};
   if (req.body.title) { body.title = req.body.title; body.column_name = req.body.title; }
   if (req.body.uidt) body.uidt = req.body.uidt;
+  // Pass select options through to NocoDB
+  if (req.body.options) {
+    body.colOptions = { options: req.body.options.map((o, i) => ({ title: o.title || o, color: o.color, order: i + 1 })) };
+  }
+  // Pass meta through (for number format, rating config, date format, etc.)
+  if (req.body.meta !== undefined) {
+    body.meta = typeof req.body.meta === 'string' ? req.body.meta : JSON.stringify(req.body.meta);
+  }
   const result = await nc('PATCH', `/api/v1/db/meta/columns/${req.params.column_id}`, body);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   res.json(result.data);
@@ -1154,6 +1184,87 @@ app.post('/api/data/:table_id/rows/:row_id/comments', authenticateAgent, async (
     row_id: req.params.row_id,
     created_at: Date.now(),
   });
+});
+
+// View columns (field visibility/width per view) — stored in Gateway DB
+// NocoDB's view column update API doesn't reliably persist in v0.202, so we manage it locally.
+app.get('/api/data/views/:view_id/columns', authenticateAgent, async (req, res) => {
+  const viewId = req.params.view_id;
+  const rows = db.prepare('SELECT column_id, width, show, sort_order FROM view_column_settings WHERE view_id = ?').all(viewId);
+  const list = rows.map(r => ({
+    fk_column_id: r.column_id,
+    show: r.show === 1,
+    width: r.width ? String(r.width) : null,
+    order: r.sort_order,
+  }));
+  res.json({ list });
+});
+
+app.patch('/api/data/views/:view_id/columns/:col_id', authenticateAgent, async (req, res) => {
+  const { view_id, col_id } = req.params;
+  const { show, width, order } = req.body;
+
+  const existing = db.prepare('SELECT 1 FROM view_column_settings WHERE view_id = ? AND column_id = ?').get(view_id, col_id);
+  if (existing) {
+    const sets = [];
+    const vals = [];
+    if (show !== undefined) { sets.push('show = ?'); vals.push(show ? 1 : 0); }
+    if (width !== undefined) { sets.push('width = ?'); vals.push(typeof width === 'string' ? parseInt(width, 10) || null : width); }
+    if (order !== undefined) { sets.push('sort_order = ?'); vals.push(order); }
+    sets.push('updated_at = ?'); vals.push(Date.now());
+    vals.push(view_id, col_id);
+    db.prepare(`UPDATE view_column_settings SET ${sets.join(', ')} WHERE view_id = ? AND column_id = ?`).run(...vals);
+  } else {
+    db.prepare('INSERT INTO view_column_settings (view_id, column_id, width, show, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      view_id, col_id,
+      width !== undefined ? (typeof width === 'string' ? parseInt(width, 10) || null : width) : null,
+      show !== undefined ? (show ? 1 : 0) : 1,
+      order || null,
+      Date.now()
+    );
+  }
+  res.json({ updated: true });
+});
+
+// Helper: resolve NocoDB relation type (mm/hm/bt) for a column
+async function resolveRelationType(tableId, columnId) {
+  try {
+    const meta = await nc('GET', `/api/v1/db/meta/tables/${tableId}`);
+    if (meta.status >= 400) return 'mm'; // fallback
+    const col = (meta.data.columns || []).find(c => c.id === columnId);
+    return col?.colOptions?.type || 'mm';
+  } catch { return 'mm'; }
+}
+
+// Linked records (for Links/LinkToAnotherRecord columns)
+app.get('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const relType = await resolveRelationType(req.params.table_id, req.params.column_id);
+  const params = new URLSearchParams();
+  if (req.query.limit) params.set('limit', req.query.limit);
+  if (req.query.offset) params.set('offset', req.query.offset);
+  const qs = params.toString();
+  const result = await nc('GET', `/api/v1/db/data/noco/${NC_BASE_ID}/${req.params.table_id}/${req.params.row_id}/${relType}/${req.params.column_id}${qs ? '?' + qs : ''}`);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
+});
+
+app.post('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const relType = await resolveRelationType(req.params.table_id, req.params.column_id);
+  // Body: [{ Id: rowId }, ...] — array of records to link
+  const result = await nc('POST', `/api/v1/db/data/noco/${NC_BASE_ID}/${req.params.table_id}/${req.params.row_id}/${relType}/${req.params.column_id}`, req.body);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
+});
+
+app.delete('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  const relType = await resolveRelationType(req.params.table_id, req.params.column_id);
+  // Body: [{ Id: rowId }, ...] — array of records to unlink
+  const result = await nc('DELETE', `/api/v1/db/data/noco/${NC_BASE_ID}/${req.params.table_id}/${req.params.row_id}/${relType}/${req.params.column_id}`, req.body);
+  if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+  res.json(result.data);
 });
 
 // ─── Catchup ─────────────────────────────────────
@@ -2102,6 +2213,201 @@ app.put('/api/preferences/:key', authenticateAgent, (req, res) => {
 // ─── Health Check ─────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// ─── File upload proxy (for NocoDB attachments) ──────────────
+const fileUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB max
+
+app.post('/api/data/upload', authenticateAgent, fileUpload.array('files', 10), async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'NO_FILES' });
+
+  try {
+    const form = new FormData();
+    for (const file of req.files) {
+      const blob = new Blob([file.buffer], { type: file.mimetype });
+      form.append('files', blob, file.originalname);
+    }
+
+    const ncToken = await getNcJwt();
+    const uploadRes = await fetch(`${NC_URL}/api/v1/db/storage/upload`, {
+      method: 'POST',
+      headers: { 'xc-auth': ncToken },
+      body: form,
+    });
+    if (!uploadRes.ok) {
+      const detail = await uploadRes.text();
+      return res.status(uploadRes.status).json({ error: 'UPLOAD_FAILED', detail });
+    }
+    const data = await uploadRes.json();
+    res.json(data); // Returns array of { path, title, mimetype, size, ... }
+  } catch (e) {
+    console.error('[gateway] File upload error:', e);
+    res.status(500).json({ error: 'UPLOAD_ERROR', detail: e.message });
+  }
+});
+
+// ─── File download proxy (for NocoDB attachment URLs) ──────────────
+app.get('/api/data/download/*', authenticateAgent, async (req, res) => {
+  if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'NOCODB_NOT_CONFIGURED' });
+  try {
+    const ncToken = await getNcJwt();
+    // The path after /api/data/download/ is the NocoDB path (e.g., /dltemp/...)
+    const ncPath = '/' + req.params[0];
+    const ncRes = await fetch(`${NC_URL}${ncPath}`, {
+      headers: { 'xc-auth': ncToken },
+    });
+    if (!ncRes.ok) return res.status(ncRes.status).send('Not found');
+    res.set('Content-Type', ncRes.headers.get('content-type') || 'application/octet-stream');
+    const cacheControl = ncRes.headers.get('cache-control');
+    if (cacheControl) res.set('Cache-Control', cacheControl);
+    const buffer = Buffer.from(await ncRes.arrayBuffer());
+    res.send(buffer);
+  } catch (e) {
+    console.error('[gateway] File download proxy error:', e);
+    res.status(500).json({ error: 'DOWNLOAD_ERROR' });
+  }
+});
+
+// ─── Table Comments (SQLite-backed) ──────────────
+
+// List row IDs that have comments for a table
+app.get('/api/data/tables/:table_id/commented-rows', authenticateAgent, (req, res) => {
+  const { table_id } = req.params;
+  const rows = db.prepare('SELECT DISTINCT row_id, COUNT(*) as count FROM table_comments WHERE table_id = ? AND row_id IS NOT NULL GROUP BY row_id').all(table_id);
+  res.json({ rows: rows.map(r => ({ row_id: r.row_id, count: r.count })) });
+});
+
+// List comments for a table (optionally filtered by row_id)
+app.get('/api/data/tables/:table_id/comments', authenticateAgent, (req, res) => {
+  const { table_id } = req.params;
+  const { row_id, include_all } = req.query; // row_id: filter by row; include_all: return all comments
+  let rows;
+  if (row_id) {
+    rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? AND row_id = ? ORDER BY created_at ASC').all(table_id, row_id);
+  } else if (include_all === '1' || include_all === 'true') {
+    // All comments (table-level + all row-level)
+    rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? ORDER BY created_at ASC').all(table_id);
+  } else {
+    // Table-level comments only (row_id IS NULL)
+    rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? AND row_id IS NULL ORDER BY created_at ASC').all(table_id);
+  }
+  const comments = rows.map(r => ({
+    id: r.id,
+    text: r.text,
+    actor: r.actor,
+    actor_id: r.actor_id,
+    parent_id: r.parent_id || null,
+    row_id: r.row_id || null,
+    resolved_by: r.resolved_by ? { id: r.resolved_by, name: r.resolved_by } : null,
+    resolved_at: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
+    created_at: new Date(r.created_at).toISOString(),
+    updated_at: new Date(r.updated_at).toISOString(),
+  }));
+  res.json({ comments });
+});
+
+// Create a table comment (table-level or row-level)
+app.post('/api/data/tables/:table_id/comments', authenticateAgent, (req, res) => {
+  const { table_id } = req.params;
+  const { text, parent_id, row_id } = req.body;
+  if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
+
+  const agent = req.agent;
+  const id = crypto.randomUUID();
+  const now = Date.now();
+
+  db.prepare(`INSERT INTO table_comments (id, table_id, row_id, parent_id, text, actor, actor_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, table_id, row_id || null, parent_id || null, text,
+    agent.display_name || agent.name, agent.id, now, now
+  );
+
+  // Notify agents mentioned via @agentname
+  try {
+    const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+    for (const target of allAgents) {
+      // Skip if the comment author is this agent
+      if (target.id === agent.id) continue;
+      const mentionRegex = new RegExp(`@${target.name}(?![\\w-])`, 'i');
+      if (!mentionRegex.test(text)) continue;
+
+      const cleanText = text.replace(new RegExp(`@${target.name}(?![\\w-])\\s*`, 'gi'), '').trim();
+      const evt = {
+        event: 'data.commented',
+        source: 'table_comments',
+        event_id: genId('evt'),
+        timestamp: now,
+        data: {
+          comment_id: id,
+          table_id,
+          row_id: row_id || null,
+          text: cleanText,
+          raw_text: text,
+          sender: { name: agent.display_name || agent.name, type: agent.type || 'agent' },
+        },
+      };
+      db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), Date.now());
+      pushEvent(target.id, evt);
+      if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
+      console.log(`[gateway] Event ${evt.event} → ${target.name} (table: ${table_id}, row: ${row_id || 'none'})`);
+    }
+  } catch (e) {
+    console.error(`[gateway] Table comment notification error: ${e.message}`);
+  }
+
+  res.status(201).json({
+    id,
+    text,
+    actor: agent.display_name || agent.name,
+    actor_id: agent.id,
+    parent_id: parent_id || null,
+    resolved_by: null,
+    resolved_at: null,
+    created_at: new Date(now).toISOString(),
+    updated_at: new Date(now).toISOString(),
+  });
+});
+
+// Update a table comment (edit text)
+app.patch('/api/data/table-comments/:comment_id', authenticateAgent, (req, res) => {
+  const { comment_id } = req.params;
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
+
+  const now = Date.now();
+  const result = db.prepare('UPDATE table_comments SET text = ?, updated_at = ? WHERE id = ?').run(text, now, comment_id);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ updated: true });
+});
+
+// Delete a table comment
+app.delete('/api/data/table-comments/:comment_id', authenticateAgent, (req, res) => {
+  const { comment_id } = req.params;
+  const result = db.prepare('DELETE FROM table_comments WHERE id = ?').run(comment_id);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ deleted: true });
+});
+
+// Resolve a table comment
+app.post('/api/data/table-comments/:comment_id/resolve', authenticateAgent, (req, res) => {
+  const agent = req.agent;
+  const now = Date.now();
+  const result = db.prepare('UPDATE table_comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?')
+    .run(agent.display_name || agent.name, now, now, req.params.comment_id);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ resolved: true });
+});
+
+// Unresolve a table comment
+app.post('/api/data/table-comments/:comment_id/unresolve', authenticateAgent, (req, res) => {
+  const now = Date.now();
+  const result = db.prepare('UPDATE table_comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?')
+    .run(now, req.params.comment_id);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ unresolved: true });
 });
 
 // ─── Start ───────────────────────────────────────
