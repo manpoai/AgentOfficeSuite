@@ -1143,6 +1143,46 @@ app.patch('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res
   const result = await nc('PATCH', `/api/v1/db/data/noco/${NC_BASE_ID}/${req.params.table_id}/${req.params.row_id}`, req.body);
   if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
   res.json(result.data);
+
+  // Async: check for User field assignments → notify assigned agents
+  try {
+    const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+    const agentMap = new Map();
+    for (const a of allAgents) {
+      agentMap.set(a.name, a);
+      if (a.display_name) agentMap.set(a.display_name, a);
+      if (a.nc_email) agentMap.set(a.nc_email, a);
+    }
+    const body = req.body || {};
+    for (const [field, val] of Object.entries(body)) {
+      // Collaborator field can be a string (email/name) or comma-separated string
+      if (!val) continue;
+      const valStr = typeof val === 'string' ? val : (typeof val === 'object' && val.email ? val.email : null);
+      if (!valStr) continue;
+      const target = agentMap.get(valStr);
+      if (!target || target.id === req.agent.id) continue;
+      console.log(`[gateway] User assigned: ${target.name} via field "${field}" by ${req.agent.name}`);
+      // This field's value matches an agent — emit user_assigned event
+      const now = Date.now();
+      const evt = {
+        event: 'data.user_assigned',
+        source: 'row_update',
+        event_id: genId('evt'),
+        timestamp: now,
+        data: {
+          table_id: req.params.table_id,
+          row_id: req.params.row_id,
+          field,
+          assigned_to: val,
+          assigned_by: { name: req.agent.display_name || req.agent.name, type: req.agent.type || 'agent' },
+        },
+      };
+      db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), now);
+      pushEvent(target.id, evt);
+      if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
+    }
+  } catch (e) { console.error(`[gateway] User assignment notification error: ${e.message}`); }
 });
 
 // Delete row
