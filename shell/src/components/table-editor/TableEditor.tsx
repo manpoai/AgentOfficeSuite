@@ -255,6 +255,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [bulkEditCol, setBulkEditCol] = useState('');
   const [bulkEditVal, setBulkEditVal] = useState('');
+  // Date picker state
+  const [datePicker, setDatePicker] = useState<{ rowId: number; col: string; colType: string; value: string } | null>(null);
   // Attachment upload state
   const [attachmentUploading, setAttachmentUploading] = useState<{ rowId: number; col: string } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -2594,7 +2596,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           className={cn(
                             'px-2 relative',
                             isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-gray-300 dark:after:bg-gray-600' : 'border-r border-border',
-                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
+                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
                             isEditing && 'ring-2 ring-sidebar-primary ring-inset bg-card',
                             (!isReadonly || col.type === 'Links' || col.type === 'Attachment' || col.type === 'User' || col.type === 'Collaborator') && !isEditing && 'cursor-pointer',
                             isFrozen ? cn('sticky z-[3]', isPK && commentedRowIds.has(String(rowId)) ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-card') : undefined,
@@ -2620,6 +2622,11 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             if (col.type === 'User' || col.type === 'Collaborator') {
                               setUserPicker({ rowId, col: col.title });
                               setUserPickerSearch('');
+                              return;
+                            }
+                            if ((col.type === 'Date' || col.type === 'DateTime') && !isReadonly) {
+                              const dateStr = val ? String(val) : '';
+                              setDatePicker({ rowId, col: col.title, colType: col.type, value: dateStr });
                               return;
                             }
                             if (isEditing || isReadonly) return;
@@ -2850,6 +2857,26 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                               </div>
                             );
                           })()}
+                          {/* Date picker dropdown */}
+                          {datePicker?.rowId === rowId && datePicker?.col === col.title && (
+                            <DatePickerDropdown
+                              value={datePicker.value}
+                              showTime={datePicker.colType === 'DateTime'}
+                              onSelect={async (dateStr) => {
+                                setDatePicker(null);
+                                if (dateStr !== datePicker.value) {
+                                  queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+                                    const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+                                    if (!data) return old;
+                                    return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: dateStr || null } : r) };
+                                  });
+                                  try { await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
+                                  catch (e) { console.error('Date update failed:', e); refresh(); }
+                                }
+                              }}
+                              onClose={() => setDatePicker(null)}
+                            />
+                          )}
                         </td>
                       );
                     })}
@@ -3569,6 +3596,127 @@ function RatingStars({ value, onChange, max = 5, iconType = 'star' }: { value?: 
           {i < current ? filled : empty}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Date picker dropdown ──
+
+function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
+  value: string;
+  showTime: boolean;
+  onSelect: (dateStr: string) => void;
+  onClose: () => void;
+}) {
+  const initDate = value ? new Date(value) : new Date();
+  const validInit = isNaN(initDate.getTime()) ? new Date() : initDate;
+  const [viewYear, setViewYear] = useState(validInit.getFullYear());
+  const [viewMonth, setViewMonth] = useState(validInit.getMonth());
+  const [timeStr, setTimeStr] = useState(
+    value && !isNaN(new Date(value).getTime())
+      ? `${String(new Date(value).getHours()).padStart(2, '0')}:${String(new Date(value).getMinutes()).padStart(2, '0')}`
+      : '00:00'
+  );
+
+  const selectedDate = value && !isNaN(new Date(value).getTime()) ? new Date(value) : null;
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
+  const weeks: (number | null)[][] = [];
+  let week: (number | null)[] = Array(firstDayOfWeek).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d);
+    if (week.length === 7) { weeks.push(week); week = []; }
+  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
+
+  const handleDayClick = (day: number) => {
+    const [hh, mm] = timeStr.split(':').map(Number);
+    const d = new Date(viewYear, viewMonth, day, showTime ? (hh || 0) : 0, showTime ? (mm || 0) : 0);
+    onSelect(d.toISOString());
+  };
+
+  const handleClear = () => onSelect('');
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
+
+  const isToday = (day: number) => {
+    const now = new Date();
+    return viewYear === now.getFullYear() && viewMonth === now.getMonth() && day === now.getDate();
+  };
+  const isSelected = (day: number) => {
+    if (!selectedDate) return false;
+    return viewYear === selectedDate.getFullYear() && viewMonth === selectedDate.getMonth() && day === selectedDate.getDate();
+  };
+
+  const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+  const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-date-picker]')) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div data-date-picker className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl w-64 select-none">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
+        <span className="text-xs font-medium text-foreground">{viewYear}年 {MONTHS[viewMonth]}</span>
+        <button onClick={nextMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 gap-0 px-2 pt-1">
+        {WEEKDAYS.map(w => (
+          <div key={w} className="text-center text-[10px] text-muted-foreground py-0.5">{w}</div>
+        ))}
+      </div>
+      {/* Days grid */}
+      <div className="px-2 pb-2">
+        {weeks.map((wk, wi) => (
+          <div key={wi} className="grid grid-cols-7 gap-0">
+            {wk.map((day, di) => (
+              <button
+                key={di}
+                disabled={day === null}
+                onClick={() => day && handleDayClick(day)}
+                className={cn(
+                  'h-7 w-full text-xs rounded transition-colors',
+                  day === null && 'invisible',
+                  day !== null && !isSelected(day) && !isToday(day) && 'hover:bg-accent text-foreground',
+                  day !== null && isToday(day) && !isSelected(day) && 'text-sidebar-primary font-medium',
+                  day !== null && isSelected(day) && 'bg-sidebar-primary text-sidebar-primary-foreground font-medium',
+                )}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+      {/* Time input (for DateTime) */}
+      {showTime && (
+        <div className="px-3 pb-2 pt-1 border-t border-border flex items-center gap-2">
+          <Clock className="h-3 w-3 text-muted-foreground" />
+          <input
+            type="time"
+            value={timeStr}
+            onChange={e => setTimeStr(e.target.value)}
+            className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none"
+          />
+        </div>
+      )}
+      {/* Footer */}
+      <div className="px-3 pb-2 flex items-center justify-between">
+        <button onClick={handleClear} className="text-[10px] text-muted-foreground hover:text-foreground">清除</button>
+        <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); handleDayClick(now.getDate()); }} className="text-[10px] text-sidebar-primary hover:opacity-80">今天</button>
+      </div>
     </div>
   );
 }

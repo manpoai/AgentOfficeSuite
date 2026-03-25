@@ -190,7 +190,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
   const ColIcon = getColIcon(col.type);
 
   const startEdit = useCallback(() => {
-    if (isReadonly || col.type === 'Checkbox' || col.type === 'Rating' || col.type === 'Attachment') return;
+    if (isReadonly || col.type === 'Checkbox' || col.type === 'Rating' || col.type === 'Attachment' || col.type === 'Date' || col.type === 'DateTime') return;
     setEditVal(value == null ? '' : String(value));
     setEditing(true);
   }, [isReadonly, col.type, value]);
@@ -322,6 +322,9 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
         ) : /* MultiSelect */
         col.type === 'MultiSelect' && !isReadonly ? (
           <MultiSelectField value={value} col={col} onToggle={toggleMulti} />
+        ) : /* Date/DateTime — calendar picker */
+        (col.type === 'Date' || col.type === 'DateTime') && !isReadonly ? (
+          <DateField value={value} col={col} rowId={rowId} tableId={tableId} onSaved={onSaved} />
         ) : /* Attachment — inline upload + display with delete */
         col.type === 'Attachment' && !isReadonly ? (
           <AttachmentField value={value} col={col} rowId={rowId} tableId={tableId} onSaved={onSaved} />
@@ -549,6 +552,125 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
   }
 
   return <span className="break-words">{str}</span>;
+}
+
+// ── Date field (calendar picker) ──
+
+function DateField({ value, col, rowId, tableId, onSaved }: {
+  value: unknown; col: nc.NCColumn; rowId: number; tableId: string; onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const str = value == null ? '' : String(value);
+  const showTime = col.type === 'DateTime';
+  const meta = col.meta as Record<string, unknown> | undefined;
+  const fmt = (meta?.date_format as string) || 'YYYY-MM-DD';
+
+  const formatDisplay = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+    return fmt.replace('YYYY', String(y)).replace('MM', m).replace('DD', day).replace('HH', hh).replace('mm', mm) + (showTime && !fmt.includes('HH') ? ` ${hh}:${mm}` : '');
+  };
+
+  const handleSelect = async (dateStr: string) => {
+    setOpen(false);
+    try {
+      await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null });
+      onSaved();
+    } catch (e) { console.error('Date update failed:', e); }
+  };
+
+  return (
+    <div className="relative">
+      <div
+        onClick={() => setOpen(!open)}
+        className="text-sm py-0.5 min-h-[28px] flex items-center cursor-pointer rounded-md hover:bg-muted/50 px-2 -mx-2"
+      >
+        {str ? (
+          <span className="text-foreground/70">{formatDisplay(str)}</span>
+        ) : (
+          <span className="text-muted-foreground/40 flex items-center gap-1"><Calendar className="h-3 w-3" /> 选择日期</span>
+        )}
+      </div>
+      {open && <DatePickerInline value={str} showTime={showTime} onSelect={handleSelect} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function DatePickerInline({ value, showTime, onSelect, onClose }: {
+  value: string; showTime: boolean; onSelect: (dateStr: string) => void; onClose: () => void;
+}) {
+  const initDate = value ? new Date(value) : new Date();
+  const validInit = isNaN(initDate.getTime()) ? new Date() : initDate;
+  const [viewYear, setViewYear] = useState(validInit.getFullYear());
+  const [viewMonth, setViewMonth] = useState(validInit.getMonth());
+  const [timeStr, setTimeStr] = useState(
+    value && !isNaN(new Date(value).getTime())
+      ? `${String(new Date(value).getHours()).padStart(2, '0')}:${String(new Date(value).getMinutes()).padStart(2, '0')}`
+      : '00:00'
+  );
+  const selectedDate = value && !isNaN(new Date(value).getTime()) ? new Date(value) : null;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+  const weeks: (number | null)[][] = [];
+  let wk: (number | null)[] = Array(firstDow).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) { wk.push(d); if (wk.length === 7) { weeks.push(wk); wk = []; } }
+  if (wk.length > 0) { while (wk.length < 7) wk.push(null); weeks.push(wk); }
+
+  const handleDay = (day: number) => {
+    const [hh, mm] = timeStr.split(':').map(Number);
+    onSelect(new Date(viewYear, viewMonth, day, showTime ? (hh || 0) : 0, showTime ? (mm || 0) : 0).toISOString());
+  };
+  const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
+  const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
+  const isToday = (d: number) => { const now = new Date(); return viewYear === now.getFullYear() && viewMonth === now.getMonth() && d === now.getDate(); };
+  const isSel = (d: number) => selectedDate ? viewYear === selectedDate.getFullYear() && viewMonth === selectedDate.getMonth() && d === selectedDate.getDate() : false;
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('[data-date-picker-detail]')) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div data-date-picker-detail className="mt-1 bg-card border border-border rounded-lg shadow-xl w-64 select-none">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
+        <span className="text-xs font-medium">{viewYear}年 {viewMonth + 1}月</span>
+        <button onClick={nextMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
+      </div>
+      <div className="grid grid-cols-7 px-2 pt-1">
+        {['日','一','二','三','四','五','六'].map(w => <div key={w} className="text-center text-[10px] text-muted-foreground py-0.5">{w}</div>)}
+      </div>
+      <div className="px-2 pb-2">
+        {weeks.map((w, wi) => (
+          <div key={wi} className="grid grid-cols-7">
+            {w.map((day, di) => (
+              <button key={di} disabled={!day} onClick={() => day && handleDay(day)} className={cn(
+                'h-7 w-full text-xs rounded transition-colors',
+                !day && 'invisible',
+                day && !isSel(day) && !isToday(day) && 'hover:bg-accent',
+                day && isToday(day) && !isSel(day) && 'text-sidebar-primary font-medium',
+                day && isSel(day) && 'bg-sidebar-primary text-sidebar-primary-foreground font-medium',
+              )}>{day}</button>
+            ))}
+          </div>
+        ))}
+      </div>
+      {showTime && (
+        <div className="px-3 pb-2 pt-1 border-t border-border flex items-center gap-2">
+          <Clock className="h-3 w-3 text-muted-foreground" />
+          <input type="time" value={timeStr} onChange={e => setTimeStr(e.target.value)} className="bg-muted rounded px-2 py-1 text-xs outline-none" />
+        </div>
+      )}
+      <div className="px-3 pb-2 flex items-center justify-between">
+        <button onClick={() => onSelect('')} className="text-[10px] text-muted-foreground hover:text-foreground">清除</button>
+        <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); handleDay(now.getDate()); }} className="text-[10px] text-sidebar-primary">今天</button>
+      </div>
+    </div>
+  );
 }
 
 // ── Attachment field (upload + thumbnails + delete) ──
