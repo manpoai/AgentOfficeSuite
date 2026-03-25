@@ -2975,7 +2975,28 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', showTypeSelector && 'rotate-180')} />
                   </button>
                   {/* Expanded type list */}
-                  {showTypeSelector && (
+                  {showTypeSelector && (() => {
+                    // Type change compatibility when editing existing columns
+                    const IMMUTABLE_TYPES = new Set(['Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'CreatedTime', 'LastModifiedTime', 'AutoNumber', 'ID']);
+                    const TEXT_TYPES = new Set(['SingleLineText', 'LongText', 'Email', 'URL', 'PhoneNumber']);
+                    const NUM_TYPES = new Set(['Number', 'Decimal', 'Currency', 'Percent']);
+                    const isEditing = !!editFieldColId;
+                    const origType = isEditing ? (meta?.columns?.find(c => c.column_id === editFieldColId)?.type || newColType) : newColType;
+                    const getCompat = (from: string, to: string): 'ok' | 'lossy' | 'blocked' => {
+                      if (from === to) return 'ok';
+                      if (IMMUTABLE_TYPES.has(from) || IMMUTABLE_TYPES.has(to)) return 'blocked';
+                      // Text ↔ Text: safe
+                      if (TEXT_TYPES.has(from) && TEXT_TYPES.has(to)) return 'ok';
+                      // Num ↔ Num: safe
+                      if (NUM_TYPES.has(from) && NUM_TYPES.has(to)) return 'ok';
+                      // Date ↔ DateTime: safe
+                      if ((from === 'Date' || from === 'DateTime') && (to === 'Date' || to === 'DateTime')) return 'ok';
+                      // SingleSelect → MultiSelect: safe
+                      if (from === 'SingleSelect' && to === 'MultiSelect') return 'ok';
+                      // Everything else: lossy
+                      return 'lossy';
+                    };
+                    return (
                     <div className="border-t border-border max-h-48 overflow-y-auto">
                       {Object.entries(GROUP_LABELS).map(([group, label]) => {
                         const types = COLUMN_TYPES.filter(ct => ct.group === group);
@@ -2985,10 +3006,22 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-muted/30 sticky top-0">{label}</div>
                             {types.map(ct => {
                               const CtIcon = ct.icon;
+                              const compat = isEditing ? getCompat(origType, ct.value) : 'ok';
+                              if (compat === 'blocked' && ct.value !== origType) return (
+                                <div key={ct.value} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-muted-foreground/40 cursor-not-allowed">
+                                  <CtIcon className="h-3.5 w-3.5 shrink-0" />
+                                  {ct.label}
+                                </div>
+                              );
                               return (
                                 <button
                                   key={ct.value}
-                                  onClick={() => { setNewColType(ct.value); setShowTypeSelector(false); }}
+                                  onClick={() => {
+                                    if (compat === 'lossy') {
+                                      if (!window.confirm(`将类型从「${COLUMN_TYPES.find(c => c.value === origType)?.label}」改为「${ct.label}」可能导致部分数据丢失。确定继续？`)) return;
+                                    }
+                                    setNewColType(ct.value); setShowTypeSelector(false);
+                                  }}
                                   className={cn(
                                     'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-accent transition-colors',
                                     newColType === ct.value ? 'text-sidebar-primary font-medium bg-sidebar-primary/5' : 'text-foreground'
@@ -2996,6 +3029,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                 >
                                   <CtIcon className="h-3.5 w-3.5 shrink-0" />
                                   {ct.label}
+                                  {compat === 'lossy' && ct.value !== origType && <span className="text-[9px] text-amber-500 ml-auto">有损</span>}
                                 </button>
                               );
                             })}
@@ -3003,7 +3037,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         );
                       })}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
 
