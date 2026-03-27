@@ -17,7 +17,7 @@ import { TableEditor } from '@/components/table-editor/TableEditor';
 import { BoardEditor } from '@/components/board-editor/BoardEditor';
 import { PresentationEditor } from '@/components/presentation-editor/PresentationEditor';
 import { SpreadsheetEditor } from '@/components/spreadsheet-editor/SpreadsheetEditor';
-import { DiagramEditor } from '@/components/diagram-editor/DiagramEditor';
+const DiagramEditor = dynamic(() => import('@/components/diagram-editor/X6DiagramEditor'), { ssr: false });
 
 const RevisionPreview = dynamic(() => import('@/components/RevisionPreview'), { ssr: false });
 import * as gw from '@/lib/api/gateway';
