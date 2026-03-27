@@ -7,46 +7,104 @@ import type { EditorView } from 'prosemirror-view';
 import type { Schema } from 'prosemirror-model';
 import * as ol from '@/lib/api/outline';
 
+/** Find a valid block-level insertion position at or near `pos`. */
+function findInsertPos(view: EditorView, pos: number): number {
+  const $pos = view.state.doc.resolve(pos);
+  // Walk up to find a position where we can insert a paragraph (block level)
+  for (let d = $pos.depth; d >= 0; d--) {
+    const parent = $pos.node(d);
+    const indexInParent = $pos.index(d);
+    // Check if we can insert a paragraph as a child of this node
+    if (parent.type.spec.content && parent.canReplaceWith(indexInParent, indexInParent, view.state.schema.nodes.paragraph)) {
+      return $pos.after(d + 1 > $pos.depth ? $pos.depth : d + 1);
+    }
+  }
+  // Fallback: insert at end of doc
+  return view.state.doc.content.size;
+}
+
+/** Sanitize file name for upload — remove special chars that may cause issues */
+function sanitizeFileName(name: string): string {
+  if (!name) return 'image.png';
+  // Replace spaces and special characters with underscores
+  return name.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+/** Guess content type from file name extension */
+function guessContentType(file: File): string {
+  if (file.type && file.type.startsWith('image/')) return file.type;
+  const ext = file.name?.split('.').pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+    bmp: 'image/bmp', ico: 'image/x-icon', tif: 'image/tiff', tiff: 'image/tiff',
+  };
+  return (ext && map[ext]) || 'image/png';
+}
+
 /** Upload a File and insert the resulting image node into the editor */
-async function uploadAndInsert(view: EditorView, file: File, pos: number, docId?: string) {
-  // Insert a placeholder (loading indicator)
+export async function uploadAndInsert(view: EditorView, file: File, rawPos: number, docId?: string) {
   const schema = view.state.schema;
   const imageType = schema.nodes.image;
   if (!imageType) return;
+
+  // Prepare a sanitized file for upload (fix name & content type)
+  const contentType = guessContentType(file);
+  const safeName = sanitizeFileName(file.name);
+  const uploadFile = (safeName !== file.name || !file.type)
+    ? new File([file], safeName, { type: contentType })
+    : file;
 
   // Create a placeholder with a data URL while uploading
   const reader = new FileReader();
   reader.onload = async () => {
     const dataUrl = reader.result as string;
+
+    // Use current state (may have changed since drop event)
+    const insertPos = findInsertPos(view, Math.min(rawPos, view.state.doc.content.size));
+
     // Insert placeholder image (wrapped in a paragraph since image is inline)
-    const placeholderNode = imageType.create({ src: dataUrl, alt: file.name, title: file.name });
+    const placeholderNode = imageType.create({ src: dataUrl, alt: '' });
     const para = schema.nodes.paragraph.create(null, placeholderNode);
-    let tr = view.state.tr.insert(pos, para);
+    const tr = view.state.tr.insert(insertPos, para);
     view.dispatch(tr);
 
     try {
-      const result = await ol.uploadAttachment(file, docId);
+      const result = await ol.uploadAttachment(uploadFile, docId);
       const url = result.data.url;
 
       // Find and replace the placeholder image
+      let found = false;
       view.state.doc.descendants((node, nodePos) => {
+        if (found) return false;
         if (node.type === imageType && node.attrs.src === dataUrl) {
           const tr = view.state.tr.setNodeMarkup(nodePos, undefined, {
             ...node.attrs,
             src: url,
           });
           view.dispatch(tr);
+          found = true;
           return false;
         }
         return true;
       });
-    } catch (e) {
-      console.error('Image upload failed:', e);
+    } catch (e: any) {
+      const errMsg = e?.message || String(e);
+      console.error('Image upload failed:', errMsg, e);
+      // Show error as a temporary toast so user can see what went wrong
+      const toast = document.createElement('div');
+      toast.textContent = `Image upload failed: ${errMsg}`;
+      toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:12px 24px;border-radius:8px;z-index:9999;font-size:14px;max-width:80vw;word-break:break-all;';
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 8000);
       // Remove placeholder on error
+      let found = false;
       view.state.doc.descendants((node, nodePos) => {
+        if (found) return false;
         if (node.type === imageType && node.attrs.src === dataUrl) {
           const tr = view.state.tr.delete(nodePos, nodePos + node.nodeSize);
           view.dispatch(tr);
+          found = true;
           return false;
         }
         return true;
@@ -56,11 +114,20 @@ async function uploadAndInsert(view: EditorView, file: File, pos: number, docId?
   reader.readAsDataURL(file);
 }
 
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|svg|bmp|ico|tiff?)$/i;
+
+function isImageFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true;
+  // Fallback: check file extension (some OS/browsers don't set MIME type on drag)
+  if (file.name && IMAGE_EXTENSIONS.test(file.name)) return true;
+  return false;
+}
+
 function getImageFiles(data: DataTransfer): File[] {
   const files: File[] = [];
   for (let i = 0; i < data.files.length; i++) {
     const file = data.files[i];
-    if (file.type.startsWith('image/')) files.push(file);
+    if (isImageFile(file)) files.push(file);
   }
   return files;
 }

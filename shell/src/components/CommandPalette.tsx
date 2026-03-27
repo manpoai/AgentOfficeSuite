@@ -28,7 +28,13 @@ export function CommandPalette() {
 
   // Fetch data for search
   const { data: tasks } = useQuery({ queryKey: ['tasks'], queryFn: gw.listTasks, staleTime: 30_000 });
-  const { data: docs } = useQuery({ queryKey: ['outline-docs'], queryFn: () => ol.listDocuments(), staleTime: 30_000 });
+  const { data: contentItems } = useQuery({ queryKey: ['content-items'], queryFn: gw.listContentItems, staleTime: 30_000 });
+  const docs = useMemo(() => contentItems?.filter(i => i.type === 'doc').map(i => ({
+    id: i.raw_id, title: i.title, text: '', icon: i.icon || undefined, createdAt: i.created_at || '',
+    updatedAt: i.updated_at || '', publishedAt: null, archivedAt: null, deletedAt: null,
+    collectionId: i.collection_id || '', parentDocumentId: i.parent_id?.startsWith('doc:') ? i.parent_id.slice(4) : null,
+    createdBy: { id: '', name: i.created_by || '' }, updatedBy: { id: '', name: i.updated_by || '' }, revision: 0,
+  } as ol.OLDocument)), [contentItems]);
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: gw.listAgents, staleTime: 30_000 });
 
   // Listen for Cmd+K / Ctrl+K

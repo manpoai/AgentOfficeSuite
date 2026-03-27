@@ -5,12 +5,17 @@ import {
   X, ChevronLeft, ChevronRight, Trash2, Plus, Star, CheckSquare,
   Type, Hash, Calendar, Mail, AlignLeft, Link, Phone, Clock, DollarSign,
   Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
-  MessageSquare, Upload, X as XIcon,
+  MessageSquare, Upload, Download, Loader2, X as XIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import * as nc from '@/lib/api/nocodb';
 import * as gw from '@/lib/api/gateway';
 import { Comments } from '@/components/comments/Comments';
+import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { restrictToParentElement } from '@dnd-kit/modifiers';
+import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // ── Shared constants (kept in sync with TableEditor) ──
 
@@ -32,7 +37,8 @@ function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
   if (!p) return '';
   if (p.startsWith('http://') || p.startsWith('https://')) return p;
   if (p.startsWith('/api/')) return p;
-  return `/api/gateway/data/download${p.startsWith('/') ? '' : '/'}${p}`;
+  // Use query-param route to avoid Next.js file-extension routing issues
+  return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
 }
 
 function getColIcon(uidt: string) {
@@ -68,9 +74,10 @@ export function RowDetailPanel({
   onClose, onNavigate, onRefresh, onDeleteRow,
   initialShowComments, onCommentChange,
 }: RowDetailPanelProps) {
+  const { t } = useT();
   const rowId = row.Id as number;
   const rowIdStr = String(rowId);
-  const displayCols = columns.filter(c => c.title !== 'created_by');
+  const displayCols = columns.filter(c => c.title !== 'created_by' && c.type !== 'ID' && !(c.title === 'Id' && c.primary_key));
   const titleCol = displayCols.find(c => c.primary_key);
   const titleValue = titleCol ? String(row[titleCol.title] || '') : `#${rowId}`;
   const [showComments, setShowComments] = useState(initialShowComments ?? false);
@@ -103,7 +110,7 @@ export function RowDetailPanel({
               onClick={() => onNavigate('prev')}
               disabled={rowIndex <= 0}
               className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-              title="上一行 (↑)"
+              title={`${t('rowDetail.prevRow')} (↑)`}
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -112,7 +119,7 @@ export function RowDetailPanel({
               onClick={() => onNavigate('next')}
               disabled={rowIndex >= totalRows - 1}
               className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-              title="下一行 (↓)"
+              title={`${t('rowDetail.nextRow')} (↓)`}
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -121,18 +128,18 @@ export function RowDetailPanel({
           <button
             onClick={() => setShowComments(v => !v)}
             className={cn('p-1.5 rounded transition-colors', showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
-            title="行评论"
+            title={t('rowDetail.rowComments')}
           >
             <MessageSquare className="h-4 w-4" />
           </button>
           <button
             onClick={() => { onDeleteRow(rowId); onClose(); }}
             className="p-1.5 text-muted-foreground hover:text-destructive"
-            title="删除行"
+            title={t('rowDetail.deleteRow')}
           >
             <Trash2 className="h-4 w-4" />
           </button>
-          <button onClick={onClose} className="p-1.5 text-muted-foreground hover:text-foreground" title="关闭 (Esc)">
+          <button onClick={onClose} className="p-1.5 text-muted-foreground hover:text-foreground" title={`${t('rowDetail.closeEsc')}`}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -381,8 +388,9 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
 // ── Field display — aligned with grid CellDisplay ──
 
 function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
+  const { t } = useT();
   if (value == null || value === '') {
-    return <span className="text-muted-foreground/30">空</span>;
+    return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
   }
   const str = String(value);
   const { type } = col;
@@ -488,7 +496,7 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
       attachments = Array.isArray(value) ? value : JSON.parse(str);
     } catch {}
     if (!Array.isArray(attachments) || attachments.length === 0) {
-      return <span className="text-muted-foreground/30">空</span>;
+      return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
     }
     const isImage = (a: any) => a.mimetype?.startsWith('image/');
     const handleDeleteAttachment = async (idx: number) => {
@@ -507,13 +515,13 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
             ) : (
               <div className="h-16 w-16 rounded border border-border flex flex-col items-center justify-center bg-muted/30" title={a.title || a.path}>
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[9px] text-muted-foreground mt-1 truncate max-w-[56px] px-1">{a.title || `附件${i + 1}`}</span>
+                <span className="text-[9px] text-muted-foreground mt-1 truncate max-w-[56px] px-1">{a.title || t('dataTable.attachmentName', { n: i + 1 })}</span>
               </div>
             )}
             <button
               onClick={() => handleDeleteAttachment(i)}
               className="absolute -top-1.5 -right-1.5 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] shadow-sm"
-              title="删除附件"
+              title={t('dataTable.deleteAttachment')}
             >
               <X className="h-2.5 w-2.5" />
             </button>
@@ -543,8 +551,8 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
   // Links — show count or empty, not "0"
   if (type === 'Links' || type === 'LinkToAnotherRecord') {
     const num = parseInt(str);
-    if (!num || num === 0) return <span className="text-muted-foreground/30">空</span>;
-    return <span className="text-sidebar-primary">{num} 条关联</span>;
+    if (!num || num === 0) return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
+    return <span className="text-sidebar-primary">{t('dataTable.nLinkedRecords', { n: num })}</span>;
   }
   // Formula / Rollup / Lookup / Count
   if (READONLY_TYPES.has(type)) {
@@ -559,6 +567,7 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
 function DateField({ value, col, rowId, tableId, onSaved }: {
   value: unknown; col: nc.NCColumn; rowId: number; tableId: string; onSaved: () => void;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const str = value == null ? '' : String(value);
   const showTime = col.type === 'DateTime';
@@ -591,7 +600,7 @@ function DateField({ value, col, rowId, tableId, onSaved }: {
         {str ? (
           <span className="text-foreground/70">{formatDisplay(str)}</span>
         ) : (
-          <span className="text-muted-foreground/40 flex items-center gap-1"><Calendar className="h-3 w-3" /> 选择日期</span>
+          <span className="text-muted-foreground/40 flex items-center gap-1"><Calendar className="h-3 w-3" /> {t('dataTable.selectDate')}</span>
         )}
       </div>
       {open && <DatePickerInline value={str} showTime={showTime} onSelect={handleSelect} onClose={() => setOpen(false)} />}
@@ -602,6 +611,7 @@ function DateField({ value, col, rowId, tableId, onSaved }: {
 function DatePickerInline({ value, showTime, onSelect, onClose }: {
   value: string; showTime: boolean; onSelect: (dateStr: string) => void; onClose: () => void;
 }) {
+  const { t } = useT();
   const initDate = value ? new Date(value) : new Date();
   const validInit = isNaN(initDate.getTime()) ? new Date() : initDate;
   const [viewYear, setViewYear] = useState(validInit.getFullYear());
@@ -638,11 +648,11 @@ function DatePickerInline({ value, showTime, onSelect, onClose }: {
     <div data-date-picker-detail className="mt-1 bg-card border border-border rounded-lg shadow-xl w-64 select-none">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-        <span className="text-xs font-medium">{viewYear}年 {viewMonth + 1}月</span>
+        <span className="text-xs font-medium">{t('dataTable.yearMonth', { year: viewYear, month: viewMonth + 1 })}</span>
         <button onClick={nextMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
       </div>
       <div className="grid grid-cols-7 px-2 pt-1">
-        {['日','一','二','三','四','五','六'].map(w => <div key={w} className="text-center text-[10px] text-muted-foreground py-0.5">{w}</div>)}
+        {((t('dataTable.weekdays', { returnObjects: true }) as unknown as string[]) || ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']).map(w => <div key={w} className="text-center text-[10px] text-muted-foreground py-0.5">{w}</div>)}
       </div>
       <div className="px-2 pb-2">
         {weeks.map((w, wi) => (
@@ -666,9 +676,24 @@ function DatePickerInline({ value, showTime, onSelect, onClose }: {
         </div>
       )}
       <div className="px-3 pb-2 flex items-center justify-between">
-        <button onClick={() => onSelect('')} className="text-[10px] text-muted-foreground hover:text-foreground">清除</button>
-        <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); handleDay(now.getDate()); }} className="text-[10px] text-sidebar-primary">今天</button>
+        <button onClick={() => onSelect('')} className="text-[10px] text-muted-foreground hover:text-foreground">{t('dataTable.clear')}</button>
+        <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); handleDay(now.getDate()); }} className="text-[10px] text-sidebar-primary">{t('dataTable.today')}</button>
       </div>
+    </div>
+  );
+}
+
+// ── Sortable attachment thumbnail ──
+
+function SortableThumb({ id, children }: { id: number; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
     </div>
   );
 }
@@ -678,15 +703,23 @@ function DatePickerInline({ value, showTime, onSelect, onClose }: {
 function AttachmentField({ value, col, rowId, tableId, onSaved }: {
   value: unknown; col: nc.NCColumn; rowId: number; tableId: string; onSaved: () => void;
 }) {
+  const { t } = useT();
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [localAttachments, setLocalAttachments] = useState<any[] | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  let attachments: any[] = [];
+  let parsedAttachments: any[] = [];
   try {
-    attachments = Array.isArray(value) ? value : JSON.parse(String(value || '[]'));
+    parsedAttachments = Array.isArray(value) ? value : JSON.parse(String(value || '[]'));
   } catch {}
-  if (!Array.isArray(attachments)) attachments = [];
+  if (!Array.isArray(parsedAttachments)) parsedAttachments = [];
+
+  const attachments = localAttachments ?? parsedAttachments;
+
+  // Sync local state when server data changes
+  useEffect(() => { setLocalAttachments(null); }, [value]);
 
   const isImage = (a: any) => a.mimetype?.startsWith('image/');
 
@@ -726,29 +759,58 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
     >
-      {/* Thumbnails */}
+      {/* Thumbnails with drag-sort */}
       {attachments.length > 0 && (
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToParentElement]}
+          onDragEnd={async (event: DragEndEvent) => {
+            const { active, over } = event;
+            if (!over || active.id === over.id) return;
+            const reordered = arrayMove([...attachments], Number(active.id), Number(over.id));
+            setLocalAttachments(reordered);
+            try {
+              await nc.updateRow(tableId, rowId, { [col.title]: reordered });
+              onSaved();
+            } catch (e) { console.error('Reorder failed:', e); onSaved(); }
+          }}
+        >
+        <SortableContext items={attachments.map((_: any, i: number) => i)} strategy={rectSortingStrategy}>
         <div className="flex flex-wrap gap-2 mb-2">
           {attachments.map((a: any, i: number) => (
-            <div key={i} className="relative group">
+            <SortableThumb key={i} id={i}>
+            <div className="relative group cursor-grab">
               {isImage(a) ? (
                 <img src={ncAttachmentUrl(a)} className="h-16 w-16 rounded object-cover border border-border" alt={a.title} />
               ) : (
                 <div className="h-16 w-16 rounded border border-border flex flex-col items-center justify-center bg-muted/30" title={a.title || a.path}>
                   <Paperclip className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-[9px] text-muted-foreground mt-1 truncate max-w-[56px] px-1">{a.title || `附件${i + 1}`}</span>
+                  <span className="text-[9px] text-muted-foreground mt-1 truncate max-w-[56px] px-1">{a.title || t('dataTable.attachmentName', { n: i + 1 })}</span>
                 </div>
               )}
+              <a
+                href={ncAttachmentUrl(a)}
+                download={a.title || a.path?.split('/').pop() || 'file'}
+                onClick={e => e.stopPropagation()}
+                className="absolute -top-1.5 -left-1.5 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-sidebar-primary text-white text-[10px] shadow-sm"
+                title={t('common.download')}
+              >
+                <Download className="h-2.5 w-2.5" />
+              </a>
               <button
                 onClick={() => handleDelete(i)}
                 className="absolute -top-1.5 -right-1.5 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[10px] shadow-sm"
-                title="删除"
+                title={t('common.delete')}
               >
                 <X className="h-2.5 w-2.5" />
               </button>
             </div>
+            </SortableThumb>
           ))}
         </div>
+        </SortableContext>
+        </DndContext>
       )}
       {/* Upload area */}
       <div
@@ -757,11 +819,11 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
       >
         <input ref={fileRef} type="file" multiple className="hidden" onChange={e => e.target.files && uploadFiles(e.target.files)} />
         {uploading ? (
-          <span className="text-xs text-muted-foreground">上传中...</span>
+          <span className="text-xs text-muted-foreground flex items-center justify-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" /> {t('dataTable.uploading')}</span>
         ) : (
           <span className="text-xs text-muted-foreground">
             <Upload className="h-3 w-3 inline mr-1" />
-            点击或拖拽上传文件
+            {t('dataTable.clickOrDragUpload')}
           </span>
         )}
       </div>
@@ -772,6 +834,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
 // ── Select field (inline dropdown) ──
 
 function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColumn; onSelect: (v: string) => void }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const str = value == null ? '' : String(value);
   const opt = col.options?.find(o => o.title === str);
@@ -787,7 +850,7 @@ function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColum
             {str}
           </span>
         ) : (
-          <span className="text-muted-foreground/30">选择...</span>
+          <span className="text-muted-foreground/30">{t('dataTable.selectPlaceholder')}</span>
         )}
       </button>
       {open && (
@@ -798,7 +861,7 @@ function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColum
               onClick={() => { onSelect(''); setOpen(false); }}
               className="w-full px-3 py-1 text-xs text-muted-foreground hover:bg-accent text-left"
             >
-              清除
+              {t('dataTable.clear')}
             </button>
             {(col.options || []).map((o, i) => (
               <button
@@ -821,6 +884,7 @@ function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColum
 // ── MultiSelect field ──
 
 function MultiSelectField({ value, col, onToggle }: { value: unknown; col: nc.NCColumn; onToggle: (option: string) => void }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const currentStr = value ? String(value) : '';
   const currentItems = currentStr ? currentStr.split(',').map(s => s.trim()) : [];
@@ -841,7 +905,7 @@ function MultiSelectField({ value, col, onToggle }: { value: unknown; col: nc.NC
             );
           })
         ) : (
-          <span className="text-muted-foreground/30">选择...</span>
+          <span className="text-muted-foreground/30">{t('dataTable.selectPlaceholder')}</span>
         )}
       </button>
       {open && (

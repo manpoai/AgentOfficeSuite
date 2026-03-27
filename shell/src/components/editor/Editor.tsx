@@ -104,7 +104,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
 
         // Add interactive plugins only when not read-only
         if (!readOnly) {
-          plugins.push(slashMenuPlugin());
+          plugins.push(slashMenuPlugin(() => documentId));
           plugins.push(floatingToolbarPlugin());
           plugins.push(imageUploadPlugin(() => documentId));
           plugins.push(placeholderPlugin(placeholder || ''));
@@ -115,18 +115,46 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
         // Comment highlight decorations — highlights text matching comment quotes
         plugins.push(commentHighlightPlugin(commentQuotes || []));
 
-        // Image selection highlight — marks images within text selection range
+        // Image selection highlight + comment mark indicator
         plugins.push(new PMPlugin({
           view() {
             return {
               update(editorView: any) {
                 const { from, to, empty } = editorView.state.selection;
                 const wrappers = editorView.dom.querySelectorAll('.image-node-wrapper');
+                let hasImageInSelection = false;
                 wrappers.forEach((w: HTMLElement) => {
                   if (empty) { w.classList.remove('image-in-selection'); return; }
                   const pos = editorView.posAtDOM(w, 0);
-                  if (pos >= from && pos <= to) w.classList.add('image-in-selection');
-                  else w.classList.remove('image-in-selection');
+                  if (pos >= from && pos <= to) {
+                    w.classList.add('image-in-selection');
+                    hasImageInSelection = true;
+                  } else {
+                    w.classList.remove('image-in-selection');
+                  }
+                });
+                // When a NodeSelection targets an image, clear native browser selection
+                // to prevent the blue overlay from appearing
+                if (editorView.state.selection.node?.type.name === 'image') {
+                  const sel = window.getSelection();
+                  if (sel && sel.rangeCount > 0) sel.removeAllRanges();
+                }
+
+                // Comment mark indicator on images:
+                // ProseMirror doesn't render mark DOM wrappers for atom NodeViews,
+                // so we scan image nodes and apply a CSS class based on their marks.
+                const imageType = editorView.state.schema.nodes.image;
+                editorView.state.doc.descendants((node: any, pos: number) => {
+                  if (node.type !== imageType) return true;
+                  const dom = editorView.nodeDOM(pos) as HTMLElement | null;
+                  if (!dom) return false;
+                  const hasComment = node.marks.some((m: any) => m.type.name === 'comment' && !m.attrs.resolved);
+                  if (hasComment) {
+                    dom.classList.add('image-commented');
+                  } else {
+                    dom.classList.remove('image-commented');
+                  }
+                  return false;
                 });
               },
             };

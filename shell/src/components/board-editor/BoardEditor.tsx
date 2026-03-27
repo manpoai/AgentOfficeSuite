@@ -10,6 +10,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 
+import './excalidraw-overrides.css';
+
 // Excalidraw is client-only (no SSR) — dynamically imported in the component
 let ExcalidrawComponent: React.ComponentType<any> | null = null;
 let MainMenuComponent: React.ComponentType<any> | null = null;
@@ -335,8 +337,6 @@ export function BoardEditor({
       </div>
 
       {/* Excalidraw canvas */}
-      {/* Hide native hamburger menu button via CSS */}
-      <style>{`.excalidraw .App-menu__left .dropdown-menu-button { display: none !important; }`}</style>
       <div className="flex-1 min-h-0 relative">
         {ExcalidrawComponent && (
           <ExcalidrawComponent

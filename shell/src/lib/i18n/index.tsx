@@ -19,20 +19,21 @@ export const LOCALE_LABELS: Record<Locale, string> = {
 
 const STORAGE_KEY = 'asuite-locale';
 
-function getNestedValue(obj: any, path: string): string {
+function getNestedValue(obj: any, path: string, returnObjects = false): any {
   const keys = path.split('.');
   let val = obj;
   for (const k of keys) {
     if (val == null) return path;
     val = val[k];
   }
+  if (returnObjects && (Array.isArray(val) || (typeof val === 'object' && val !== null))) return val;
   return typeof val === 'string' ? val : path;
 }
 
 interface I18nContextType {
   locale: Locale;
   setLocale: (l: Locale) => void;
-  t: (key: string, params?: Record<string, string | number>) => string;
+  t: (key: string, params?: Record<string, string | number | boolean>) => any;
 }
 
 const I18nContext = createContext<I18nContextType>({
@@ -56,10 +57,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, l);
   }, []);
 
-  const t = useCallback((key: string, params?: Record<string, string | number>): string => {
-    let str = getNestedValue(LOCALES[locale], key);
+  const t = useCallback((key: string, params?: Record<string, string | number | boolean>): any => {
+    const returnObjects = !!(params && 'returnObjects' in params && params.returnObjects);
+    const val = getNestedValue(LOCALES[locale], key, returnObjects);
+    if (returnObjects && typeof val !== 'string') return val;
+    let str = val as string;
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
+        if (k === 'returnObjects') return;
         str = str.replace(`{${k}}`, String(v));
       });
     }

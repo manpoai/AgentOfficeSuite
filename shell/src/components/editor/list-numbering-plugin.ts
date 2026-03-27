@@ -187,7 +187,7 @@ export function listNumberingPlugin() {
           if (!ol) return false;
           // Check if click is in the marker area (left of content)
           const liRect = li.getBoundingClientRect();
-          if (mouseEvent.clientX > liRect.left + 8 || mouseEvent.clientX < liRect.left - 50) return false;
+          if (mouseEvent.clientX > liRect.left || mouseEvent.clientX < liRect.left - 40) return false;
 
           // Find the ordered_list node position
           const pos = view.posAtCoords({ left: liRect.left + 20, top: liRect.top + 5 });
@@ -212,7 +212,7 @@ export function listNumberingPlugin() {
           const ol = li.closest('ol');
           if (!ol) return false;
           const liRect = li.getBoundingClientRect();
-          if (mouseEvent.clientX > liRect.left + 10) return false;
+          if (mouseEvent.clientX > liRect.left) return false;
 
           const pos = view.posAtCoords({ left: liRect.left + 20, top: liRect.top + 5 });
           if (!pos) return false;

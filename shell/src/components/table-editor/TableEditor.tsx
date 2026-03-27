@@ -11,20 +11,23 @@ import {
   Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
   LayoutGrid, Filter, ArrowUpDown, ChevronDown, Columns, GalleryHorizontalEnd,
   FileText, CalendarDays, Expand, ArrowLeftToLine, ArrowRightToLine,
-  Download, Upload, Eye, EyeOff, SlidersHorizontal, Lock,
-  Copy, ArrowLeftFromLine, ArrowRightFromLine, Snowflake, Group, AlignVerticalSpaceAround,
+  Download, Upload, Eye, EyeOff, SlidersHorizontal, Lock, Loader2,
+  Copy, CopyPlus, ArrowLeftFromLine, ArrowRightFromLine, Snowflake, Group, AlignVerticalSpaceAround,
   Settings, Info, GripVertical, ToggleLeft, ToggleRight, ArrowUpNarrowWide,
-  CreditCard, Image, MessageSquare,
+  CreditCard, Image, MessageSquare, UserCheck, RotateCcw,
 } from 'lucide-react';
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import * as nc from '@/lib/api/nocodb';
 import * as gw from '@/lib/api/gateway';
 import { RowDetailPanel } from './RowDetailPanel';
 import { Comments } from '@/components/comments/Comments';
 import { LinkRecordPicker } from './LinkRecordPicker';
+import TableHistory, { SnapshotPreview } from './TableHistory';
 
 // ── Column type config ──
 
@@ -37,39 +40,44 @@ interface ColTypeDef {
 
 const COLUMN_TYPES: ColTypeDef[] = [
   // Text
-  { value: 'SingleLineText', label: '单行文本', icon: Type, group: 'text' },
-  { value: 'LongText', label: '长文本', icon: AlignLeft, group: 'text' },
-  { value: 'Email', label: '邮箱', icon: Mail, group: 'text' },
-  { value: 'URL', label: '网址', icon: Link, group: 'text' },
-  { value: 'PhoneNumber', label: '电话号码', icon: Phone, group: 'text' },
+  { value: 'SingleLineText', label: 'SingleLineText', icon: Type, group: 'text' },
+  { value: 'LongText', label: 'LongText', icon: AlignLeft, group: 'text' },
+  { value: 'Email', label: 'Email', icon: Mail, group: 'text' },
+  { value: 'URL', label: 'URL', icon: Link, group: 'text' },
+  { value: 'PhoneNumber', label: 'PhoneNumber', icon: Phone, group: 'text' },
   // Number
-  { value: 'Number', label: '数字', icon: Hash, group: 'number' },
-  { value: 'Rating', label: '评分', icon: Star, group: 'number' },
-  { value: 'AutoNumber', label: '自增编号', icon: Hash, group: 'number' },
+  { value: 'Number', label: 'Number', icon: Hash, group: 'number' },
+  { value: 'Decimal', label: 'Decimal', icon: Hash, group: 'number' },
+  { value: 'Currency', label: 'Currency', icon: DollarSign, group: 'number' },
+  { value: 'Percent', label: 'Percent', icon: Percent, group: 'number' },
+  { value: 'Rating', label: 'Rating', icon: Star, group: 'number' },
+  { value: 'AutoNumber', label: 'AutoNumber', icon: Hash, group: 'number' },
   // Date & Time
-  { value: 'Date', label: '日期', icon: Calendar, group: 'datetime' },
-  { value: 'DateTime', label: '日期时间', icon: Calendar, group: 'datetime' },
-  { value: 'CreatedTime', label: '创建时间', icon: Clock, group: 'datetime' },
-  { value: 'LastModifiedTime', label: '最后修改时间', icon: Clock, group: 'datetime' },
+  { value: 'Date', label: 'Date', icon: Calendar, group: 'datetime' },
+  { value: 'DateTime', label: 'DateTime', icon: Calendar, group: 'datetime' },
   // Selection
-  { value: 'Checkbox', label: '复选框', icon: CheckSquare, group: 'select' },
-  { value: 'SingleSelect', label: '单选', icon: List, group: 'select' },
-  { value: 'MultiSelect', label: '多选', icon: Tags, group: 'select' },
+  { value: 'Checkbox', label: 'Checkbox', icon: CheckSquare, group: 'select' },
+  { value: 'SingleSelect', label: 'SingleSelect', icon: List, group: 'select' },
+  { value: 'MultiSelect', label: 'MultiSelect', icon: Tags, group: 'select' },
   // Relation & Computed
-  { value: 'Links', label: '关联', icon: Link2, group: 'relation' },
-  { value: 'Lookup', label: '查找', icon: Search, group: 'relation' },
-  { value: 'Rollup', label: '汇总', icon: Sigma, group: 'relation' },
-  { value: 'Formula', label: '公式', icon: GitBranch, group: 'relation' },
+  { value: 'Links', label: 'Links', icon: Link2, group: 'relation' },
+  { value: 'Lookup', label: 'Lookup', icon: Search, group: 'relation' },
+  { value: 'Rollup', label: 'Rollup', icon: Sigma, group: 'relation' },
+  { value: 'Formula', label: 'Formula', icon: GitBranch, group: 'relation' },
   // Other
-  { value: 'Attachment', label: '附件', icon: Paperclip, group: 'other' },
+  { value: 'Attachment', label: 'Attachment', icon: Paperclip, group: 'other' },
   { value: 'JSON', label: 'JSON', icon: Braces, group: 'other' },
-  { value: 'User', label: '用户', icon: User, group: 'other' },
-  // CreatedBy / LastModifiedBy not supported in NocoDB v0.202 — omitted
+  { value: 'User', label: 'User', icon: User, group: 'other' },
+  { value: 'CreatedBy', label: 'CreatedBy', icon: UserCheck, group: 'other' },
+  { value: 'LastModifiedBy', label: 'LastModifiedBy', icon: UserCheck, group: 'other' },
 ];
 
-const GROUP_LABELS: Record<string, string> = {
-  text: '文本', number: '数字', datetime: '日期时间', select: '选择', relation: '关联与计算', other: '其他',
-};
+// label field now stores the colType key; use tColType() to get translated label
+function tColType(t: (key: string) => string, ct: ColTypeDef): string {
+  return t(`dataTable.colTypes.${ct.value}`);
+}
+
+const GROUP_KEYS = ['text', 'number', 'datetime', 'select', 'relation', 'other'] as const;
 
 function getColIcon(uidt: string) {
   return COLUMN_TYPES.find(c => c.value === uidt)?.icon || Type;
@@ -98,30 +106,128 @@ function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
   if (p.startsWith('http://') || p.startsWith('https://')) return p;
   // Already proxied
   if (p.startsWith('/api/')) return p;
-  // NocoDB relative path — proxy through gateway
-  return `/api/gateway/data/download${p.startsWith('/') ? '' : '/'}${p}`;
+  // NocoDB relative path — use query-param route to avoid Next.js file-extension routing issues
+  return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
+}
+
+// ── Compact cell display for kanban/gallery views ──
+function CompactCellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
+  if (value == null || value === '') return null;
+  const colType = col.type;
+
+  // Attachment — show thumbnails
+  if (colType === 'Attachment') {
+    try {
+      const arr = Array.isArray(value) ? value : JSON.parse(String(value));
+      if (Array.isArray(arr) && arr.length > 0) {
+        return (
+          <div className="flex gap-1 py-0.5 items-center">
+            {arr.slice(0, 3).map((a: any, i: number) => (
+              a.mimetype?.startsWith('image/') ? (
+                <img key={i} src={ncAttachmentUrl(a)} className="h-5 w-5 rounded object-cover border border-border" alt="" />
+              ) : (
+                <span key={i} className="text-[9px] bg-muted px-1 py-0.5 rounded truncate max-w-[60px] flex items-center gap-0.5">
+                  <Paperclip className="h-2 w-2 shrink-0" />{a.title || 'file'}
+                </span>
+              )
+            ))}
+            {arr.length > 3 && <span className="text-[9px] text-muted-foreground">+{arr.length - 3}</span>}
+          </div>
+        );
+      }
+    } catch {}
+    return null;
+  }
+
+  // Links — show count
+  if (colType === 'Links' || colType === 'LinkToAnotherRecord') {
+    const arr = Array.isArray(value) ? value : [];
+    const num = arr.length || parseInt(String(value)) || 0;
+    return num > 0 ? <span className="text-[10px] text-sidebar-primary">{num}</span> : null;
+  }
+
+  // SingleSelect — colored badge
+  if (colType === 'SingleSelect') {
+    const str = String(value);
+    const opt = col.options?.find(o => o.title === str);
+    const color = opt?.color || SELECT_COLORS[0];
+    return <span className="inline-block px-1.5 py-0.5 rounded text-[9px]" style={{ backgroundColor: color, color: '#1a1a2e' }}>{str}</span>;
+  }
+
+  // MultiSelect — colored badges
+  if (colType === 'MultiSelect') {
+    const items = String(value).split(',').map(s => s.trim()).filter(Boolean);
+    return (
+      <div className="flex flex-wrap gap-0.5">
+        {items.map((item, i) => {
+          const opt = col.options?.find(o => o.title === item);
+          const color = opt?.color || SELECT_COLORS[i % SELECT_COLORS.length];
+          return <span key={i} className="inline-block px-1 py-0.5 rounded text-[9px]" style={{ backgroundColor: color, color: '#1a1a2e' }}>{item}</span>;
+        })}
+      </div>
+    );
+  }
+
+  // Checkbox
+  if (colType === 'Checkbox') {
+    return <span className="text-[10px]">{value ? '✓' : ''}</span>;
+  }
+
+  // Default — safe string conversion
+  const str = typeof value === 'object' ? (Array.isArray(value) ? value.map(String).join(', ') : JSON.stringify(value)) : String(value);
+  return <span className="text-[10px] text-foreground/80 truncate">{str}</span>;
 }
 
 // ── Filter operators ──
 const FILTER_OPS = [
-  { value: 'eq', label: '等于' },
-  { value: 'neq', label: '不等于' },
-  { value: 'like', label: '包含' },
-  { value: 'nlike', label: '不包含' },
-  { value: 'gt', label: '大于' },
-  { value: 'gte', label: '大于等于' },
-  { value: 'lt', label: '小于' },
-  { value: 'lte', label: '小于等于' },
-  { value: 'is', label: '为空' },
-  { value: 'isnot', label: '不为空' },
+  { value: 'eq', key: 'eq' },
+  { value: 'neq', key: 'neq' },
+  { value: 'like', key: 'like' },
+  { value: 'nlike', key: 'nlike' },
+  { value: 'gt', key: 'gt' },
+  { value: 'gte', key: 'gte' },
+  { value: 'lt', key: 'lt' },
+  { value: 'lte', key: 'lte' },
+  { value: 'is', key: 'is' },
+  { value: 'isnot', key: 'isnot' },
+  { value: 'checked', key: 'checked' },
+  { value: 'notchecked', key: 'notchecked' },
 ];
+
+// Type-specific filter operators
+const TEXT_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
+const NUM_FILTER_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is', 'isnot'];
+const DATE_FILTER_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is', 'isnot'];
+const BOOL_FILTER_OPS = ['checked', 'notchecked'];
+const SELECT_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
+const LINK_USER_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
+
+function getFilterOpsForType(colType?: string): typeof FILTER_OPS {
+  if (!colType) return FILTER_OPS;
+  const numTypes = new Set(['Number', 'Decimal', 'Currency', 'Percent', 'Rating', 'Duration', 'AutoNumber']);
+  const textTypes = new Set(['SingleLineText', 'LongText', 'Email', 'URL', 'PhoneNumber', 'JSON']);
+  const dateTypes = new Set(['Date', 'DateTime', 'CreatedTime', 'LastModifiedTime']);
+  const selectTypes = new Set(['SingleSelect', 'MultiSelect']);
+  const linkUserTypes = new Set(['Links', 'LinkToAnotherRecord', 'User', 'CreatedBy', 'LastModifiedBy']);
+
+  let allowed: string[];
+  if (colType === 'Checkbox') allowed = BOOL_FILTER_OPS;
+  else if (numTypes.has(colType)) allowed = NUM_FILTER_OPS;
+  else if (dateTypes.has(colType)) allowed = DATE_FILTER_OPS;
+  else if (selectTypes.has(colType)) allowed = SELECT_FILTER_OPS;
+  else if (linkUserTypes.has(colType)) allowed = LINK_USER_FILTER_OPS;
+  else if (textTypes.has(colType)) allowed = TEXT_FILTER_OPS;
+  else return FILTER_OPS;
+
+  return FILTER_OPS.filter(op => allowed.includes(op.value));
+}
 
 // ── View type config ──
 const VIEW_TYPES = [
-  { type: 'grid', typeNum: 3, label: '表格', icon: LayoutGrid },
-  { type: 'kanban', typeNum: 4, label: '看板', icon: Columns },
-  { type: 'gallery', typeNum: 2, label: '画廊', icon: GalleryHorizontalEnd },
-  { type: 'form', typeNum: 1, label: '表单', icon: FileText },
+  { type: 'grid', typeNum: 3, key: 'grid', icon: LayoutGrid },
+  { type: 'kanban', typeNum: 4, key: 'kanban', icon: Columns },
+  { type: 'gallery', typeNum: 2, key: 'gallery', icon: GalleryHorizontalEnd },
+  { type: 'form', typeNum: 1, key: 'form', icon: FileText },
 ] as const;
 
 function getViewIcon(typeNum: number) {
@@ -157,6 +263,19 @@ function SortableViewTab({ id, children }: { id: string; children: React.ReactNo
   );
 }
 
+function SortableAttachmentItem({ id, children }: { id: number; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  );
+}
+
 function SortableColumnHeader({ id, children, className, style: extraStyle, isOver, overSide }: { id: string; children: React.ReactNode; className?: string; style?: React.CSSProperties; isOver?: boolean; overSide?: 'left' | 'right' }) {
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id });
   const thRef = React.useRef<HTMLTableCellElement>(null);
@@ -173,7 +292,7 @@ function SortableColumnHeader({ id, children, className, style: extraStyle, isOv
     ...(!extraStyle?.left ? { position: 'relative' as const } : {}),
   };
   return (
-    <th ref={setRefs} style={style} className={className} {...attributes} {...listeners}>
+    <th ref={setRefs} style={style} className={className} data-col-id={id} {...attributes} {...listeners}>
       {children}
       {/* Drop target vertical line indicator — constrained to table height */}
       {isOver && overSide === 'left' && (
@@ -190,13 +309,54 @@ function SortableColumnHeader({ id, children, className, style: extraStyle, isOv
 
 interface TableEditorProps {
   tableId: string;
+  breadcrumb?: { id: string; title: string }[];
   onBack: () => void;
   onDeleted?: () => void;
+  onDuplicate?: () => void;
+  onCopyLink?: () => void;
   docListVisible?: boolean;
   onToggleDocList?: () => void;
 }
 
-export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onToggleDocList }: TableEditorProps) {
+// Error Boundary to prevent white-screen crashes
+class TableEditorErrorBoundary extends React.Component<
+  { children: React.ReactNode; onBack: () => void },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; onBack: () => void }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+          <p className="text-destructive font-medium">Table rendering error</p>
+          <p className="text-sm text-muted-foreground max-w-md text-center">{this.state.error?.message}</p>
+          <div className="flex gap-2">
+            <button onClick={() => this.setState({ hasError: false, error: null })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">Retry</button>
+            <button onClick={this.props.onBack} className="px-3 py-1.5 text-sm border rounded">Back</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export function TableEditor(props: TableEditorProps) {
+  return (
+    <TableEditorErrorBoundary onBack={props.onBack}>
+      <TableEditorInner {...props} />
+    </TableEditorErrorBoundary>
+  );
+}
+
+function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate, onCopyLink, docListVisible, onToggleDocList }: TableEditorProps) {
+  const { t } = useT();
   const [page, setPage] = useState(1);
   const [editingCell, setEditingCell] = useState<{ rowId: number; col: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -208,8 +368,12 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   const [colTitleValue, setColTitleValue] = useState('');
   const [showAddCol, setShowAddCol] = useState(false);
   const [editFieldColId, setEditFieldColId] = useState<string | null>(null); // column_id for edit mode
+  const [editFieldAnchor, setEditFieldAnchor] = useState<{ x: number; y: number } | null>(null); // anchor position for edit field popup
   const [showTypeSelector, setShowTypeSelector] = useState(false); // expand type list in Edit Field dialog
   const [numFormat, setNumFormat] = useState<{ decimals: number; thousands: boolean; prefix: string; suffix: string }>({ decimals: 0, thousands: false, prefix: '', suffix: '' });
+  const [currencySymbol, setCurrencySymbol] = useState('$');
+  const [decimalPrecision, setDecimalPrecision] = useState(2);
+  const [durationFormat, setDurationFormat] = useState(0); // NocoDB duration format index
   const [ratingMax, setRatingMax] = useState(5);
   const [ratingIcon, setRatingIcon] = useState('star');
   const [dateFormat, setDateFormat] = useState('YYYY-MM-DD');
@@ -226,6 +390,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   const [newColLookupCol, setNewColLookupCol] = useState(''); // for lookup: field id in related table
   const [newColRollupCol, setNewColRollupCol] = useState(''); // for rollup: field id in related table
   const [newColRollupFn, setNewColRollupFn] = useState('sum');
+  const [newColUserNotify, setNewColUserNotify] = useState(false);
   const [editingTableTitle, setEditingTableTitle] = useState(false);
   const [tableTitleValue, setTableTitleValue] = useState('');
   const [showTableMenu, setShowTableMenu] = useState(false);
@@ -260,8 +425,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   // Attachment upload state
   const [attachmentUploading, setAttachmentUploading] = useState<{ rowId: number; col: string } | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const attachmentTargetRef = useRef<{ rowId: number; col: string } | null>(null);
+  // Attachment dropdown state (list view)
+  const [attachmentDropdown, setAttachmentDropdown] = useState<{ rowId: number; col: string } | null>(null);
   // Toolbar panel state — single active panel
   const [activeToolbarPanel, setActiveToolbarPanel] = useState<'fields' | 'filter' | 'groupby' | 'sort' | 'rowheight' | 'kanban-group' | 'kanban-card' | 'gallery-card' | null>(null);
+  // History panel state
+  const [showHistory, setShowHistory] = useState(false);
+  const [previewSnapshot, setPreviewSnapshot] = useState<SnapshotPreview | null>(null);
   const toggleToolbarPanel = (panel: typeof activeToolbarPanel) => {
     setActiveToolbarPanel(prev => prev === panel ? null : panel);
   };
@@ -309,27 +480,30 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   const queryClient = useQueryClient();
   const pageSize = 50;
 
+  // Default sort by Id for stable row ordering.
+  // New tables use auto-increment integer Id (uidt=ID), so numeric sort works correctly.
+  // Old tables with SingleLineText Id will sort lexicographically — acceptable tradeoff.
   const sortParam = sortCol ? (sortDir === 'desc' ? `-${sortCol}` : sortCol) : undefined;
 
-  const { data: meta } = useQuery({
+  const { data: meta, isError: metaError, error: metaErrorDetail } = useQuery({
     queryKey: ['nc-table-meta', tableId],
     queryFn: () => nc.describeTable(tableId),
+    retry: 2,
   });
 
-  // Reset activeViewId when tableId changes
+  // Set active view when meta loads or tableId changes — merged to avoid race condition
   useEffect(() => {
-    setActiveViewId(null);
-  }, [tableId]);
-
-  // Set active view to default when meta loads
-  useEffect(() => {
-    if (meta?.views?.length && !activeViewId) {
+    if (!meta || meta.table_id !== tableId) {
+      setActiveViewId(null);
+      return;
+    }
+    if (meta.views?.length) {
       const savedViewId = localStorage.getItem(`asuite-table-last-view-${tableId}`);
       const savedView = savedViewId ? meta.views.find(v => v.view_id === savedViewId) : null;
       const defaultView = savedView || meta.views.find(v => v.is_default) || meta.views[0];
       setActiveViewId(defaultView.view_id);
     }
-  }, [meta?.views, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meta?.table_id, tableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Save active view to localStorage when it changes
   useEffect(() => {
@@ -339,15 +513,6 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   }, [activeViewId, tableId]);
 
   const views = meta?.views || [];
-
-  const { data: rowsData, isLoading, isFetching } = useQuery({
-    queryKey: ['nc-rows', tableId, activeViewId, page, sortParam],
-    queryFn: () => activeViewId
-      ? nc.queryRowsByView(tableId, activeViewId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam })
-      : nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: sortParam }),
-    enabled: !!meta,
-    placeholderData: keepPreviousData,
-  });
 
   // View filters
   const { data: viewFilters } = useQuery({
@@ -361,6 +526,52 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     queryKey: ['nc-view-sorts', activeViewId],
     queryFn: () => nc.listSorts(activeViewId!),
     enabled: !!activeViewId,
+  });
+
+  // Build NocoDB where clause from view filters: (field,op,value)~and(field2,op2,value2)
+  const whereParam = useMemo(() => {
+    if (!viewFilters?.length || !meta?.columns) return undefined;
+    const parts = viewFilters.map(f => {
+      const col = meta.columns.find(c => c.column_id === f.fk_column_id);
+      if (!col) return null;
+      const field = col.title;
+      const op = f.comparison_op;
+      // Null-check ops don't need a value
+      if (op === 'is' || op === 'isnot' || op === 'empty' || op === 'notempty'
+          || op === 'null' || op === 'notnull' || op === 'blank' || op === 'notblank'
+          || op === 'checked' || op === 'notchecked') {
+        return `(${field},${op},)`;
+      }
+      return `(${field},${op},${f.value ?? ''})`;
+    }).filter(Boolean);
+    if (parts.length === 0) return undefined;
+    return parts.join('~and');
+  }, [viewFilters, meta?.columns]);
+
+  // Build sort param from view sorts (view sorts take precedence, manual sort overrides)
+  const effectiveSortParam = useMemo(() => {
+    if (sortParam) return sortParam; // manual sort from column header click
+    if (!viewSorts?.length || !meta?.columns) return 'Id';
+    const parts = viewSorts
+      .sort((a, b) => a.order - b.order)
+      .map(s => {
+        const col = meta.columns.find(c => c.column_id === s.fk_column_id);
+        if (!col) return null;
+        return s.direction === 'desc' ? `-${col.title}` : col.title;
+      })
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join(',') : 'Id';
+  }, [viewSorts, meta?.columns, sortParam]);
+
+  // Always query from table (not view) — NocoDB view-scoped queries strip columns hidden
+  // in NocoDB's native view settings, which breaks Kanban grouping and card field display.
+  // Shell manages column visibility independently via Gateway view_column_settings.
+  // Filters and sorts from the view are applied as query params.
+  const { data: rowsData, isLoading, isFetching } = useQuery({
+    queryKey: ['nc-rows', tableId, activeViewId, page, effectiveSortParam, whereParam || '__no_filter__'],
+    queryFn: () => nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: effectiveSortParam, where: whereParam }),
+    enabled: !!meta,
+    placeholderData: keepPreviousData,
   });
 
   // View columns (field visibility/width per view)
@@ -402,12 +613,17 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     return set;
   }, [commentedRowsData]);
 
-  // All tables (for Links creation)
-  const { data: allTables } = useQuery({
-    queryKey: ['nc-tables'],
-    queryFn: nc.listTables,
+  // All tables (for Links creation) — from content-items cache
+  const { data: allContentItems } = useQuery({
+    queryKey: ['content-items'],
+    queryFn: gw.listContentItems,
     enabled: showAddCol,
+    staleTime: 30_000,
   });
+  const allTables = useMemo(() =>
+    allContentItems?.filter(i => i.type === 'table').map(i => ({ id: i.raw_id, title: i.title, created_at: i.created_at || undefined })) as nc.NCTable[] | undefined,
+    [allContentItems]
+  );
 
   // Related table meta (for Lookup/Rollup field picker)
   const relatedTableId = newColRelTable || (() => {
@@ -432,7 +648,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     staleTime: 60000,
   });
 
-  const displayCols = (meta?.columns || []).filter(c => c.title !== 'created_by');
+  const displayCols = useMemo(() => {
+    const cols = (meta?.columns || []).filter(c => c.title !== 'created_by' && c.type !== 'ID' && !(c.title === 'Id' && c.primary_key));
+    // If no column has primary_key after hiding ID type, promote the first column
+    if (cols.length > 0 && !cols.some(c => c.primary_key)) {
+      cols[0] = { ...cols[0], primary_key: true };
+    }
+    return cols;
+  }, [meta?.columns]);
   // Sort visible columns by view column order (if available)
   const visibleCols = displayCols.filter(c => !hiddenCols.has(c.column_id)).sort((a, b) => {
     // PK columns always come first
@@ -623,6 +846,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     } catch {}
   };
 
+  const handleUpdateFilter = async (filterId: string, updates: { fk_column_id?: string; comparison_op?: string; value?: string }) => {
+    try {
+      await nc.updateFilter(filterId, updates);
+      refreshFilters();
+      refresh();
+    } catch {}
+  };
+
   const handleAddSort = async () => {
     if (!activeViewId || !newSortCol) return;
     try {
@@ -633,9 +864,32 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     } catch {}
   };
 
+  // Sort from column header menu — syncs with toolbar sort via API
+  const handleColumnSort = async (columnId: string, direction: 'asc' | 'desc') => {
+    if (!activeViewId) return;
+    // Remove existing sort on this column if any
+    const existingSort = viewSorts?.find(s => s.fk_column_id === columnId);
+    if (existingSort) {
+      try { await nc.deleteSort(existingSort.sort_id); } catch {}
+    }
+    try {
+      await nc.createSort(activeViewId, { fk_column_id: columnId, direction });
+      refreshSorts();
+      refresh();
+    } catch {}
+  };
+
   const handleDeleteSort = async (sortId: string) => {
     try {
       await nc.deleteSort(sortId);
+      refreshSorts();
+      refresh();
+    } catch {}
+  };
+
+  const handleUpdateSort = async (sortId: string, updates: { fk_column_id?: string; direction?: string }) => {
+    try {
+      await nc.updateSort(sortId, updates);
       refreshSorts();
       refresh();
     } catch {}
@@ -681,6 +935,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       if (!old || typeof old !== 'object' || !('list' in (old as Record<string, unknown>))) return old;
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown };
+      if (!Array.isArray(data.list)) return old;
       return {
         ...data,
         list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r),
@@ -688,7 +943,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     });
     try {
       await nc.updateRow(tableId, rowId, { [col]: newVal });
-      refresh(); // background refresh to sync server state
+      refresh(); // Sync with server. Row order is stable with numeric Id sort.
     } catch (e) {
       console.error('Update failed:', e);
       refresh(); // revert on error
@@ -696,31 +951,58 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   }, [editingCell, editValue, tableId, queryClient]);
 
   const toggleCheckbox = async (rowId: number, col: string, current: unknown) => {
+    const newVal = !current;
+    // Optimistic update
+    queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+      const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+      if (!data) return old;
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
+    });
     try {
-      const newVal = !current;
-      // Optimistic update
+      // NocoDB/PostgreSQL requires boolean values, not integers (1/0 causes type error)
+      await nc.updateRow(tableId, rowId, { [col]: newVal });
+    } catch (e) {
+      console.error('Toggle failed:', e);
+      // Rollback optimistic update
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
         if (!data) return old;
-        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
+        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: current } : r) };
       });
-      // NocoDB/PostgreSQL requires boolean values, not integers (1/0 causes type error)
-      await nc.updateRow(tableId, rowId, { [col]: newVal });
-      refresh();
-    } catch (e) {
-      console.error('Toggle failed:', e);
+    }
+  };
+
+  // Helper: ensure a select option exists in the column definition before using it
+  const ensureSelectOption = async (colTitle: string, optionTitle: string) => {
+    const colDef = meta?.columns?.find(c => c.title === colTitle);
+    if (!colDef) return;
+    const exists = colDef.options?.some(o => o.title === optionTitle);
+    if (!exists) {
+      // Add the new option to the column definition
+      const updatedOptions = [
+        ...(colDef.options || []),
+        { title: optionTitle, color: SELECT_COLORS[(colDef.options?.length || 0) % SELECT_COLORS.length] },
+      ];
+      await nc.updateColumn(tableId, colDef.column_id, { options: updatedOptions });
     }
   };
 
   const setSelectValue = async (rowId: number, col: string, value: string) => {
+    // Optimistic update
+    queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+      const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+      if (!data) return old;
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
+    });
+    setSelectDropdown(null);
     try {
+      if (value) await ensureSelectOption(col, value);
       await nc.updateRow(tableId, rowId, { [col]: value });
-      refresh();
-      refreshMeta(); // pick up auto-created options
+      refreshMeta();
     } catch (e) {
       console.error('Set select failed:', e);
+      refresh(); // revert optimistic update
     }
-    setSelectDropdown(null);
   };
 
   const toggleMultiSelect = async (rowId: number, col: string, current: unknown, option: string) => {
@@ -729,12 +1011,21 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     const newItems = currentItems.includes(option)
       ? currentItems.filter(i => i !== option)
       : [...currentItems, option];
+    const newValue = newItems.join(',');
+    // Optimistic update
+    queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+      const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+      if (!data) return old;
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newValue } : r) };
+    });
     try {
-      await nc.updateRow(tableId, rowId, { [col]: newItems.join(',') });
+      if (!currentItems.includes(option)) await ensureSelectOption(col, option);
+      await nc.updateRow(tableId, rowId, { [col]: newValue });
       refresh();
-      refreshMeta(); // pick up auto-created options
+      refreshMeta();
     } catch (e) {
       console.error('Toggle multi-select failed:', e);
+      refresh(); // revert optimistic update
     }
   };
 
@@ -778,6 +1069,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       // NocoDB expects array, not JSON string for Attachment columns
       await nc.updateRow(tableId, rowId, { [colTitle]: merged });
       refresh();
+      // Re-open attachment dropdown to show updated list
+      setAttachmentDropdown({ rowId, col: colTitle });
     } catch (e) {
       console.error('Attachment upload failed:', e);
     } finally {
@@ -788,6 +1081,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   // User field picker state
   const [userPicker, setUserPicker] = useState<{ rowId: number; col: string } | null>(null);
   const [userPickerSearch, setUserPickerSearch] = useState('');
+  const [userPickerNotify, setUserPickerNotify] = useState(true);
 
   // Focus edit input
   useEffect(() => {
@@ -796,11 +1090,36 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
 
   // ── Row operations ──
   const handleAddRow = async () => {
+    // Optimistic: insert a temp row immediately so it appears instantly
+    const tempId = `temp-${Date.now()}`;
+    const tempRow: Record<string, unknown> = { Id: tempId };
+    for (const col of displayCols) {
+      if (!col.primary_key) tempRow[col.title] = null;
+    }
+    queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+      const data = old as { list: Record<string, unknown>[]; pageInfo?: { totalRows?: number } } | undefined;
+      if (!data) return { list: [tempRow], pageInfo: { totalRows: 1 } };
+      return {
+        ...data,
+        list: [...data.list, tempRow],
+        pageInfo: { ...data.pageInfo, totalRows: (data.pageInfo?.totalRows || 0) + 1 },
+      };
+    });
     try {
       await nc.insertRow(tableId, {});
-      refresh();
+      refresh(); // Sync with server. Numeric Id sort keeps new row at the end.
     } catch (e) {
       console.error('Insert failed:', e);
+      // Revert optimistic row on error
+      queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+        const data = old as { list: Record<string, unknown>[]; pageInfo?: { totalRows?: number } } | undefined;
+        if (!data) return old;
+        return {
+          ...data,
+          list: data.list.filter(r => r.Id !== tempId),
+          pageInfo: { ...data.pageInfo, totalRows: Math.max(0, (data.pageInfo?.totalRows || 1) - 1) },
+        };
+      });
     }
   };
 
@@ -829,16 +1148,22 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     setNewColRollupCol('');
     setNewColRollupFn('sum');
     setNumFormat({ decimals: 0, thousands: false, prefix: '', suffix: '' });
+    setCurrencySymbol('$');
+    setDecimalPrecision(2);
+    setDurationFormat(0);
     setRatingMax(5);
     setRatingIcon('star');
     setDateFormat('YYYY-MM-DD');
+    setNewColUserNotify(false);
     setShowAddCol(false);
     setShowTypeSelector(false);
+    setEditFieldAnchor(null);
     // Note: do NOT clear insertColPosition here — handleInsertColumn sets it before calling openAddField
   };
 
   const handleAddColumn = async () => {
-    if (!newColTitle.trim()) return;
+    const colTitle = newColTitle.trim() || t(`dataTable.colTypes.${newColType}`);
+    if (!colTitle) return;
     try {
       const opts: Record<string, unknown> = {};
       if ((newColType === 'SingleSelect' || newColType === 'MultiSelect') && newColOptionsList.length > 0) {
@@ -863,8 +1188,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         opts.fk_rollup_column_id = newColRollupCol;
         opts.rollup_function = newColRollupFn;
       }
-      if (newColType === 'Number') {
-        opts.meta = numFormat;
+      if (newColType === 'Decimal') {
+        opts.meta = { precision: decimalPrecision };
+      }
+      if (newColType === 'Currency') {
+        opts.meta = { currency_code: currencySymbol };
+      }
+      if (newColType === 'Duration') {
+        opts.meta = { duration: durationFormat };
       }
       if (newColType === 'Rating') {
         opts.meta = { max: ratingMax, iconIdx: ratingIcon };
@@ -872,7 +1203,10 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       if (newColType === 'Date' || newColType === 'DateTime') {
         opts.meta = { date_format: dateFormat };
       }
-      const newCol = await nc.addColumn(tableId, newColTitle.trim(), newColType, opts);
+      if (newColType === 'User') {
+        opts.meta = { ...(opts.meta as Record<string, unknown> || {}), notify: newColUserNotify };
+      }
+      const newCol = await nc.addColumn(tableId, colTitle, newColType, opts);
       // Reorder if insert position was specified
       if (insertColPosition && activeViewId) {
         // Ensure all columns have order entries — initialize from current displayCols order if viewColumns is empty/sparse
@@ -939,7 +1273,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   const handleDeleteColumn = async (columnId: string) => {
     const col = displayCols.find(c => c.column_id === columnId);
     const colTitle = col?.title || columnId;
-    if (!window.confirm(`确定要删除字段 "${colTitle}" 吗？此操作不可撤销。`)) return;
+    if (!window.confirm(t('dataTable.deleteFieldConfirm', { name: colTitle }))) return;
     try {
       await nc.deleteColumn(tableId, columnId);
       setColMenu(null);
@@ -957,17 +1291,16 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       await nc.renameTable(tableId, tableTitleValue.trim());
       setEditingTableTitle(false);
       refreshMeta();
-      queryClient.invalidateQueries({ queryKey: ['nc-tables'] });
+      queryClient.invalidateQueries({ queryKey: ['content-items'] });
     } catch (e) {
       console.error('Rename table failed:', e);
     }
   };
 
   const handleDeleteTable = async () => {
-    if (!confirm('确定删除此数据表？所有数据将丢失。')) return;
+    if (!confirm(t('dataTable.deleteTableConfirm'))) return;
     try {
-      await nc.deleteTable(tableId);
-      queryClient.invalidateQueries({ queryKey: ['nc-tables'] });
+      await gw.deleteContentItem(`table:${tableId}`);
       onDeleted?.();
     } catch (e) {
       console.error('Delete table failed:', e);
@@ -1089,9 +1422,23 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   };
 
   // ── Open edit field dialog for existing column ──
-  const openEditField = (col: nc.NCColumn) => {
+  const openEditField = (col: nc.NCColumn, anchorEl?: HTMLElement | null) => {
     setColMenu(null);
     setEditFieldColId(col.column_id);
+    // Try to position dialog near the column header
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      setEditFieldAnchor({ x: Math.min(rect.left, window.innerWidth - 400), y: rect.bottom + 8 });
+    } else {
+      // Find column header element by data attribute
+      const headerEl = document.querySelector(`[data-col-id="${col.column_id}"]`) as HTMLElement | null;
+      if (headerEl) {
+        const rect = headerEl.getBoundingClientRect();
+        setEditFieldAnchor({ x: Math.min(rect.left, window.innerWidth - 400), y: rect.bottom + 8 });
+      } else {
+        setEditFieldAnchor(null);
+      }
+    }
     setNewColTitle(col.title);
     setNewColType(col.type);
     setNewColOptions(col.options?.map(o => o.title).join(', ') || '');
@@ -1115,6 +1462,9 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         suffix: (m.suffix as string) || '',
       });
       if (m.iconIdx !== undefined) setRatingIcon(String(m.iconIdx));
+      if (m.currency_code) setCurrencySymbol(String(m.currency_code));
+      if (m.precision !== undefined) setDecimalPrecision(m.precision as number);
+      if (m.duration !== undefined) setDurationFormat(m.duration as number);
     }
     if (col.type === 'Rating' && col.meta) {
       setRatingMax((col.meta as any).max || 5);
@@ -1122,6 +1472,10 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     // Date format from meta
     if ((col.type === 'Date' || col.type === 'DateTime') && col.meta) {
       setDateFormat((col.meta as any).date_format || 'YYYY-MM-DD');
+    }
+    // User notification from meta
+    if ((col.type === 'User' || col.type === 'Collaborator') && col.meta) {
+      setNewColUserNotify(!!(col.meta as any).notify);
     }
     setShowAddCol(true);
   };
@@ -1131,15 +1485,18 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     setEditFieldColId(null);
     // Don't clear insertColPosition here — it may have been set by handleInsertColumn
     setShowAddCol(true);
+    // Note: newColTitle stays empty; placeholder will show the type name
   };
 
   // ── Save field (handles both add and edit) ──
   const handleSaveField = async () => {
-    if (!newColTitle.trim()) return;
+    // If no title entered, use the type name as default
+    const effectiveTitle = newColTitle.trim() || t(`dataTable.colTypes.${newColType}`);
+    if (!effectiveTitle) return;
     if (editFieldColId) {
       // Edit existing column
       try {
-        const updates: Record<string, unknown> = { title: newColTitle.trim(), uidt: newColType };
+        const updates: Record<string, unknown> = { title: effectiveTitle, uidt: newColType };
         // Include select options
         if (isSelectType(newColType) && newColOptionsList.length > 0) {
           updates.options = newColOptionsList.filter(s => s.trim()).map((s, i) => ({
@@ -1148,14 +1505,23 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           }));
         }
         // Include meta for number format, rating, date format
-        if (newColType === 'Number') {
-          updates.meta = JSON.stringify(numFormat);
+        if (newColType === 'Decimal') {
+          updates.meta = JSON.stringify({ precision: decimalPrecision });
+        }
+        if (newColType === 'Currency') {
+          updates.meta = JSON.stringify({ currency_code: currencySymbol });
+        }
+        if (newColType === 'Duration') {
+          updates.meta = JSON.stringify({ duration: durationFormat });
         }
         if (newColType === 'Rating') {
           updates.meta = JSON.stringify({ max: ratingMax, iconIdx: ratingIcon });
         }
         if (newColType === 'Date' || newColType === 'DateTime') {
           updates.meta = JSON.stringify({ date_format: dateFormat });
+        }
+        if (newColType === 'User') {
+          updates.meta = JSON.stringify({ notify: newColUserNotify });
         }
         await nc.updateColumn(tableId, editFieldColId, updates);
         resetAddColState();
@@ -1164,6 +1530,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         refresh();
       } catch (e) {
         console.error('Update field failed:', e);
+        alert(`Update field failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     } else {
       // Add new column
@@ -1292,7 +1659,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
 
   const handleBulkDelete = async () => {
     if (selectedRows.size === 0) return;
-    if (!confirm(`确定删除选中的 ${selectedRows.size} 行？`)) return;
+    if (!confirm(t('dataTable.deleteRowsConfirm', { n: selectedRows.size }))) return;
     try {
       for (const rowId of selectedRows) {
         await nc.deleteRow(tableId, rowId);
@@ -1339,7 +1706,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       const nextColIdx = e.shiftKey ? curColIdx - 1 : curColIdx + 1;
       if (nextColIdx >= 0 && nextColIdx < editableCols.length) {
         const nextCol = editableCols[nextColIdx];
-        const rowId = editingCell!.rowId;
+        const rowId = editingCell?.rowId;
+        if (rowId == null) return;
         const row = rows.find(r => (r.Id as number) === rowId);
         if (row) setTimeout(() => startEdit(rowId, nextCol.title, row[nextCol.title], nextCol.type), 50);
       }
@@ -1380,6 +1748,19 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
     return () => document.removeEventListener('mousedown', handler);
   }, [userPicker]);
 
+  // Close attachment dropdown on outside click
+  useEffect(() => {
+    if (!attachmentDropdown) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-select-dropdown]')) {
+        setAttachmentDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [attachmentDropdown]);
+
   // ── Get input type for cell editing ──
   const getInputType = (colType: string) => {
     switch (colType) {
@@ -1395,8 +1776,23 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
   // ── Check if cell needs special editor ──
   const isSelectType = (type: string) => type === 'SingleSelect' || type === 'MultiSelect';
 
+  // Guard: show error state if meta failed to load
+  if (metaError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
+        <p className="text-destructive font-medium">{t('dataTable.loadError') || 'Failed to load table'}</p>
+        <p className="text-sm text-muted-foreground">{(metaErrorDetail as Error)?.message}</p>
+        <div className="flex gap-2">
+          <button onClick={() => queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">{t('dataTable.retry') || 'Retry'}</button>
+          <button onClick={onBack} className="px-3 py-1.5 text-sm border rounded">{t('dataTable.back') || 'Back'}</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Header */}
       <div className="flex items-center border-b border-border bg-white dark:bg-card shrink-0">
         <div className="flex-1 min-w-0 flex items-center px-4 py-2">
@@ -1404,7 +1800,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           <button
             onClick={onToggleDocList}
             className="hidden md:flex p-1.5 -ml-1 mr-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-            title={docListVisible ? '收起侧栏' : '展开侧栏'}
+            title={docListVisible ? t('dataTable.collapseSidebar') : t('dataTable.expandSidebar')}
           >
             {docListVisible ? <ArrowLeftToLine className="h-4 w-4" /> : <ArrowRightToLine className="h-4 w-4" />}
           </button>
@@ -1414,7 +1810,17 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 text-sm">
-            <Table2 className="h-4 w-4 text-green-400/70 shrink-0" />
+            {breadcrumb && breadcrumb.length > 1 ? (
+              <>
+                {breadcrumb.slice(0, -1).map((crumb, i) => (
+                  <span key={crumb.id} className="flex items-center gap-1 min-w-0">
+                    {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                    <span className="text-muted-foreground truncate">{crumb.title}</span>
+                  </span>
+                ))}
+                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+              </>
+            ) : null}
             {editingTableTitle ? (
               <input
                 value={tableTitleValue}
@@ -1429,16 +1835,16 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 className="text-foreground font-medium truncate cursor-pointer hover:text-sidebar-primary"
                 onDoubleClick={() => { setEditingTableTitle(true); setTableTitleValue(meta?.title || ''); }}
               >
-                {meta?.title || '加载中...'}
+                {meta?.title || t('common.loading')}
               </span>
             )}
           </div>
           <div className="text-[11px] text-muted-foreground/50 mt-0.5 flex items-center gap-2">
-            <span>{totalRows} 行</span>
+            <span>{totalRows} {t('dataTable.rows')}</span>
             {meta?.updated_at && (
               <>
                 <span>·</span>
-                <span>最后编辑于 {new Date(meta.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <span>{t('dataTable.lastEditedAt')} {new Date(meta.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               </>
             )}
           </div>
@@ -1447,43 +1853,50 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           <button
             onClick={() => setShowTableComments(v => !v)}
             className={cn('p-1.5 rounded transition-colors', showTableComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
-            title="评论"
+            title={t('content.comments')}
           >
             <MessageSquare className="h-4 w-4" />
           </button>
           <div className="relative">
-            <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title="更多操作">
+            <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
               <MoreHorizontal className="h-4 w-4" />
             </button>
             {showTableMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowTableMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-40">
+                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
                   <button
-                    onClick={() => { setShowTableMenu(false); setEditingTableTitle(true); setTableTitleValue(meta?.title || ''); }}
+                    onClick={() => { setShowTableMenu(false); setShowHistory(true); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
                   >
-                    <Pencil className="h-3.5 w-3.5" /> 重命名
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.versionHistory')}
                   </button>
-                  <div className="border-t border-border my-1" />
+                  <button
+                    onClick={() => {
+                      setShowTableMenu(false);
+                      if (onCopyLink) { onCopyLink(); }
+                      else {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('id', `table:${tableId}`);
+                        navigator.clipboard.writeText(url.toString());
+                      }
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                  >
+                    <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.copyLink')}
+                  </button>
                   <button
                     onClick={handleExportCSV}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
                   >
-                    <Download className="h-3.5 w-3.5" /> 导出 CSV
-                  </button>
-                  <button
-                    onClick={() => { setShowTableMenu(false); csvInputRef.current?.click(); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                  >
-                    <Upload className="h-3.5 w-3.5" /> 导入 CSV
+                    <Download className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.download')}
                   </button>
                   <div className="border-t border-border my-1" />
                   <button
                     onClick={() => { setShowTableMenu(false); handleDeleteTable(); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> 删除表格
+                    <Trash2 className="h-3.5 w-3.5" /> {t('content.delete')}
                   </button>
                 </div>
               </>
@@ -1494,8 +1907,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         {/* Comment sidebar header — aligned with top bar */}
         {showTableComments && (
           <div className="w-80 shrink-0 flex items-center justify-between px-4 py-2 border-l border-border">
-            <h3 className="text-sm font-semibold text-foreground">评论</h3>
-            <button onClick={() => setShowTableComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="关闭">
+            <h3 className="text-sm font-semibold text-foreground">{t('content.comments')}</h3>
+            <button onClick={() => setShowTableComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('common.close')}>
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -1507,7 +1920,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       {/* Main table content */}
       <div className="flex-1 flex flex-col min-w-0">
 
-      {/* View tabs bar */}
+      {/* View tabs bar — hidden during history preview */}
+      {!previewSnapshot && <>
       <div className="flex items-center gap-0 px-2 border-b border-border bg-card/50 shrink-0 overflow-x-auto">
         <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleViewDragEnd}>
           <SortableContext items={orderedViews.map(v => v.view_id)} strategy={horizontalListSortingStrategy}>
@@ -1581,14 +1995,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
-                        <ArrowUp className="h-3 w-3" /> Set as First Tab
+                        <ArrowUp className="h-3 w-3" /> {t('dataTable.setAsFirstTab')}
                       </button>
                       <div className="border-t border-border my-1" />
                       <button
                         onClick={() => { setViewMenu(null); setEditingViewTitle(v.view_id); setViewTitleValue(v.title); }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
-                        <Pencil className="h-3 w-3" /> Rename View
+                        <Pencil className="h-3 w-3" /> {t('dataTable.renameView')}
                       </button>
                       <button
                         onClick={async () => {
@@ -1602,7 +2016,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
-                        <Copy className="h-3 w-3" /> Duplicate View
+                        <Copy className="h-3 w-3" /> {t('dataTable.duplicateView')}
                       </button>
                       <button
                         onClick={() => {
@@ -1616,14 +2030,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
-                        <Lock className="h-3 w-3" /> {lockedViews.has(v.view_id) ? 'Unlock View' : 'Lock View'}
+                        <Lock className="h-3 w-3" /> {lockedViews.has(v.view_id) ? t('dataTable.unlockView') : t('dataTable.lockView')}
                       </button>
                       <div className="border-t border-border my-1" />
                       <button
                         onClick={() => handleDeleteView(v.view_id)}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-destructive hover:bg-destructive/10"
                       >
-                        <Trash2 className="h-3 w-3" /> Delete View
+                        <Trash2 className="h-3 w-3" /> {t('dataTable.deleteView')}
                       </button>
                     </div>
                   </>
@@ -1647,7 +2061,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               setShowCreateViewMenu(prev => !prev);
             }}
             className="p-1 text-muted-foreground hover:text-foreground"
-            title="添加视图"
+            title={t('dataTable.addView')}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -1671,7 +2085,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     setShowCreateViewMenu(false);
                     try {
                       const existingCount = views.filter(v => v.type === vt.typeNum).length;
-                      const defaultName = `${vt.label}视图${existingCount > 0 ? ` ${existingCount + 1}` : ''}`;
+                      const defaultName = `${t(`dataTable.viewTypes.${vt.key}`)}${t('dataTable.viewSuffix')}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`;
                       const newView = await nc.createView(tableId, defaultName, vt.type);
                       if (vt.type === 'kanban') {
                         const selectCol = displayCols.find(c => c.type === 'SingleSelect');
@@ -1685,7 +2099,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                 >
-                  <VTIcon className="h-3 w-3" /> {vt.label}
+                  <VTIcon className="h-3 w-3" /> {t(`dataTable.viewTypes.${vt.key}`)}
                 </button>
               );
             })}
@@ -1693,9 +2107,10 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         </>,
         document.body
       )}
+      </>}{/* end view tabs conditional */}
 
-      {/* Toolbar bar — NocoDB style, view-type aware */}
-      {(() => {
+      {/* Toolbar bar — NocoDB style, view-type aware — hidden during history preview */}
+      {!previewSnapshot && (() => {
         const activeView = views.find(v => v.view_id === activeViewId);
         const viewType = activeView?.type || 3;
         const isForm = viewType === 1;
@@ -1712,7 +2127,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-sidebar-primary hover:bg-sidebar-primary/10 rounded transition-colors font-medium mr-1"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add Record
+                {t('dataTable.addRecord')}
               </button>
             )}
 
@@ -1728,7 +2143,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <Settings className="h-3.5 w-3.5" />
-                  Customize Field{hiddenCols.size > 0 ? ` (${hiddenCols.size})` : ''}
+                  {t('dataTable.customizeField')}{hiddenCols.size > 0 ? ` (${hiddenCols.size})` : ''}
                 </button>
                 {activeToolbarPanel === 'fields' && (
                   <>
@@ -1736,7 +2151,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
                       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-semibold text-foreground">Customize Field</span>
+                          <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeField')}</span>
                           <Info className="h-3 w-3 text-muted-foreground/60" />
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -1744,13 +2159,13 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             onClick={() => { displayCols.filter(c => !c.primary_key).forEach(c => toggleColVisibility(c.column_id, false)); }}
                             className="text-[10px] text-sidebar-primary hover:opacity-80"
                           >
-                            Show all
+                            {t('dataTable.showAll')}
                           </button>
                           <button
                             onClick={() => { displayCols.filter(c => !c.primary_key).forEach(c => toggleColVisibility(c.column_id, true)); }}
                             className="text-[10px] text-muted-foreground hover:text-foreground"
                           >
-                            Hide all
+                            {t('dataTable.hideAll')}
                           </button>
                         </div>
                       </div>
@@ -1796,7 +2211,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           onClick={() => { setActiveToolbarPanel(null); setInsertColPosition(null); openAddField(); }}
                           className="flex items-center gap-1.5 text-xs text-sidebar-primary hover:opacity-80"
                         >
-                          <Plus className="h-3.5 w-3.5" /> New field
+                          <Plus className="h-3.5 w-3.5" /> {t('dataTable.newField')}
                         </button>
                       </div>
                     </div>
@@ -1817,18 +2232,18 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <Group className="h-3.5 w-3.5" />
-                  Group by {activeView?.fk_grp_col_id ? displayCols.find(c => c.column_id === activeView.fk_grp_col_id)?.title : ''}
+                  {t('dataTable.groupBy')} {activeView?.fk_grp_col_id ? displayCols.find(c => c.column_id === activeView.fk_grp_col_id)?.title : ''}
                 </button>
                 {activeToolbarPanel === 'kanban-group' && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-64">
                       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Group table by fields</span>
+                        <span className="text-xs font-semibold text-foreground">{t('dataTable.groupByFields')}</span>
                         <Info className="h-3 w-3 text-muted-foreground/60" />
                       </div>
                       <div className="p-3">
-                        <div className="text-xs text-muted-foreground mb-1.5">Select grouping condition</div>
+                        <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.selectGroupCondition')}</div>
                         <div className="space-y-0.5">
                           {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(c => {
                             const ColIcon = getColIcon(c.type);
@@ -1861,7 +2276,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               </div>
             )}
 
-            {/* Kanban: Customize Card */}
+            {/* Kanban: {t('dataTable.customizeCard')} */}
             {isKanban && (
               <div className="relative">
                 <button
@@ -1873,27 +2288,31 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <CreditCard className="h-3.5 w-3.5" />
-                  Customize Card
+                  {t('dataTable.customizeCard')}
                 </button>
                 {activeToolbarPanel === 'kanban-card' && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
                       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Customize Card</span>
+                        <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeCard')}</span>
                       </div>
                       <div className="p-3 space-y-3">
                         <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">Cover field</div>
-                          <select className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none">
-                            <option value="">None</option>
+                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
+                          <select
+                            value={activeView?.fk_cover_image_col_id || ''}
+                            onChange={async e => { if (activeView) { await nc.updateKanbanConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
+                            className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
+                          >
+                            <option value="">{t('dataTable.none')}</option>
                             {displayCols.filter(c => c.type === 'Attachment').map(c => (
                               <option key={c.column_id} value={c.column_id}>{c.title}</option>
                             ))}
                           </select>
                         </div>
                         <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">Fields</div>
+                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.fields')}</div>
                           {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(col => {
                             const ColIcon = getColIcon(col.type);
                             const isHidden = hiddenCols.has(col.column_id);
@@ -1918,7 +2337,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               </div>
             )}
 
-            {/* Gallery: Customize Card */}
+            {/* Gallery: {t('dataTable.customizeCard')} */}
             {isGallery && (
               <div className="relative">
                 <button
@@ -1930,27 +2349,31 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <Image className="h-3.5 w-3.5" />
-                  Customize Card
+                  {t('dataTable.customizeCard')}
                 </button>
                 {activeToolbarPanel === 'gallery-card' && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
                       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Customize Card</span>
+                        <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeCard')}</span>
                       </div>
                       <div className="p-3 space-y-3">
                         <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">Cover field</div>
-                          <select className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none">
-                            <option value="">None</option>
+                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
+                          <select
+                            value={activeView?.fk_cover_image_col_id || ''}
+                            onChange={async e => { if (activeView) { await nc.updateGalleryConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
+                            className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
+                          >
+                            <option value="">{t('dataTable.none')}</option>
                             {displayCols.filter(c => c.type === 'Attachment').map(c => (
                               <option key={c.column_id} value={c.column_id}>{c.title}</option>
                             ))}
                           </select>
                         </div>
                         <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">Fields</div>
+                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.fields')}</div>
                           {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(col => {
                             const ColIcon = getColIcon(col.type);
                             const isHidden = hiddenCols.has(col.column_id);
@@ -1987,14 +2410,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <Group className="h-3.5 w-3.5" />
-                  Group By{groupByCol ? ` (${groupByCol})` : ''}
+                  {t('dataTable.groupBy')}{groupByCol ? ` (${groupByCol})` : ''}
                 </button>
                 {activeToolbarPanel === 'groupby' && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-64">
                       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Group table by fields</span>
+                        <span className="text-xs font-semibold text-foreground">{t('dataTable.groupByFields')}</span>
                         <Info className="h-3 w-3 text-muted-foreground/60" />
                       </div>
                       <div className="p-3">
@@ -2003,7 +2426,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           onChange={e => setGroupByCol(e.target.value || null)}
                           className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
                         >
-                          <option value="">Choose field...</option>
+                          <option value="">{t('dataTable.chooseField')}</option>
                           {displayCols.filter(c => !c.primary_key && !READONLY_TYPES.has(c.type)).map(c => {
                             const ColIcon = getColIcon(c.type);
                             return (
@@ -2016,7 +2439,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             onClick={() => { setGroupByCol(null); }}
                             className="mt-2 flex items-center gap-1 text-xs text-destructive hover:opacity-80"
                           >
-                            <X className="h-3 w-3" /> Remove grouping
+                            <X className="h-3 w-3" /> {t('dataTable.removeGrouping')}
                           </button>
                         )}
                       </div>
@@ -2038,36 +2461,57 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <Filter className="h-3.5 w-3.5" />
-                  {viewFilters?.length ? `${viewFilters.length} Filter` : 'Filter'}
+                  {viewFilters?.length ? `${viewFilters.length} ${t('dataTable.filter')}` : t('dataTable.filter')}
                 </button>
                 {activeToolbarPanel === 'filter' && activeViewId && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-[420px]">
                       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Filter records</span>
+                        <span className="text-xs font-semibold text-foreground">{t('dataTable.filterRecords')}</span>
                         <Info className="h-3 w-3 text-muted-foreground/60" />
                       </div>
                       <div className="p-3 space-y-2">
                         {viewFilters?.map(f => {
                           const col = displayCols.find(c => c.column_id === f.fk_column_id);
+                          const filterOps = getFilterOpsForType(col?.type);
                           return (
                             <div key={f.filter_id} className="flex items-center gap-2">
                               <select
                                 value={f.fk_column_id}
-                                onChange={() => {}}
+                                onChange={e => handleUpdateFilter(f.filter_id, { fk_column_id: e.target.value })}
                                 className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
                               >
-                                <option value={f.fk_column_id}>{col?.title || f.fk_column_id}</option>
+                                {displayCols.map(c => (
+                                  <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                                ))}
                               </select>
                               <select
                                 value={f.comparison_op}
-                                onChange={() => {}}
+                                onChange={e => handleUpdateFilter(f.filter_id, { comparison_op: e.target.value })}
                                 className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none w-24"
                               >
-                                <option value={f.comparison_op}>{FILTER_OPS.find(o => o.value === f.comparison_op)?.label || f.comparison_op}</option>
+                                {filterOps.map(op => <option key={op.value} value={op.value}>{t(`dataTable.filterOps.${op.key}`)}</option>)}
                               </select>
-                              <span className="text-xs text-foreground bg-muted rounded px-2 py-1.5 flex-1 min-w-0 truncate">{f.value}</span>
+                              {(col?.type === 'SingleSelect' || col?.type === 'MultiSelect') && col?.options?.length ? (
+                                <select
+                                  value={f.value || ''}
+                                  onChange={e => handleUpdateFilter(f.filter_id, { value: e.target.value })}
+                                  className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
+                                >
+                                  <option value="">{t('dataTable.valuePlaceholder')}</option>
+                                  {col.options.map(opt => <option key={opt.title} value={opt.title}>{opt.title}</option>)}
+                                </select>
+                              ) : (f.comparison_op === 'is' || f.comparison_op === 'isnot' || f.comparison_op === 'checked' || f.comparison_op === 'notchecked') ? (
+                                <span className="flex-1" />
+                              ) : (
+                                <input
+                                  defaultValue={f.value}
+                                  onBlur={e => { if (e.target.value !== f.value) handleUpdateFilter(f.filter_id, { value: e.target.value }); }}
+                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                  className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
+                                />
+                              )}
                               <button onClick={() => handleDeleteFilter(f.filter_id)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
                                 <X className="h-3.5 w-3.5" />
                               </button>
@@ -2076,21 +2520,35 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         })}
                         <div className="flex items-center gap-2">
                           <select value={newFilterCol} onChange={e => setNewFilterCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0">
-                            <option value="">Field...</option>
-                            {displayCols.filter(c => !READONLY_TYPES.has(c.type)).map(c => (
+                            <option value="">{t('dataTable.fieldPlaceholder')}</option>
+                            {displayCols.map(c => (
                               <option key={c.column_id} value={c.column_id}>{c.title}</option>
                             ))}
                           </select>
                           <select value={newFilterOp} onChange={e => setNewFilterOp(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none w-24">
-                            {FILTER_OPS.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+                            {getFilterOpsForType(displayCols.find(c => c.column_id === newFilterCol)?.type).map(op => <option key={op.value} value={op.value}>{t(`dataTable.filterOps.${op.key}`)}</option>)}
                           </select>
-                          <input
-                            value={newFilterVal}
-                            onChange={e => setNewFilterVal(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleAddFilter(); }}
-                            placeholder="Value"
-                            className="bg-muted rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none flex-1 min-w-0"
-                          />
+                          {(() => {
+                            const selCol = displayCols.find(c => c.column_id === newFilterCol);
+                            if ((selCol?.type === 'SingleSelect' || selCol?.type === 'MultiSelect') && selCol?.options?.length) {
+                              return (
+                                <select value={newFilterVal} onChange={e => setNewFilterVal(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0">
+                                  <option value="">{t('dataTable.valuePlaceholder')}</option>
+                                  {selCol.options.map(opt => <option key={opt.title} value={opt.title}>{opt.title}</option>)}
+                                </select>
+                              );
+                            }
+                            if (newFilterOp === 'is' || newFilterOp === 'isnot' || newFilterOp === 'checked' || newFilterOp === 'notchecked') return <span className="flex-1" />;
+                            return (
+                              <input
+                                value={newFilterVal}
+                                onChange={e => setNewFilterVal(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleAddFilter(); }}
+                                placeholder={t('dataTable.valuePlaceholder')}
+                                className="bg-muted rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none flex-1 min-w-0"
+                              />
+                            );
+                          })()}
                           <button onClick={handleAddFilter} disabled={!newFilterCol} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 shrink-0">
                             <X className="h-3.5 w-3.5 rotate-45" />
                           </button>
@@ -2102,7 +2560,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           disabled={!newFilterCol}
                           className="flex items-center gap-1.5 text-xs text-sidebar-primary hover:opacity-80 disabled:opacity-40"
                         >
-                          <Plus className="h-3.5 w-3.5" /> Add Condition
+                          <Plus className="h-3.5 w-3.5" /> {t('dataTable.addCondition')}
                         </button>
                       </div>
                     </div>
@@ -2123,7 +2581,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <ArrowUpDown className="h-3.5 w-3.5" />
-                  {viewSorts?.length ? `${viewSorts.length} Sort` : 'Sort'}
+                  {viewSorts?.length ? `${viewSorts.length} ${t('dataTable.sort')}` : t('dataTable.sort')}
                 </button>
                 {activeToolbarPanel === 'sort' && activeViewId && (
                   <>
@@ -2131,7 +2589,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-80">
                       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-semibold text-foreground">Sort by fields</span>
+                          <span className="text-xs font-semibold text-foreground">{t('dataTable.sortByFields')}</span>
                           <Info className="h-3 w-3 text-muted-foreground/60" />
                         </div>
                       </div>
@@ -2143,13 +2601,16 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                               <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 cursor-grab" />
                               <select
                                 value={s.fk_column_id}
-                                onChange={() => {}}
+                                onChange={e => handleUpdateSort(s.sort_id, { fk_column_id: e.target.value })}
                                 className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
                               >
-                                <option value={s.fk_column_id}>{col?.title || s.fk_column_id}</option>
+                                {displayCols.map(c => (
+                                  <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                                ))}
                               </select>
                               <div className="flex rounded overflow-hidden border border-border shrink-0">
                                 <button
+                                  onClick={() => handleUpdateSort(s.sort_id, { direction: 'asc' })}
                                   className={cn('px-2 py-1 text-xs transition-colors',
                                     s.direction === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                                   )}
@@ -2157,6 +2618,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                   A→Z
                                 </button>
                                 <button
+                                  onClick={() => handleUpdateSort(s.sort_id, { direction: 'desc' })}
                                   className={cn('px-2 py-1 text-xs transition-colors border-l border-border',
                                     s.direction === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                                   )}
@@ -2172,8 +2634,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                         })}
                         <div className="flex items-center gap-2">
                           <select value={newSortCol} onChange={e => setNewSortCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1">
-                            <option value="">Choose field...</option>
-                            {displayCols.filter(c => !READONLY_TYPES.has(c.type)).map(c => (
+                            <option value="">{t('dataTable.chooseField')}</option>
+                            {displayCols.map(c => (
                               <option key={c.column_id} value={c.column_id}>{c.title}</option>
                             ))}
                           </select>
@@ -2218,17 +2680,17 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                 >
                   <AlignVerticalSpaceAround className="h-3.5 w-3.5" />
-                  Row Height
+                  {t('dataTable.rowHeight')}
                 </button>
                 {activeToolbarPanel === 'rowheight' && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
                     <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-44 py-1">
                       {([
-                        { key: 'short' as const, label: 'Short', icon: '▤' },
-                        { key: 'medium' as const, label: 'Medium', icon: '▥' },
-                        { key: 'tall' as const, label: 'Tall', icon: '▦' },
-                        { key: 'extra' as const, label: 'Extra Tall', icon: '▧' },
+                        { key: 'short' as const, labelKey: 'dataTable.rowHeightShort', icon: '▤' },
+                        { key: 'medium' as const, labelKey: 'dataTable.rowHeightMedium', icon: '▥' },
+                        { key: 'tall' as const, labelKey: 'dataTable.rowHeightTall', icon: '▦' },
+                        { key: 'extra' as const, labelKey: 'dataTable.rowHeightExtra', icon: '▧' },
                       ]).map(opt => (
                         <button
                           key={opt.key}
@@ -2239,7 +2701,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           )}
                         >
                           <span className="text-sm leading-none opacity-60">{opt.icon}</span>
-                          {opt.label}
+                          {t(opt.labelKey)}
                           {rowHeight === opt.key && <span className="ml-auto text-sidebar-primary">✓</span>}
                         </button>
                       ))}
@@ -2248,26 +2710,127 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 )}
               </div>
             )}
+
+            {/* Spacer to push right */}
+            <div className="flex-1" />
           </div>
         );
       })()}
 
-      {/* Content area — view type determines rendering */}
-      {(() => {
+      {/* History version preview — replaces content area when a snapshot is selected */}
+      {previewSnapshot && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Preview banner */}
+          <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 shrink-0">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock size={14} className="text-amber-600 dark:text-amber-400" />
+              <span className="font-medium text-amber-800 dark:text-amber-200">
+                {t('dataTableHistory.previewingVersion')}
+              </span>
+              <span className="text-amber-600 dark:text-amber-400">
+                — {(() => {
+                  const d = new Date(previewSnapshot.createdAt);
+                  const now = new Date();
+                  const diff = now.getTime() - d.getTime();
+                  const mins = Math.floor(diff / 60000);
+                  const hours = Math.floor(diff / 3600000);
+                  const days = Math.floor(diff / 86400000);
+                  if (mins < 1) return t('time.justNow');
+                  if (mins < 60) return t('time.minutesAgo', { n: mins });
+                  if (hours < 24) return t('time.hoursAgo', { n: hours });
+                  if (days < 7) return t('time.daysAgo', { n: days });
+                  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                })()}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  if (!confirm(t('dataTableHistory.restoreConfirm'))) return;
+                  try {
+                    const result = await gw.restoreTableSnapshot(tableId, previewSnapshot.snapshotId);
+                    console.log('[TableEditor] Restore success:', result);
+                    setPreviewSnapshot(null);
+                    setShowHistory(false);
+                    setPage(1);
+                    // Force refetch all data so restored content is visible immediately
+                    queryClient.removeQueries({ queryKey: ['nc-rows', tableId] });
+                    queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
+                  } catch (e: unknown) {
+                    console.error('[TableEditor] Restore error:', e);
+                    alert(e instanceof Error ? e.message : 'Restore failed');
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+              >
+                <RotateCcw size={12} />
+                {t('dataTableHistory.restoreVersion')}
+              </button>
+              <button
+                onClick={() => { setPreviewSnapshot(null); setShowHistory(false); }}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+              >
+                <X size={12} />
+                {t('dataTableHistory.exitPreview')}
+              </button>
+            </div>
+          </div>
+          {/* Read-only snapshot table — horizontal scroll like link picker */}
+          <div className="flex-1 overflow-auto bg-amber-50/30 dark:bg-amber-950/10">
+            {previewSnapshot.rows.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">{t('dataTable.emptyTable')}</div>
+            ) : (() => {
+              const HIDDEN_SNAPSHOT_UIDTS = new Set(['ID', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'Count']);
+              const snapshotCols = previewSnapshot.schema.filter((c: { uidt: string }) => !HIDDEN_SNAPSHOT_UIDTS.has(c.uidt));
+              return (
+                <table className="text-xs" style={{ minWidth: '100%' }}>
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-[5]">
+                    <tr>
+                      <th className="w-10 min-w-[40px] px-2 py-2 text-center text-[10px] font-normal text-muted-foreground/50 border-r border-border sticky left-0 bg-muted/80 z-10">#</th>
+                      {snapshotCols.map((col: { title: string; uidt: string }, i: number) => (
+                        <th key={i} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap min-w-[120px]">
+                          {col.title}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewSnapshot.rows.map((row: Record<string, unknown>, ri: number) => (
+                      <tr key={ri} className="border-b border-border/30 hover:bg-accent/20">
+                        <td className="w-10 min-w-[40px] px-2 py-1.5 text-center text-[10px] text-muted-foreground/50 border-r border-border sticky left-0 bg-amber-50/30 dark:bg-amber-950/10 z-10">{ri + 1}</td>
+                        {snapshotCols.map((col: { title: string; uidt: string }, ci: number) => (
+                          <td key={ci} className="px-3 py-1.5 text-foreground max-w-[250px]">
+                            <SnapshotCellValue value={row[col.title]} colType={col.uidt} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Content area — view type determines rendering — hidden during history preview */}
+      {!previewSnapshot && ((() => {
         const activeView = views.find(v => v.view_id === activeViewId);
         const viewType = activeView?.type || 3;
         // Kanban view
-        if (viewType === 4) return (
+        if (viewType === 4 && activeView) return (
           <KanbanView
             rows={rows}
             columns={displayCols}
-            activeView={activeView!}
+            activeView={activeView}
             isLoading={isLoading}
             onUpdateRow={async (rowId, fields) => { await nc.updateRow(tableId, rowId, fields); refresh(); }}
             onAddRow={handleAddRow}
             tableId={tableId}
             refreshMeta={refreshMeta}
             hiddenCols={hiddenCols}
+            onExpandRow={(rowId) => { const idx = rows.findIndex(r => (r.Id as number) === rowId); if (idx >= 0) setExpandedRowIdx(idx); }}
+            onRefreshRows={refresh}
           />
         );
         // Gallery view
@@ -2275,9 +2838,11 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           <GalleryView
             rows={rows}
             columns={displayCols}
+            activeView={activeView}
             isLoading={isLoading}
             onAddRow={handleAddRow}
             hiddenCols={hiddenCols}
+            onExpandRow={(rowId) => { const idx = rows.findIndex(r => (r.Id as number) === rowId); if (idx >= 0) setExpandedRowIdx(idx); }}
           />
         );
         // Form view
@@ -2334,6 +2899,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     return (
                       <th
                         key={col.column_id}
+                        data-col-id={col.column_id}
                         className={cn(
                           "relative px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap group",
                           'sticky z-[6] bg-card',
@@ -2389,8 +2955,8 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                 <Group className="h-3 w-3" /> {groupByCol === col.title ? 'Remove Group By' : 'Group By'}
                               </button>
                               <div className="border-t border-border my-1" />
-                              <button onClick={() => { setColMenu(null); setSortCol(col.title); setSortDir('asc'); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"><ArrowUp className="h-3 w-3" /> Sort A → Z</button>
-                              <button onClick={() => { setColMenu(null); setSortCol(col.title); setSortDir('desc'); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"><ArrowDown className="h-3 w-3" /> Sort Z → A</button>
+                              <button onClick={() => { setColMenu(null); handleColumnSort(col.column_id, 'asc'); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"><ArrowUp className="h-3 w-3" /> Sort A → Z</button>
+                              <button onClick={() => { setColMenu(null); handleColumnSort(col.column_id, 'desc'); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"><ArrowDown className="h-3 w-3" /> Sort Z → A</button>
                             </div>
                           </>
                         )}
@@ -2515,13 +3081,13 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             </button>
                             <div className="border-t border-border my-1" />
                             <button
-                              onClick={() => { setColMenu(null); setSortCol(col.title); setSortDir('asc'); }}
+                              onClick={() => { setColMenu(null); handleColumnSort(col.column_id, 'asc'); }}
                               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                             >
                               <ArrowUp className="h-3 w-3" /> Sort A → Z
                             </button>
                             <button
-                              onClick={() => { setColMenu(null); setSortCol(col.title); setSortDir('desc'); }}
+                              onClick={() => { setColMenu(null); handleColumnSort(col.column_id, 'desc'); }}
                               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                             >
                               <ArrowDown className="h-3 w-3" /> Sort Z → A
@@ -2550,7 +3116,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 })}
                   </SortableContext>
                 <th className="px-2 py-1.5 border-r border-border">
-                  <button onClick={() => { setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title="添加列">
+                  <button onClick={(e) => { const rect = (e.target as HTMLElement).getBoundingClientRect(); setEditFieldAnchor({ x: rect.right - 384, y: rect.bottom + 4 }); setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title={t('dataTable.addCol')}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </th>
@@ -2596,7 +3162,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                           className={cn(
                             'px-2 relative',
                             isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-gray-300 dark:after:bg-gray-600' : 'border-r border-border',
-                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
+                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.title) || (attachmentDropdown?.rowId === rowId && attachmentDropdown?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
                             isEditing && 'ring-2 ring-sidebar-primary ring-inset bg-card',
                             (!isReadonly || col.type === 'Links' || col.type === 'Attachment' || col.type === 'User' || col.type === 'Collaborator') && !isEditing && 'cursor-pointer',
                             isFrozen ? cn('sticky z-[3]', isPK && commentedRowIds.has(String(rowId)) ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-card') : undefined,
@@ -2615,8 +3181,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                               return;
                             }
                             if (col.type === 'Attachment') {
-                              attachmentInputRef.current?.click();
-                              setAttachmentUploading({ rowId, col: col.title });
+                              setAttachmentDropdown({ rowId, col: col.title });
                               return;
                             }
                             if (col.type === 'User' || col.type === 'Collaborator') {
@@ -2683,7 +3248,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                               <button
                                 onClick={(e) => { e.stopPropagation(); setExpandedRowIdx(rowIdx); }}
                                 className="hidden group-hover/row:inline-flex shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
-                                title="展开行"
+                                title={t('dataTable.expandRow')}
                               >
                                 <Expand className="h-3 w-3" />
                               </button>
@@ -2695,13 +3260,22 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                     ? 'inline-flex text-sidebar-primary'
                                     : 'hidden group-hover/row:inline-flex text-muted-foreground hover:text-sidebar-primary'
                                 )}
-                                title="行评论"
+                                title={t('dataTable.rowComments')}
                               >
                                 <MessageSquare className="h-3 w-3" />
                               </button>
                             </div>
+                          ) : (col.type === 'Links' || col.type === 'LinkToAnotherRecord') ? (
+                            <LinkedRecordChips tableId={tableId} rowId={rowId} column={col} value={val} />
                           ) : (
-                            <CellDisplay value={val} col={col} />
+                            <CellDisplay value={val} col={col} onDeleteAttachment={col.type === 'Attachment' && !isReadonly ? async (idx) => {
+                              try {
+                                const attachments = Array.isArray(val) ? val : JSON.parse(String(val || '[]'));
+                                const updated = (attachments as any[]).filter((_: any, i: number) => i !== idx);
+                                await nc.updateRow(tableId, rowId, { [col.title]: updated });
+                                refresh();
+                              } catch (e) { console.error('Delete attachment failed:', e); }
+                            } : undefined} />
                           )}
                           {/* Select dropdown */}
                           {selectDropdown?.rowId === rowId && selectDropdown?.col === col.title && (() => {
@@ -2731,7 +3305,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                       if (e.key === 'Escape') setSelectDropdown(null);
                                     }}
                                     onClick={e => e.stopPropagation()}
-                                    placeholder="搜索或输入新选项..."
+                                    placeholder={t('dataTable.searchOrNewOption')}
                                     className="w-full bg-muted rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none"
                                     autoFocus
                                   />
@@ -2742,7 +3316,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                       onClick={(e) => { e.stopPropagation(); setSelectValue(rowId, col.title, ''); }}
                                       className="w-full px-3 py-1 text-xs text-muted-foreground hover:bg-accent text-left"
                                     >
-                                      清除
+                                      {t('dataTable.clear')}
                                     </button>
                                   )}
                                   {filteredOpts.map((opt, i) => {
@@ -2789,11 +3363,11 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                       }}
                                       className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-sidebar-primary hover:bg-accent"
                                     >
-                                      <Plus className="h-3 w-3" /> 创建 &quot;{selectInput.trim()}&quot;
+                                      <Plus className="h-3 w-3" /> {t('dataTable.createOption', { name: selectInput.trim() })}
                                     </button>
                                   )}
                                   {filteredOpts.length === 0 && !showCreateOption && (
-                                    <p className="px-3 py-2 text-xs text-muted-foreground">无匹配选项</p>
+                                    <p className="px-3 py-2 text-xs text-muted-foreground">{t('dataTable.noMatchOptions')}</p>
                                   )}
                                 </div>
                               </div>
@@ -2814,7 +3388,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                     onChange={e => setUserPickerSearch(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Escape') setUserPicker(null); }}
                                     onClick={e => e.stopPropagation()}
-                                    placeholder="搜索成员..."
+                                    placeholder={t('dataTable.searchMembers')}
                                     className="w-full bg-muted rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none"
                                     autoFocus
                                   />
@@ -2824,7 +3398,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                     onClick={(e) => { e.stopPropagation(); nc.updateRow(tableId, rowId, { [col.title]: '' }).then(refresh); setUserPicker(null); }}
                                     className="w-full px-3 py-1 text-xs text-muted-foreground hover:bg-accent text-left"
                                   >
-                                    清除
+                                    {t('dataTable.clear')}
                                   </button>
                                   {/* Admin user */}
                                   <button
@@ -2851,9 +3425,144 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                     </button>
                                   ))}
                                   {filtered.length === 0 && (
-                                    <p className="px-3 py-2 text-xs text-muted-foreground">无匹配成员</p>
+                                    <p className="px-3 py-2 text-xs text-muted-foreground">{t('dataTable.noMatchMembers')}</p>
                                   )}
                                 </div>
+                                <div className="border-t border-border px-3 py-1.5">
+                                  <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer" onClick={e => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={userPickerNotify}
+                                      onChange={e => setUserPickerNotify(e.target.checked)}
+                                      className="accent-sidebar-primary w-3 h-3"
+                                    />
+                                    {t('dataTable.notifyOnAssign')}
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {/* Attachment dropdown */}
+                          {attachmentDropdown?.rowId === rowId && attachmentDropdown?.col === col.title && (() => {
+                            const attachments: any[] = (() => {
+                              if (!val) return [];
+                              if (Array.isArray(val)) return val;
+                              try { return JSON.parse(String(val)); } catch { return []; }
+                            })();
+                            const isEmpty = attachments.length === 0;
+                            return (
+                              <div data-select-dropdown className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl w-64 max-h-72 flex flex-col" onClick={e => e.stopPropagation()}>
+                                {isEmpty ? (
+                                  <div className="flex flex-col items-center gap-2 py-6 px-4">
+                                    {attachmentUploading?.rowId === rowId && attachmentUploading?.col === col.title ? (
+                                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <Loader2 className="h-4 w-4 animate-spin" /> {t('dataTable.uploading')}
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            attachmentTargetRef.current = { rowId, col: col.title };
+                                            attachmentInputRef.current?.click();
+                                          }}
+                                          className="w-full py-2.5 rounded-lg bg-sidebar-primary text-white text-sm font-medium hover:opacity-90"
+                                        >
+                                          {t('dataTable.chooseFile')}
+                                        </button>
+                                        <span className="text-xs text-muted-foreground">
+                                          {t('dataTable.pasteHint')}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <DndContext
+                                      sensors={dndSensors}
+                                      collisionDetection={closestCenter}
+                                      modifiers={[restrictToParentElement, restrictToVerticalAxis]}
+                                      onDragEnd={async (event: DragEndEvent) => {
+                                        const { active, over } = event;
+                                        if (!over || active.id === over.id) return;
+                                        const oldIdx = Number(active.id);
+                                        const newIdx = Number(over.id);
+                                        const reordered = arrayMove([...attachments], oldIdx, newIdx);
+                                        // Optimistic update
+                                        queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+                                          const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+                                          if (!data) return old;
+                                          return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: reordered } : r) };
+                                        });
+                                        try {
+                                          await nc.updateRow(tableId, rowId, { [col.title]: reordered });
+                                        } catch (e) { console.error('Reorder failed:', e); refresh(); }
+                                      }}
+                                    >
+                                    <SortableContext items={attachments.map((_: any, i: number) => i)} strategy={verticalListSortingStrategy}>
+                                    <div className="overflow-y-auto flex-1 py-1">
+                                      {attachments.map((att: any, idx: number) => {
+                                        const isImage = att.mimetype?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(att.title || att.path || '');
+                                        const thumbUrl = att.path ? ncAttachmentUrl(att) : '';
+                                        return (
+                                          <SortableAttachmentItem key={idx} id={idx}>
+                                            <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent group/att">
+                                              <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0 cursor-grab" />
+                                              {isImage && thumbUrl ? (
+                                                <img src={thumbUrl} className="h-8 w-8 rounded object-cover shrink-0" alt="" />
+                                              ) : (
+                                                <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
+                                                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+                                                </div>
+                                              )}
+                                              <span className="flex-1 text-xs text-foreground truncate">{att.title || att.path?.split('/').pop() || 'file'}</span>
+                                              <a
+                                                href={ncAttachmentUrl(att)}
+                                                download={att.title || att.path?.split('/').pop() || 'file'}
+                                                onClick={e => e.stopPropagation()}
+                                                className="hidden group-hover/att:block p-0.5 text-muted-foreground hover:text-sidebar-primary shrink-0"
+                                                title={t('common.download')}
+                                              >
+                                                <Download className="h-3 w-3" />
+                                              </a>
+                                              <button
+                                                onClick={async (e) => {
+                                                  e.stopPropagation();
+                                                  const updated = attachments.filter((_: any, i: number) => i !== idx);
+                                                  await nc.updateRow(tableId, rowId, { [col.title]: updated });
+                                                  refresh();
+                                                  if (updated.length === 0) setAttachmentDropdown(null);
+                                                }}
+                                                className="hidden group-hover/att:block p-0.5 text-muted-foreground hover:text-destructive shrink-0"
+                                                title={t('common.delete')}
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </button>
+                                            </div>
+                                          </SortableAttachmentItem>
+                                        );
+                                      })}
+                                    </div>
+                                    </SortableContext>
+                                    </DndContext>
+                                    <div className="border-t border-border px-3 py-2">
+                                      {attachmentUploading?.rowId === rowId && attachmentUploading?.col === col.title ? (
+                                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                          <Loader2 className="h-3 w-3 animate-spin" /> {t('dataTable.uploading')}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => {
+                                            attachmentTargetRef.current = { rowId, col: col.title };
+                                            attachmentInputRef.current?.click();
+                                          }}
+                                          className="flex items-center gap-1.5 text-xs text-sidebar-primary hover:opacity-80"
+                                        >
+                                          <Plus className="h-3 w-3" /> {t('dataTable.addFileOrImage')}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             );
                           })()}
@@ -2862,17 +3571,16 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                             <DatePickerDropdown
                               value={datePicker.value}
                               showTime={datePicker.colType === 'DateTime'}
-                              onSelect={async (dateStr) => {
-                                setDatePicker(null);
-                                if (dateStr !== datePicker.value) {
-                                  queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
-                                    const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
-                                    if (!data) return old;
-                                    return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: dateStr || null } : r) };
-                                  });
-                                  try { await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
-                                  catch (e) { console.error('Date update failed:', e); refresh(); }
-                                }
+                              onChange={async (dateStr) => {
+                                // Update cell immediately without closing picker
+                                setDatePicker(prev => prev ? { ...prev, value: dateStr } : null);
+                                queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+                                  const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+                                  if (!data) return old;
+                                  return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: dateStr || null } : r) };
+                                });
+                                try { await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
+                                catch (e) { console.error('Date update failed:', e); refresh(); }
                               }}
                               onClose={() => setDatePicker(null)}
                             />
@@ -2907,7 +3615,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 <td className="px-2 py-1 sticky left-0 z-[3] bg-card relative after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }} />
                 <td className="px-2 py-1 sticky left-[32px] z-[3] bg-card">
                   <button onClick={handleAddRow} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground py-0.5">
-                    <Plus className="h-3 w-3" /> 新增行
+                    <Plus className="h-3 w-3" /> {t('dataTable.addRecord')}
                   </button>
                 </td>
                 <td colSpan={displayCols.length} />
@@ -2940,22 +3648,26 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           </DndContext>
         )}
       </div>
-      )}
+      ))}
 
       {/* Edit Field dialog (unified for add & edit) */}
       {showAddCol && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onClick={() => { resetAddColState(); setEditFieldColId(null); setShowTypeSelector(false); setInsertColPosition(null); }}>
-          <div className="bg-card border border-border rounded-xl shadow-2xl w-96 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50" onClick={() => { resetAddColState(); setEditFieldColId(null); setEditFieldAnchor(null); setShowTypeSelector(false); setInsertColPosition(null); }}>
+          <div
+            className="bg-card border border-border rounded-xl shadow-2xl w-96 max-h-[70vh] flex flex-col"
+            style={editFieldAnchor ? { position: 'fixed', left: Math.max(0, editFieldAnchor.x), top: Math.min(editFieldAnchor.y, window.innerHeight - 400) } : { position: 'fixed', left: '50%', top: '15vh', transform: 'translateX(-50%)' }}
+            onClick={e => e.stopPropagation()}
+          >
             <div className="p-5 flex-1 overflow-y-auto space-y-5">
               {/* Field title */}
               <div>
-                <div className="text-xs text-muted-foreground mb-1.5">Field title</div>
+                <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.fieldTitle')}</div>
                 <input
                   ref={newColRef}
                   value={newColTitle}
                   onChange={e => setNewColTitle(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveField(); if (e.key === 'Escape') { resetAddColState(); setEditFieldColId(null); setShowTypeSelector(false); setInsertColPosition(null); } }}
-                  placeholder="Field name"
+                  placeholder={editFieldColId ? t('dataTable.fieldName') : t(`dataTable.colTypes.${newColType}`)}
                   className="w-full border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-sidebar-primary/50 bg-transparent"
                   autoFocus
                 />
@@ -2963,7 +3675,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
 
               {/* Field type selector */}
               <div>
-                <div className="text-xs text-muted-foreground mb-1.5">Field type</div>
+                <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.fieldType')}</div>
                 <div className="border border-border rounded-lg overflow-hidden">
                   {/* Current type row — click to toggle type list */}
                   <button
@@ -2971,18 +3683,18 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-accent/50 transition-colors"
                   >
                     {(() => { const TypeIcon = getColIcon(newColType); return <TypeIcon className="h-4 w-4 text-muted-foreground shrink-0" />; })()}
-                    <span className="flex-1 text-left">{COLUMN_TYPES.find(ct => ct.value === newColType)?.label || newColType}</span>
+                    <span className="flex-1 text-left">{t(`dataTable.colTypes.${newColType}`)}</span>
                     <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', showTypeSelector && 'rotate-180')} />
                   </button>
                   {/* Expanded type list */}
                   {showTypeSelector && (() => {
                     // Type change compatibility when editing existing columns
-                    const IMMUTABLE_TYPES = new Set(['Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'CreatedTime', 'LastModifiedTime', 'AutoNumber', 'ID']);
+                    const IMMUTABLE_TYPES = new Set(['Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'AutoNumber', 'ID']);
                     const TEXT_TYPES = new Set(['SingleLineText', 'LongText', 'Email', 'URL', 'PhoneNumber']);
-                    const NUM_TYPES = new Set(['Number', 'Decimal', 'Currency', 'Percent']);
+                    const NUM_TYPES = new Set(['Number']);
                     const isEditing = !!editFieldColId;
                     const origType = isEditing ? (meta?.columns?.find(c => c.column_id === editFieldColId)?.type || newColType) : newColType;
-                    const getCompat = (from: string, to: string): 'ok' | 'lossy' | 'blocked' => {
+                    const getCompat = (from: string, to: string): 'ok' | 'lossy' | 'clear' | 'blocked' => {
                       if (from === to) return 'ok';
                       if (IMMUTABLE_TYPES.has(from) || IMMUTABLE_TYPES.has(to)) return 'blocked';
                       // Text ↔ Text: safe
@@ -2993,46 +3705,60 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                       if ((from === 'Date' || from === 'DateTime') && (to === 'Date' || to === 'DateTime')) return 'ok';
                       // SingleSelect → MultiSelect: safe
                       if (from === 'SingleSelect' && to === 'MultiSelect') return 'ok';
+                      // Text → Number/Date: lossy (some values survive)
+                      if (TEXT_TYPES.has(from) && (NUM_TYPES.has(to) || to === 'Date' || to === 'DateTime')) return 'lossy';
+                      if (NUM_TYPES.has(from) && TEXT_TYPES.has(to)) return 'ok'; // Number → Text is safe
+                      // Cross-family conversions that clear all data
+                      const SELECT_TYPES = new Set(['SingleSelect', 'MultiSelect']);
+                      if (SELECT_TYPES.has(from) !== SELECT_TYPES.has(to) && !(TEXT_TYPES.has(from) || TEXT_TYPES.has(to))) return 'clear';
+                      if ((from === 'Checkbox' && !NUM_TYPES.has(to) && !TEXT_TYPES.has(to)) || (to === 'Checkbox' && !NUM_TYPES.has(from) && !TEXT_TYPES.has(from))) return 'clear';
+                      if ((from === 'Attachment' || to === 'Attachment') && from !== to) return 'clear';
                       // Everything else: lossy
                       return 'lossy';
                     };
                     return (
                     <div className="border-t border-border max-h-48 overflow-y-auto">
-                      {Object.entries(GROUP_LABELS).map(([group, label]) => {
+                      {GROUP_KEYS.map(group => {
+                        const label = t(`dataTable.colGroups.${group}`);
                         const types = COLUMN_TYPES.filter(ct => ct.group === group);
                         if (types.length === 0) return null;
                         return (
                           <div key={group}>
                             <div className="px-3 py-1 text-[10px] text-muted-foreground/60 bg-muted/30 sticky top-0">{label}</div>
+                            <div className="grid grid-cols-2">
                             {types.map(ct => {
                               const CtIcon = ct.icon;
                               const compat = isEditing ? getCompat(origType, ct.value) : 'ok';
                               if (compat === 'blocked' && ct.value !== origType) return (
-                                <div key={ct.value} className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-muted-foreground/40 cursor-not-allowed">
+                                <div key={ct.value} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted-foreground/40 cursor-not-allowed">
                                   <CtIcon className="h-3.5 w-3.5 shrink-0" />
-                                  {ct.label}
+                                  <span className="truncate">{t(`dataTable.colTypes.${ct.value}`)}</span>
                                 </div>
                               );
                               return (
                                 <button
                                   key={ct.value}
                                   onClick={() => {
-                                    if (compat === 'lossy') {
-                                      if (!window.confirm(`将类型从「${COLUMN_TYPES.find(c => c.value === origType)?.label}」改为「${ct.label}」可能导致部分数据丢失。确定继续？`)) return;
+                                    if (compat === 'clear') {
+                                      if (!window.confirm(t('dataTable.typeChangeClearConfirm', { from: t(`dataTable.colTypes.${origType}`), to: t(`dataTable.colTypes.${ct.value}`) }))) return;
+                                    } else if (compat === 'lossy') {
+                                      if (!window.confirm(t('dataTable.typeChangeLossyConfirm', { from: t(`dataTable.colTypes.${origType}`), to: t(`dataTable.colTypes.${ct.value}`) }))) return;
                                     }
                                     setNewColType(ct.value); setShowTypeSelector(false);
                                   }}
                                   className={cn(
-                                    'w-full flex items-center gap-2.5 px-3 py-1.5 text-xs hover:bg-accent transition-colors',
+                                    'flex items-center gap-1.5 px-3 py-1.5 text-xs hover:bg-accent transition-colors',
                                     newColType === ct.value ? 'text-sidebar-primary font-medium bg-sidebar-primary/5' : 'text-foreground'
                                   )}
                                 >
                                   <CtIcon className="h-3.5 w-3.5 shrink-0" />
-                                  {ct.label}
-                                  {compat === 'lossy' && ct.value !== origType && <span className="text-[9px] text-amber-500 ml-auto">有损</span>}
+                                  <span className="truncate">{t(`dataTable.colTypes.${ct.value}`)}</span>
+                                  {compat === 'clear' && ct.value !== origType && <span className="text-[9px] text-destructive ml-auto">⚠</span>}
+                                  {compat === 'lossy' && ct.value !== origType && <span className="text-[9px] text-amber-500 ml-auto">!</span>}
                                 </button>
                               );
                             })}
+                            </div>
                           </div>
                         );
                       })}
@@ -3043,63 +3769,66 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               </div>
 
               {/* Type-specific config */}
-              {/* Number format config */}
-              {newColType === 'Number' && (() => {
-                const NUM_PRESETS: { label: string; prefix: string; suffix: string; thousands: boolean }[] = [
-                  { label: '默认', prefix: '', suffix: '', thousands: false },
-                  { label: '数字', prefix: '', suffix: '', thousands: false },
-                  { label: '千分位数字', prefix: '', suffix: '', thousands: true },
-                  { label: '百分比', prefix: '', suffix: '%', thousands: false },
-                  { label: '美元 (USD)', prefix: '$', suffix: '', thousands: true },
-                  { label: '人民币 (CNY)', prefix: '¥', suffix: '', thousands: true },
-                  { label: '欧元 (EUR)', prefix: '€', suffix: '', thousands: true },
-                  { label: '英镑 (GBP)', prefix: '£', suffix: '', thousands: true },
-                  { label: '日元 (JPY)', prefix: '¥', suffix: '', thousands: true },
-                  { label: '澳元 (AUD)', prefix: 'A$', suffix: '', thousands: true },
-                  { label: '加元 (CAD)', prefix: 'C$', suffix: '', thousands: true },
-                  { label: '新加坡元 (SGD)', prefix: 'S$', suffix: '', thousands: true },
-                  { label: '韩元 (KRW)', prefix: '₩', suffix: '', thousands: true },
-                  { label: '卢比 (INR)', prefix: '₹', suffix: '', thousands: true },
-                ];
-                const activePreset = NUM_PRESETS.find(p => p.prefix === numFormat.prefix && p.suffix === numFormat.suffix && p.thousands === numFormat.thousands) || NUM_PRESETS[0];
-                return (
+              {/* Number config — simple integer, no extra options */}
+              {/* Decimal config */}
+              {newColType === 'Decimal' && (
                 <div className="space-y-3">
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">数字格式</div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.decimals')}</div>
                     <select
-                      value={NUM_PRESETS.indexOf(activePreset)}
-                      onChange={e => {
-                        const p = NUM_PRESETS[parseInt(e.target.value)] || NUM_PRESETS[0];
-                        setNumFormat(prev => ({ ...prev, prefix: p.prefix, suffix: p.suffix, thousands: p.thousands }));
-                      }}
+                      value={decimalPrecision}
+                      onChange={e => setDecimalPrecision(parseInt(e.target.value) || 2)}
                       className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                     >
-                      {NUM_PRESETS.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">小数位数</div>
-                    <select
-                      value={numFormat.decimals}
-                      onChange={e => setNumFormat(prev => ({ ...prev, decimals: parseInt(e.target.value) || 0 }))}
-                      className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
-                    >
-                      <option value={0}>默认 (0位)</option>
-                      {[1,2,3,4].map(d => <option key={d} value={d}>{d}位</option>)}
+                      {[1,2,3,4,5,6,7,8].map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div className="text-[10px] text-muted-foreground/60">
-                    预览: {numFormat.prefix}{numFormat.thousands ? '1,234' : '1234'}{numFormat.decimals > 0 ? '.' + '0'.repeat(numFormat.decimals) : ''}{numFormat.suffix}
+                    {t('dataTable.preview')}: {(1234.5).toFixed(decimalPrecision)}
                   </div>
                 </div>
-                );
-              })()}
+              )}
+              {/* Currency config */}
+              {newColType === 'Currency' && (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.currencySymbol') || 'Currency'}</div>
+                    <select
+                      value={currencySymbol}
+                      onChange={e => setCurrencySymbol(e.target.value)}
+                      className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
+                    >
+                      {[
+                        { symbol: '$', label: 'USD ($)' },
+                        { symbol: '¥', label: 'CNY (¥)' },
+                        { symbol: '€', label: 'EUR (€)' },
+                        { symbol: '£', label: 'GBP (£)' },
+                        { symbol: 'A$', label: 'AUD (A$)' },
+                        { symbol: 'C$', label: 'CAD (C$)' },
+                        { symbol: 'S$', label: 'SGD (S$)' },
+                        { symbol: '₩', label: 'KRW (₩)' },
+                        { symbol: '₹', label: 'INR (₹)' },
+                        { symbol: '¥', label: 'JPY (¥)' },
+                      ].map(c => <option key={c.label} value={c.symbol}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/60">
+                    {t('dataTable.preview')}: {currencySymbol}1,234.56
+                  </div>
+                </div>
+              )}
+              {/* Percent — no extra config needed */}
+              {newColType === 'Percent' && (
+                <div className="text-[10px] text-muted-foreground/60">
+                  {t('dataTable.preview')}: 85%
+                </div>
+              )}
               {/* Rating config */}
               {newColType === 'Rating' && (
                 <div className="space-y-3">
-                  <div className="text-xs text-muted-foreground mb-1.5">评分设置</div>
+                  <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.ratingSettings')}</div>
                   <label className="flex items-center gap-1.5 text-xs text-foreground">
-                    <span>最大值</span>
+                    <span>{t('dataTable.maxValue')}</span>
                     <input
                       type="number" min={1} max={10} value={ratingMax}
                       onChange={e => setRatingMax(parseInt(e.target.value) || 5)}
@@ -3107,7 +3836,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     />
                   </label>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-foreground">图标</span>
+                    <span className="text-xs text-foreground">{t('dataTable.icon')}</span>
                     {[
                       { key: 'star', icon: '★' }, { key: 'heart', icon: '❤' }, { key: 'thumb', icon: '👍' },
                       { key: 'fire', icon: '🔥' }, { key: 'smile', icon: '😊' }, { key: 'flower', icon: '🌸' },
@@ -3125,23 +3854,25 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               {/* Date format config */}
               {(newColType === 'Date' || newColType === 'DateTime' || newColType === 'CreatedTime' || newColType === 'LastModifiedTime') && (
                 <div>
-                  <div className="text-xs text-muted-foreground mb-1.5">日期格式</div>
+                  <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.dateFormat')}</div>
                   <div className="space-y-1 max-h-[200px] overflow-y-auto">
                     {(() => {
-                      const showTime = newColType !== 'Date';
-                      // Build format list: pure date formats first, then date+time variants
+                      const isDateOnly = newColType === 'Date';
+                      // Build format list based on type
                       const baseFmts = [
                         { value: 'YYYY/MM/DD', example: '2026/01/30' },
                         { value: 'YYYY-MM-DD', example: '2026-01-30' },
                         { value: 'DD/MM/YYYY', example: '30/01/2026' },
                         { value: 'MM/DD/YYYY', example: '01/30/2026' },
-                        { value: 'YYYY年MM月DD日', example: '2026年01月30日' },
                         { value: 'MM-DD', example: '01-30' },
                       ];
                       const allFmts: { value: string; example: string }[] = [];
-                      for (const f of baseFmts) {
-                        allFmts.push(f);
-                        if (showTime) {
+                      if (isDateOnly) {
+                        // Date type: only pure date formats
+                        allFmts.push(...baseFmts);
+                      } else {
+                        // DateTime/CreatedTime/LastModifiedTime: only date+time formats
+                        for (const f of baseFmts) {
                           allFmts.push({ value: `${f.value} HH:mm`, example: `${f.example} 14:00` });
                         }
                       }
@@ -3198,7 +3929,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               )}
               {newColType === 'Formula' && (
                 <div>
-                  <div className="text-xs text-muted-foreground mb-1.5">公式表达式</div>
+                  <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.formulaExpression')}</div>
                   <input
                     value={newColFormula}
                     onChange={e => setNewColFormula(e.target.value)}
@@ -3206,20 +3937,20 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground outline-none font-mono bg-transparent"
                   />
                   <div className="text-[10px] text-muted-foreground/50 mt-1">
-                    用 {'{字段名}'} 引用字段。支持: CONCAT, IF, ADD, SUM, AVG, LEN, NOW, DATEADD 等
+                    {t('dataTable.formulaHint')}
                   </div>
                 </div>
               )}
               {newColType === 'Links' && (
                 <div className="space-y-3">
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">关联目标表</div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.relatedTable')}</div>
                     <select
                       value={newColRelTable}
                       onChange={e => setNewColRelTable(e.target.value)}
                       className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                     >
-                      <option value="">选择表...</option>
+                      <option value="">{t('dataTable.selectTable')}</option>
                       {allTables?.filter(t => t.id !== tableId).map(t => (
                         <option key={t.id} value={t.id}>{t.title}</option>
                       ))}
@@ -3232,19 +3963,10 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                       onChange={e => setNewColRelMulti(e.target.checked)}
                       className="accent-sidebar-primary"
                     />
-                    支持选择多个记录
-                  </label>
-                  <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newColRelBidirectional}
-                      onChange={e => setNewColRelBidirectional(e.target.checked)}
-                      className="accent-sidebar-primary"
-                    />
-                    在关联表中添加反向列
+                    {t('dataTable.allowMultiple')}
                   </label>
                   <div className="text-[10px] text-muted-foreground/60">
-                    {newColRelMulti ? '多对多关联：每条记录可关联多条目标表记录' : '单选关联：每条记录只能关联一条目标表记录'}
+                    {newColRelMulti ? t('dataTable.relMultiHint') : t('dataTable.relSingleHint')}
                   </div>
                 </div>
               )}
@@ -3254,17 +3976,17 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 <div className="space-y-3">
                   {linkCols.length === 0 ? (
                     <div className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2">
-                      需要先创建一个「关联」类型的列，才能创建查找字段。
+                      {t('dataTable.needLinkCol', { type: t('dataTable.colTypes.Lookup') })}
                     </div>
                   ) : (
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">关联列</div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.linkCol')}</div>
                     <select
                       value={newColRelCol}
                       onChange={e => setNewColRelCol(e.target.value)}
                       className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                     >
-                      <option value="">选择关联列...</option>
+                      <option value="">{t('dataTable.selectLinkCol')}</option>
                       {linkCols.map(c => (
                         <option key={c.column_id} value={c.column_id}>{c.title}</option>
                       ))}
@@ -3273,14 +3995,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   )}
                   {relatedMeta && (
                     <div>
-                      <div className="text-xs text-muted-foreground mb-1.5">查找字段（{relatedMeta.title}）</div>
+                      <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.lookupField')}（{relatedMeta.title}）</div>
                       <select
                         value={newColLookupCol}
                         onChange={e => setNewColLookupCol(e.target.value)}
                         className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                       >
-                        <option value="">选择字段...</option>
-                        {relatedMeta.columns
+                        <option value="">{t('dataTable.selectField')}</option>
+                        {(relatedMeta.columns || [])
                           .filter(c => c.title !== 'created_by' && !c.title.startsWith('nc_') && c.type !== 'ForeignKey')
                           .map(c => (
                           <option key={c.column_id} value={c.column_id}>{c.title} ({c.type})</option>
@@ -3297,17 +4019,17 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 <div className="space-y-3">
                   {linkCols.length === 0 ? (
                     <div className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2">
-                      需要先创建一个「关联」类型的列，才能创建汇总字段。
+                      {t('dataTable.needLinkCol', { type: t('dataTable.colTypes.Rollup') })}
                     </div>
                   ) : (
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">关联列</div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.linkCol')}</div>
                     <select
                       value={newColRelCol}
                       onChange={e => setNewColRelCol(e.target.value)}
                       className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                     >
-                      <option value="">选择关联列...</option>
+                      <option value="">{t('dataTable.selectLinkCol')}</option>
                       {linkCols.map(c => (
                         <option key={c.column_id} value={c.column_id}>{c.title}</option>
                       ))}
@@ -3317,27 +4039,27 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                   {relatedMeta && (
                     <>
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1.5">汇总字段（{relatedMeta.title}）</div>
+                        <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.rollupField')}（{relatedMeta.title}）</div>
                         <select
                           value={newColRollupCol}
                           onChange={e => setNewColRollupCol(e.target.value)}
                           className="w-full border border-border rounded-lg px-3 py-2 text-xs text-foreground outline-none bg-transparent"
                         >
-                          <option value="">选择字段...</option>
-                          {relatedMeta.columns.filter(c => ['Number', 'Decimal', 'Currency', 'Percent', 'Rating', 'Duration'].includes(c.type)).map(c => (
+                          <option value="">{t('dataTable.selectField')}</option>
+                          {(relatedMeta.columns || []).filter(c => ['Number', 'Decimal', 'Currency', 'Percent', 'Rating'].includes(c.type)).map(c => (
                             <option key={c.column_id} value={c.column_id}>{c.title} ({c.type})</option>
                           ))}
                         </select>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1.5">聚合函数</div>
+                        <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.aggregateFn')}</div>
                         <div className="flex flex-wrap gap-1">
                           {[
-                            { value: 'sum', label: '求和' },
-                            { value: 'avg', label: '平均' },
-                            { value: 'count', label: '计数' },
-                            { value: 'min', label: '最小' },
-                            { value: 'max', label: '最大' },
+                            { value: 'sum', key: 'fnSum' },
+                            { value: 'avg', key: 'fnAvg' },
+                            { value: 'count', key: 'fnCount' },
+                            { value: 'min', key: 'fnMin' },
+                            { value: 'max', key: 'fnMax' },
                           ].map(fn => (
                             <button
                               key={fn.value}
@@ -3349,7 +4071,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                                   : 'border-border text-muted-foreground hover:text-foreground'
                               )}
                             >
-                              {fn.label}
+                              {t(`dataTable.${fn.key}`)}
                             </button>
                           ))}
                         </div>
@@ -3359,6 +4081,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 </div>
                 );
               })()}
+              {/* Notify toggle moved to user picker popup */}
             </div>
 
             {/* Footer: Cancel + Confirm */}
@@ -3372,7 +4095,6 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               <button
                 onClick={handleSaveField}
                 disabled={
-                  !newColTitle.trim() ||
                   (newColType === 'Lookup' && (!newColRelCol || !newColLookupCol)) ||
                   (newColType === 'Rollup' && (!newColRelCol || !newColRollupCol)) ||
                   (newColType === 'Links' && !newColRelTable) ||
@@ -3390,24 +4112,24 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       {/* Bulk action bar */}
       {selectedRows.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-1.5 border-t border-border bg-sidebar-primary/5 shrink-0">
-          <span className="text-xs text-foreground font-medium">已选 {selectedRows.size} 行</span>
+          <span className="text-xs text-foreground font-medium">{t('dataTable.selectedRows', { n: selectedRows.size })}</span>
           <button
             onClick={handleBulkDelete}
             className="flex items-center gap-1 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded"
           >
-            <Trash2 className="h-3 w-3" /> 批量删除
+            <Trash2 className="h-3 w-3" /> {t('dataTable.batchDelete')}
           </button>
           <button
             onClick={() => setShowBulkEdit(true)}
             className="flex items-center gap-1 px-2 py-1 text-xs text-sidebar-primary hover:bg-sidebar-primary/10 rounded"
           >
-            <Pencil className="h-3 w-3" /> 批量修改
+            <Pencil className="h-3 w-3" /> {t('dataTable.batchEdit')}
           </button>
           <button
             onClick={() => setSelectedRows(new Set())}
             className="text-xs text-muted-foreground hover:text-foreground ml-auto"
           >
-            取消选择
+            {t('dataTable.cancelSelection')}
           </button>
         </div>
       )}
@@ -3418,14 +4140,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowBulkEdit(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="bg-card border border-border rounded-xl shadow-2xl p-4 w-80">
-              <h3 className="text-sm font-semibold text-foreground mb-3">批量修改 ({selectedRows.size} 行)</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-3">{t('dataTable.batchEditTitle', { n: selectedRows.size })}</h3>
               <div className="space-y-3">
                 <select
                   value={bulkEditCol}
                   onChange={e => setBulkEditCol(e.target.value)}
                   className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground outline-none"
                 >
-                  <option value="">选择字段...</option>
+                  <option value="">{t('dataTable.selectField')}</option>
                   {editableCols.map(c => (
                     <option key={c.column_id} value={c.title}>{c.title}</option>
                   ))}
@@ -3433,7 +4155,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                 <input
                   value={bulkEditVal}
                   onChange={e => setBulkEditVal(e.target.value)}
-                  placeholder="新值"
+                  placeholder={t('dataTable.newValue')}
                   className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none"
                 />
                 <div className="flex items-center gap-2 justify-end">
@@ -3441,14 +4163,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                     onClick={() => { setShowBulkEdit(false); setBulkEditCol(''); setBulkEditVal(''); }}
                     className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded border border-border"
                   >
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={handleBulkEdit}
                     disabled={!bulkEditCol}
                     className="px-3 py-1.5 text-xs text-white bg-sidebar-primary rounded hover:opacity-90 disabled:opacity-50"
                   >
-                    确认修改
+                    {t('dataTable.confirmEdit')}
                   </button>
                 </div>
               </div>
@@ -3460,7 +4182,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-1.5 border-t border-border bg-card shrink-0 text-xs text-muted-foreground">
-          <span>{totalRows} 行</span>
+          <span>{totalRows} {t('dataTable.rows')}</span>
           <div className="flex items-center gap-2">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1 hover:text-foreground disabled:opacity-30">
               <ChevronLeft className="h-3.5 w-3.5" />
@@ -3489,14 +4211,14 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
               <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                <h3 className="text-sm font-semibold text-foreground">导入 CSV — 字段映射</h3>
+                <h3 className="text-sm font-semibold text-foreground">{t('dataTable.importCSVTitle')}</h3>
                 <button onClick={() => { setCsvImportData(null); setCsvColMap({}); }} className="p-1 text-muted-foreground hover:text-foreground">
                   <X className="h-4 w-4" />
                 </button>
               </div>
               <div className="flex-1 overflow-auto p-4 space-y-2">
                 <p className="text-xs text-muted-foreground mb-3">
-                  共 {csvImportData.rows.length} 行数据。将 CSV 列映射到表格字段：
+                  {t('dataTable.importCSVRows', { n: csvImportData.rows.length })}
                 </p>
                 {csvImportData.headers.map((header, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -3509,7 +4231,7 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
                       onChange={e => setCsvColMap(prev => ({ ...prev, [i]: e.target.value }))}
                       className="flex-1 bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none"
                     >
-                      <option value="">跳过</option>
+                      <option value="">{t('dataTable.skip')}</option>
                       {editableCols.map(c => (
                         <option key={c.column_id} value={c.title}>{c.title}</option>
                       ))}
@@ -3522,21 +4244,21 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
               </div>
               <div className="flex items-center justify-between px-4 py-3 border-t border-border">
                 <span className="text-xs text-muted-foreground">
-                  已映射 {Object.values(csvColMap).filter(Boolean).length}/{csvImportData.headers.length} 列
+                  {t('dataTable.mappedCols', { mapped: Object.values(csvColMap).filter(Boolean).length, total: csvImportData.headers.length })}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => { setCsvImportData(null); setCsvColMap({}); }}
                     className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded border border-border"
                   >
-                    取消
+                    {t('common.cancel')}
                   </button>
                   <button
                     onClick={handleCSVImport}
                     disabled={csvImporting || Object.values(csvColMap).filter(Boolean).length === 0}
                     className="px-3 py-1.5 text-xs text-white bg-sidebar-primary rounded hover:opacity-90 disabled:opacity-50"
                   >
-                    {csvImporting ? '导入中...' : `导入 ${csvImportData.rows.length} 行`}
+                    {csvImporting ? t('dataTable.importing') : t('dataTable.importNRows', { n: csvImportData.rows.length })}
                   </button>
                 </div>
               </div>
@@ -3582,8 +4304,11 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
         multiple
         className="hidden"
         onChange={e => {
-          if (e.target.files && attachmentUploading) {
-            handleAttachmentUpload(attachmentUploading.rowId, attachmentUploading.col, e.target.files);
+          const target = attachmentTargetRef.current;
+          if (e.target.files && target) {
+            setAttachmentUploading(target);
+            handleAttachmentUpload(target.rowId, target.col, e.target.files);
+            attachmentTargetRef.current = null;
           }
           e.target.value = ''; // reset so same file can be re-selected
         }}
@@ -3605,12 +4330,109 @@ export function TableEditor({ tableId, onBack, onDeleted, docListVisible, onTogg
           />
         </div>
       )}
-      </div>{/* end flex row */}
-    </>
+      </div>
+      </div>
+      {showHistory && (
+        <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+          <TableHistory
+            tableId={tableId}
+            onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+            onRestored={() => { setPreviewSnapshot(null); refresh(); }}
+            onSelectVersion={(preview) => setPreviewSnapshot(preview)}
+            selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
 // ── Rating stars ──
+
+function SnapshotCellValue({ value, colType }: { value: unknown; colType: string }) {
+  if (value == null || value === '') return null;
+
+  // Checkbox
+  if (colType === 'Checkbox') {
+    return <span>{value ? '✓' : ''}</span>;
+  }
+
+  // SingleSelect
+  if (colType === 'SingleSelect') {
+    const label = String(value);
+    return (
+      <span className="inline-block px-1.5 py-0.5 rounded text-[11px] leading-tight bg-muted text-foreground">
+        {label}
+      </span>
+    );
+  }
+
+  // MultiSelect
+  if (colType === 'MultiSelect') {
+    const items = String(value).split(',').map(s => s.trim()).filter(Boolean);
+    return (
+      <span className="flex flex-wrap gap-0.5">
+        {items.map((item, i) => (
+          <span key={i} className="inline-block px-1.5 py-0.5 rounded text-[11px] leading-tight bg-muted text-foreground">
+            {item}
+          </span>
+        ))}
+      </span>
+    );
+  }
+
+  // Date/DateTime/CreatedTime/LastModifiedTime
+  if (colType === 'Date' || colType === 'DateTime' || colType === 'CreatedTime' || colType === 'CreateTime' || colType === 'LastModifiedTime') {
+    try { return <span>{new Date(String(value)).toLocaleDateString()}</span>; } catch { return <span>{String(value)}</span>; }
+  }
+
+  // Attachment
+  if (colType === 'Attachment') {
+    const files = Array.isArray(value) ? value : [];
+    if (files.length === 0) return null;
+    return <span className="truncate">{files.map((f: any) => f.title || f.fileName || 'file').join(', ')}</span>;
+  }
+
+  // User/CreatedBy/LastModifiedBy
+  if (colType === 'User' || colType === 'CreatedBy' || colType === 'LastModifiedBy' || colType === 'Collaborator') {
+    if (typeof value === 'string') return <span>{value}</span>;
+    if (Array.isArray(value)) return <span>{value.map((v: any) => v.display_name || v.email || String(v)).join(', ')}</span>;
+    if (typeof value === 'object' && value !== null) return <span>{(value as any).display_name || (value as any).email || JSON.stringify(value)}</span>;
+    return <span>{String(value)}</span>;
+  }
+
+  // Links
+  if (colType === 'Links' || colType === 'LinkToAnotherRecord') {
+    const arr = Array.isArray(value) ? value : [];
+    if (arr.length > 0) {
+      return <span>{arr.map((v: any) => (typeof v === 'object' ? (v.Title || v.title || v.Name || v.name || JSON.stringify(v)) : String(v))).join(', ')}</span>;
+    }
+    const num = parseInt(String(value)) || 0;
+    return <span className="text-muted-foreground">{num > 0 ? `${num} linked` : ''}</span>;
+  }
+
+  // Number types
+  if (colType === 'Number' || colType === 'Decimal' || colType === 'Currency' || colType === 'Percent' || colType === 'Rating' || colType === 'AutoNumber') {
+    return <span>{String(value)}</span>;
+  }
+
+  // Boolean (non-checkbox)
+  if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
+
+  // Array
+  if (Array.isArray(value)) {
+    return <span className="truncate">{value.map(v => typeof v === 'object' ? ((v as any).title || (v as any).Title || JSON.stringify(v)) : String(v)).join(', ')}</span>;
+  }
+
+  // Object
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return <span className="truncate text-muted-foreground">{obj.title || obj.Title || obj.display_name || JSON.stringify(value)}</span>;
+  }
+
+  // Default: string
+  return <span className="truncate">{String(value)}</span>;
+}
 
 function RatingStars({ value, onChange, max = 5, iconType = 'star' }: { value?: number; onChange: (v: number) => void; max?: number; iconType?: string }) {
   const current = typeof value === 'number' ? value : 0;
@@ -3637,26 +4459,34 @@ function RatingStars({ value, onChange, max = 5, iconType = 'star' }: { value?: 
 
 // ── Date picker dropdown ──
 
-function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
+function DatePickerDropdown({ value, showTime, onChange, onClose }: {
   value: string;
   showTime: boolean;
-  onSelect: (dateStr: string) => void;
+  onChange: (dateStr: string) => void;
   onClose: () => void;
 }) {
-  const initDate = value ? new Date(value) : new Date();
-  const validInit = isNaN(initDate.getTime()) ? new Date() : initDate;
-  const [viewYear, setViewYear] = useState(validInit.getFullYear());
-  const [viewMonth, setViewMonth] = useState(validInit.getMonth());
+  const { t } = useT();
+  // Parse value without Date object to avoid timezone issues
+  // value can be "YYYY-MM-DD", "YYYY-MM-DDTHH:mm:ss", or ISO with Z
+  const parseValue = (v: string) => {
+    if (!v) return null;
+    const match = v.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+    if (!match) return null;
+    return { year: parseInt(match[1]), month: parseInt(match[2]) - 1, day: parseInt(match[3]), hours: match[4] ? parseInt(match[4]) : 0, minutes: match[5] ? parseInt(match[5]) : 0 };
+  };
+  const parsed = parseValue(value);
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(parsed?.year ?? now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed?.month ?? now.getMonth());
+  const [selectedDay, setSelectedDay] = useState<number | null>(parsed?.day ?? null);
+  const [selectedMonth, setSelectedMonth] = useState(parsed?.month ?? now.getMonth());
+  const [selectedYear, setSelectedYear] = useState(parsed?.year ?? now.getFullYear());
   const [timeStr, setTimeStr] = useState(
-    value && !isNaN(new Date(value).getTime())
-      ? `${String(new Date(value).getHours()).padStart(2, '0')}:${String(new Date(value).getMinutes()).padStart(2, '0')}`
-      : '00:00'
+    parsed ? `${String(parsed.hours).padStart(2, '0')}:${String(parsed.minutes).padStart(2, '0')}` : '00:00'
   );
 
-  const selectedDate = value && !isNaN(new Date(value).getTime()) ? new Date(value) : null;
-
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
+  const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun (standard)
   const weeks: (number | null)[][] = [];
   let week: (number | null)[] = Array(firstDayOfWeek).fill(null);
   for (let d = 1; d <= daysInMonth; d++) {
@@ -3665,13 +4495,29 @@ function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
   }
   if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week); }
 
-  const handleDayClick = (day: number) => {
+  const buildDateStr = (year: number, month: number, day: number) => {
     const [hh, mm] = timeStr.split(':').map(Number);
-    const d = new Date(viewYear, viewMonth, day, showTime ? (hh || 0) : 0, showTime ? (mm || 0) : 0);
-    onSelect(d.toISOString());
+    const y = year;
+    const mo = String(month + 1).padStart(2, '0');
+    const da = String(day).padStart(2, '0');
+    if (showTime) {
+      const hours = String(hh || 0).padStart(2, '0');
+      const mins = String(mm || 0).padStart(2, '0');
+      return `${y}-${mo}-${da} ${hours}:${mins}`;
+    }
+    return `${y}-${mo}-${da}`;
   };
 
-  const handleClear = () => onSelect('');
+  const handleDayClick = (day: number) => {
+    // Update internal highlight immediately
+    setSelectedDay(day);
+    setSelectedMonth(viewMonth);
+    setSelectedYear(viewYear);
+    // Save to cell
+    onChange(buildDateStr(viewYear, viewMonth, day));
+  };
+
+  const handleClear = () => { onChange(''); onClose(); };
 
   const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
   const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
@@ -3681,12 +4527,12 @@ function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
     return viewYear === now.getFullYear() && viewMonth === now.getMonth() && day === now.getDate();
   };
   const isSelected = (day: number) => {
-    if (!selectedDate) return false;
-    return viewYear === selectedDate.getFullYear() && viewMonth === selectedDate.getMonth() && day === selectedDate.getDate();
+    if (selectedDay === null) return false;
+    return viewYear === selectedYear && viewMonth === selectedMonth && day === selectedDay;
   };
 
-  const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-  const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+  const WEEKDAYS = (t('dataTable.weekdays', { returnObjects: true }) as unknown as string[]) || ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const MONTHS = Array.from({ length: 12 }, (_, i) => `${i + 1}`);
 
   // Close on outside click
   useEffect(() => {
@@ -3700,11 +4546,14 @@ function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
 
   return (
     <div data-date-picker className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl w-64 select-none">
-      {/* Month navigation */}
+      {/* Month navigation — month name left, Today + arrows right */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-        <span className="text-xs font-medium text-foreground">{viewYear}年 {MONTHS[viewMonth]}</span>
-        <button onClick={nextMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
+        <span className="text-xs font-medium text-foreground">{t('dataTable.monthNames', { returnObjects: true })?.[viewMonth] || `${viewMonth + 1}月`} {viewYear}</span>
+        <div className="flex items-center gap-1">
+          <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); setSelectedDay(now.getDate()); setSelectedMonth(now.getMonth()); setSelectedYear(now.getFullYear()); onChange(buildDateStr(now.getFullYear(), now.getMonth(), now.getDate())); }} className="text-[10px] text-muted-foreground hover:text-foreground mr-1">{t('dataTable.today')}</button>
+          <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-3.5 w-3.5" /></button>
+          <button onClick={nextMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronRight className="h-3.5 w-3.5" /></button>
+        </div>
       </div>
       {/* Weekday headers */}
       <div className="grid grid-cols-7 gap-0 px-2 pt-1">
@@ -3742,43 +4591,133 @@ function DatePickerDropdown({ value, showTime, onSelect, onClose }: {
           <input
             type="time"
             value={timeStr}
-            onChange={e => setTimeStr(e.target.value)}
+            onChange={e => {
+              const newTime = e.target.value;
+              setTimeStr(newTime);
+              // If a date is already selected, immediately save with new time
+              if (currentParsed) {
+                const [hh, mm] = newTime.split(':').map(Number);
+                const y = currentParsed.year;
+                const mo = String(currentParsed.month + 1).padStart(2, '0');
+                const da = String(currentParsed.day).padStart(2, '0');
+                onChange(`${y}-${mo}-${da} ${String(hh || 0).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')}`);
+              }
+            }}
             className="bg-muted rounded px-2 py-1 text-xs text-foreground outline-none"
           />
         </div>
       )}
       {/* Footer */}
       <div className="px-3 pb-2 flex items-center justify-between">
-        <button onClick={handleClear} className="text-[10px] text-muted-foreground hover:text-foreground">清除</button>
-        <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); handleDayClick(now.getDate()); }} className="text-[10px] text-sidebar-primary hover:opacity-80">今天</button>
+        <button onClick={handleClear} className="text-[10px] text-muted-foreground hover:text-foreground">{t('dataTable.clear')}</button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className="text-xs px-3 py-1 rounded transition-colors bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90"
+        >{t('common.confirm')}</button>
       </div>
+    </div>
+  );
+}
+
+// ── Linked record chips for Link columns ──
+
+function LinkedRecordChips({ tableId, rowId, column, value }: { tableId: string; rowId: number; column: nc.NCColumn; value: unknown }) {
+  const { t } = useT();
+  const inlineRecords = Array.isArray(value) ? value as Record<string, unknown>[] : [];
+  const num = inlineRecords.length || (parseInt(String(value)) || 0);
+
+  // Only fetch if value is a count (not inline array) and count > 0
+  const needsFetch = !Array.isArray(value) && num > 0;
+  const { data: linkedData } = useQuery({
+    queryKey: ['nc-linked-records', tableId, rowId, column.column_id],
+    queryFn: () => nc.listLinkedRecords(tableId, rowId, column.column_id, { limit: 10 }),
+    enabled: needsFetch,
+    staleTime: 60_000,
+  });
+
+  if (num === 0) {
+    return (
+      <span className="text-xs py-1.5 flex items-center gap-1 text-muted-foreground/40 hover:text-sidebar-primary cursor-pointer select-none">
+        <Plus className="h-3 w-3" />
+      </span>
+    );
+  }
+
+  // Use inline data if available, otherwise use fetched data
+  const records = inlineRecords.length > 0 ? inlineRecords : (linkedData?.list || []);
+
+  if (records.length === 0) {
+    // Still loading — show count as fallback
+    return <span className="text-xs py-1.5 block text-sidebar-primary cursor-pointer">{t('dataTable.nLinkedRecords', { n: num })}</span>;
+  }
+
+  // Find display column value: use first non-Id string field
+  const getDisplayValue = (rec: Record<string, unknown>): string => {
+    const tryKeys = ['Title', 'title', 'Name', 'name'];
+    for (const k of tryKeys) {
+      if (rec[k] && typeof rec[k] === 'string') return rec[k] as string;
+    }
+    for (const [k, v] of Object.entries(rec)) {
+      if (k !== 'Id' && k !== 'id' && typeof v === 'string' && v.trim()) return v;
+    }
+    return `#${rec.Id || '?'}`;
+  };
+
+  const MAX_CHIPS = 2;
+  const shown = records.slice(0, MAX_CHIPS);
+  const remaining = num - MAX_CHIPS;
+
+  return (
+    <div className="flex flex-wrap gap-1 py-0.5 items-center">
+      {shown.map((rec, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-sidebar-primary/10 text-sidebar-primary text-[11px] leading-tight max-w-[120px] truncate"
+          title={getDisplayValue(rec)}
+        >
+          {getDisplayValue(rec)}
+        </span>
+      ))}
+      {remaining > 0 && (
+        <span className="text-[10px] text-muted-foreground">+{remaining}</span>
+      )}
     </div>
   );
 }
 
 // ── Cell display ──
 
-function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
+function CellDisplay({ value, col, onDeleteAttachment }: { value: unknown; col: nc.NCColumn; onDeleteAttachment?: (idx: number) => void }) {
+  const { t } = useT();
   const { type: colType, primary_key: isPK } = col;
 
   if (value == null || value === '') {
     // Show placeholder for Attachment and User types even when empty
     if (colType === 'Attachment') {
-      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><Upload className="h-3 w-3" /> 点击上传</span>;
+      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><Upload className="h-3 w-3" /> {t('dataTable.clickToUpload')}</span>;
     }
     if (colType === 'User' || colType === 'Collaborator') {
-      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><User className="h-3 w-3" /> 选择成员</span>;
+      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><User className="h-3 w-3" /> {t('dataTable.selectMember')}</span>;
     }
     return <span className="text-xs py-1.5 block select-none">&nbsp;</span>;
   }
 
-  const str = String(value);
+  // Safely convert to string — avoid [object Object]
+  const str = (typeof value === 'object' && value !== null)
+    ? (Array.isArray(value) ? JSON.stringify(value) : JSON.stringify(value))
+    : String(value);
 
   // Checkbox
   if (colType === 'Checkbox') {
+    const checked = !!value;
     return (
       <div className="flex items-center justify-center py-1">
-        <input type="checkbox" checked={!!value} readOnly className="w-4 h-4 accent-sidebar-primary cursor-pointer" />
+        <div className={cn(
+          'w-4 h-4 rounded border flex items-center justify-center cursor-pointer',
+          checked ? 'bg-sidebar-primary border-sidebar-primary' : 'border-border bg-transparent'
+        )}>
+          {checked && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"><path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+        </div>
       </div>
     );
   }
@@ -3859,17 +4798,18 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
 
   // Date / DateTime / CreatedTime / LastModifiedTime
   if (colType === 'Date' || colType === 'DateTime' || colType === 'CreatedTime' || colType === 'LastModifiedTime') {
-    const d = new Date(str);
-    if (isNaN(d.getTime())) return <span className="text-xs py-1.5 block text-foreground/70">{str}</span>;
+    // Parse date string directly without Date object to avoid timezone issues
+    const dateMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+    if (!dateMatch) return <span className="text-xs py-1.5 block text-foreground/70">{str}</span>;
     const meta = col.meta as Record<string, unknown> | undefined;
     const fmt = (meta?.date_format as string) || 'YYYY-MM-DD';
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
+    const y = dateMatch[1];
+    const m = dateMatch[2];
+    const day = dateMatch[3];
+    const hh = dateMatch[4] || '00';
+    const mm = dateMatch[5] || '00';
     const formatted = fmt
-      .replace('YYYY', String(y))
+      .replace('YYYY', y)
       .replace('MM', m)
       .replace('DD', day)
       .replace('HH', hh)
@@ -3895,14 +4835,48 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
     const num = parseFloat(str);
     if (isNaN(num)) return <span className="text-xs tabular-nums py-1.5 block text-right">{str}</span>;
     const meta = col.meta as Record<string, unknown> | undefined;
-    const decimals = (meta?.decimals as number) ?? (colType === 'Decimal' || colType === 'Currency' ? 2 : colType === 'Percent' ? 1 : 0);
-    const thousands = meta?.thousands ?? (colType === 'Currency');
-    const prefix = (meta?.prefix as string) || (colType === 'Currency' ? '$' : '');
-    const suffix = (meta?.suffix as string) || (colType === 'Percent' ? '%' : '');
-    let formatted = thousands
+    let decimals: number, thousands: boolean, prefix: string, suffix: string;
+    if (colType === 'Number' && meta?.prefix !== undefined) {
+      // Legacy merged Number with numFormat meta
+      decimals = (meta?.decimals as number) ?? 0;
+      thousands = !!meta?.thousands;
+      prefix = (meta?.prefix as string) || '';
+      suffix = (meta?.suffix as string) || '';
+    } else if (colType === 'Currency') {
+      decimals = 2;
+      thousands = true;
+      prefix = (meta?.currency_code as string) || '$';
+      suffix = '';
+    } else if (colType === 'Percent') {
+      decimals = 1;
+      thousands = false;
+      prefix = '';
+      suffix = '%';
+    } else if (colType === 'Decimal') {
+      decimals = (meta?.precision as number) ?? 2;
+      thousands = false;
+      prefix = '';
+      suffix = '';
+    } else {
+      decimals = 0;
+      thousands = false;
+      prefix = '';
+      suffix = '';
+    }
+    const formatted = thousands
       ? num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
       : num.toFixed(decimals);
     return <span className="text-xs tabular-nums py-1.5 block text-right">{prefix}{formatted}{suffix}</span>;
+  }
+
+  // Duration
+  if (colType === 'Duration') {
+    const seconds = parseFloat(str);
+    if (isNaN(seconds)) return <span className="text-xs tabular-nums py-1.5 block text-right">{str}</span>;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return <span className="text-xs tabular-nums py-1.5 block text-right">{h}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</span>;
   }
 
   // JSON
@@ -3915,7 +4889,7 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
   // Attachment
   if (colType === 'Attachment') {
     if (Array.isArray(value) && value.length === 0) {
-      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><Upload className="h-3 w-3" /> 点击上传</span>;
+      return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><Upload className="h-3 w-3" /> {t('dataTable.clickToUpload')}</span>;
     }
     try {
       const attachments = Array.isArray(value) ? value : JSON.parse(str);
@@ -3924,14 +4898,25 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
         return (
           <div className="flex gap-1 py-1 items-center">
             {attachments.slice(0, 3).map((a: any, i: number) => (
-              isImage(a) ? (
-                <img key={i} src={ncAttachmentUrl(a)} className="h-6 w-6 rounded object-cover border border-border" alt={a.title} title={a.title || a.path} />
-              ) : (
-                <span key={i} className="text-[10px] bg-muted px-1.5 py-0.5 rounded truncate max-w-[80px] flex items-center gap-0.5" title={a.title || a.path}>
-                  <Paperclip className="h-2.5 w-2.5 shrink-0" />
-                  {a.title || `附件${i + 1}`}
-                </span>
-              )
+              <span key={i} className="relative group/att inline-flex">
+                {isImage(a) ? (
+                  <img src={ncAttachmentUrl(a)} className="h-6 w-6 rounded object-cover border border-border" alt={a.title} title={a.title || a.path} />
+                ) : (
+                  <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded truncate max-w-[80px] flex items-center gap-0.5" title={a.title || a.path}>
+                    <Paperclip className="h-2.5 w-2.5 shrink-0" />
+                    {a.title || t('dataTable.attachmentName', { n: i + 1 })}
+                  </span>
+                )}
+                {onDeleteAttachment && (
+                  <button
+                    className="absolute -top-1.5 -right-1.5 hidden group-hover/att:flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm"
+                    onClick={(e) => { e.stopPropagation(); onDeleteAttachment(i); }}
+                    title={t('common.delete')}
+                  >
+                    <X className="h-2 w-2" />
+                  </button>
+                )}
+              </span>
             ))}
             {attachments.length > 3 && <span className="text-[10px] text-muted-foreground">+{attachments.length - 3}</span>}
           </div>
@@ -3941,7 +4926,7 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
     if (!str || str === '[]') {
       return (
         <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1">
-          <Upload className="h-3 w-3" /> 点击上传
+          <Upload className="h-3 w-3" /> {t('dataTable.clickToUpload')}
         </span>
       );
     }
@@ -3950,7 +4935,7 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
 
   // User
   if (colType === 'User' || colType === 'Collaborator') {
-    if (!str) return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><User className="h-3 w-3" /> 选择成员</span>;
+    if (!str) return <span className="text-xs py-1.5 block text-muted-foreground/40 flex items-center gap-1"><User className="h-3 w-3" /> {t('dataTable.selectMember')}</span>;
     return (
       <span className="text-xs py-1.5 flex items-center gap-1 text-foreground/70">
         <User className="h-3 w-3 text-muted-foreground" />
@@ -3969,11 +4954,18 @@ function CellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
     );
   }
 
-  // Links — show count or empty, not "0"
+  // Links — show count with expand icon, or "+" when empty
   if (colType === 'Links' || colType === 'LinkToAnotherRecord') {
-    const num = parseInt(str);
-    if (!num || num === 0) return <span className="text-xs py-1.5 block select-none">&nbsp;</span>;
-    return <span className="text-xs py-1.5 block text-sidebar-primary">{num} 条关联</span>;
+    const linked = Array.isArray(value) ? value : [];
+    const num = linked.length || parseInt(str) || 0;
+    if (num === 0) {
+      return (
+        <span className="text-xs py-1.5 flex items-center gap-1 text-muted-foreground/40 hover:text-sidebar-primary cursor-pointer select-none">
+          <Plus className="h-3 w-3" />
+        </span>
+      );
+    }
+    return <span className="text-xs py-1.5 block text-sidebar-primary cursor-pointer">{t('dataTable.nLinkedRecords', { n: num })}</span>;
   }
 
   // Formula / Rollup / Lookup / Count
@@ -4046,7 +5038,7 @@ function KanbanCard({ id, children, isDragging }: { id: number; children: React.
 
 // ── Kanban View ──
 
-function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRow, tableId, refreshMeta, hiddenCols }: {
+function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRow, tableId, refreshMeta, hiddenCols, onExpandRow, onRefreshRows }: {
   rows: Record<string, unknown>[];
   columns: nc.NCColumn[];
   activeView: nc.NCView;
@@ -4056,11 +5048,22 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
   tableId: string;
   refreshMeta: () => void;
   hiddenCols: Set<string>;
+  onExpandRow?: (rowId: number) => void;
+  onRefreshRows?: () => void;
 }) {
+  const { t } = useT();
+  const queryClient = useQueryClient();
   const [grpColPicker, setGrpColPicker] = useState(false);
+  // All hooks MUST be called before any conditional return (React rules of hooks)
+  const [draggedRowId, setDraggedRowId] = useState<number | null>(null);
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
+  const kanbanSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+
   const grpColId = activeView.fk_grp_col_id;
   const grpCol = columns.find(c => c.column_id === grpColId);
   const titleCol = columns.find(c => c.primary_key) || columns[0];
+  const coverColId = activeView.fk_cover_image_col_id;
+  const coverCol = coverColId ? columns.find(c => c.column_id === coverColId) : null;
 
   // If no grouping column set, show picker
   if (!grpCol) {
@@ -4069,8 +5072,8 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="bg-card border border-border rounded-xl p-6 max-w-sm text-center space-y-3">
           <Columns className="h-8 w-8 mx-auto text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">选择分组字段</h3>
-          <p className="text-xs text-muted-foreground">看板视图需要一个单选字段来分组卡片</p>
+          <h3 className="text-sm font-semibold text-foreground">{t('dataTable.kanbanNeedField')}</h3>
+          <p className="text-xs text-muted-foreground">{t('dataTable.kanbanNeedFieldHint')}</p>
           {selectCols.length > 0 ? (
             <div className="space-y-1">
               {selectCols.map(c => (
@@ -4087,7 +5090,7 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground/60">没有单选字段，请先添加一个 SingleSelect 列</p>
+            <p className="text-xs text-muted-foreground/60">{t('dataTable.noSingleSelectField')}</p>
           )}
         </div>
       </div>
@@ -4142,11 +5145,6 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
     // For non-select columns, assign colors based on group index
     return SELECT_COLORS[(idx ?? 0) % SELECT_COLORS.length];
   };
-
-  // Kanban drag-and-drop state
-  const [draggedRowId, setDraggedRowId] = useState<number | null>(null);
-  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
-  const kanbanSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const allGroupKeys = [...groupKeys, ...(uncategorized.length ? ['__uncategorized__'] : [])];
 
@@ -4203,7 +5201,17 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
     if (currentGroup === targetGroup) return; // same group, no change
 
     const newVal = targetGroup === '__uncategorized__' ? '' : targetGroup;
-    await onUpdateRow(rowId, { [grpCol.title]: newVal });
+    // Optimistic update: move card to new group immediately before server responds
+    queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
+      const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
+      if (!data) return old;
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [grpCol.title]: newVal } : r) };
+    });
+    try {
+      await nc.updateRow(tableId, rowId, { [grpCol.title]: newVal });
+    } catch {
+      onRefreshRows?.(); // revert on failure
+    }
   };
 
   return (
@@ -4223,50 +5231,80 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
                   {groupKey}
                 </span>
               )}
-              {isUncat && <span className="text-xs text-muted-foreground">未分类</span>}
+              {isUncat && <span className="text-xs text-muted-foreground">{t('dataTable.uncategorized')}</span>}
               <span className="text-[10px] text-muted-foreground ml-auto">{groupRows.length}</span>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <SortableContext items={groupRows.map(r => r.Id as number)} strategy={verticalListSortingStrategy}>
               {groupRows.map((row, i) => {
                 const rowId = row.Id as number;
                 return (
                   <KanbanCard key={rowId ?? i} id={rowId} isDragging={draggedRowId === rowId}>
-                    <div className="text-xs font-medium text-foreground truncate">
+                    {coverCol && (() => {
+                      const coverVal = row[coverCol.title];
+                      if (!coverVal) return <div className="w-full h-24 bg-muted/60 rounded-t -m-3 mb-1.5" style={{ width: 'calc(100% + 24px)' }} />;
+                      try {
+                        const arr = Array.isArray(coverVal) ? coverVal : JSON.parse(String(coverVal));
+                        const img = arr.find((a: any) => a.mimetype?.startsWith('image/'));
+                        if (!img) return <div className="w-full h-24 bg-muted/60 rounded-t -m-3 mb-1.5" style={{ width: 'calc(100% + 24px)' }} />;
+                        return <img src={ncAttachmentUrl(img)} className="w-full h-24 object-cover rounded-t -m-3 mb-1.5" style={{ width: 'calc(100% + 24px)' }} alt="" />;
+                      } catch { return <div className="w-full h-24 bg-muted/60 rounded-t -m-3 mb-1.5" style={{ width: 'calc(100% + 24px)' }} />; }
+                    })()}
+                    <div className="text-xs font-medium text-foreground truncate cursor-pointer" onClick={() => onExpandRow?.(rowId)}>
                       {titleCol ? String(row[titleCol.title] ?? '') : `#${rowId}`}
                     </div>
-                    {columns.filter(c => c !== titleCol && c !== grpCol && !c.primary_key && c.title !== 'created_by' && !hiddenCols.has(c.column_id)).slice(0, 3).map(c => {
+                    {columns.filter(c => c !== titleCol && !c.primary_key && c.title !== 'created_by' && !hiddenCols.has(c.column_id)).map(c => {
                       const val = row[c.title];
                       if (val == null || val === '') return null;
                       return (
                         <div key={c.column_id} className="flex items-start gap-1">
                           <span className="text-[10px] text-muted-foreground shrink-0">{c.title}:</span>
-                          <span className="text-[10px] text-foreground/80 truncate">{String(val)}</span>
+                          <CompactCellDisplay value={val} col={c} />
                         </div>
                       );
                     })}
                   </KanbanCard>
                 );
               })}
+              </SortableContext>
             </div>
           </KanbanColumn>
         );
       })}
     </div>
+    <DragOverlay>
+      {draggedRowId != null ? (() => {
+        const row = rows.find(r => (r.Id as number) === draggedRowId);
+        if (!row) return null;
+        return (
+          <div className="bg-card border border-sidebar-primary rounded-lg p-3 shadow-xl space-y-1.5 w-60 opacity-90">
+            <div className="text-xs font-medium text-foreground truncate">
+              {titleCol ? String(row[titleCol.title] ?? '') : `#${draggedRowId}`}
+            </div>
+          </div>
+        );
+      })() : null}
+    </DragOverlay>
     </DndContext>
   );
 }
 
 // ── Gallery View ──
 
-function GalleryView({ rows, columns, isLoading, onAddRow, hiddenCols }: {
+function GalleryView({ rows, columns, activeView, isLoading, onAddRow, hiddenCols, onExpandRow }: {
   rows: Record<string, unknown>[];
   columns: nc.NCColumn[];
+  activeView?: nc.NCView;
   isLoading: boolean;
   onAddRow: () => void;
   hiddenCols: Set<string>;
+  onExpandRow?: (rowId: number) => void;
 }) {
+  const { t } = useT();
   const titleCol = columns.find(c => c.primary_key) || columns[0];
-  const detailCols = columns.filter(c => c !== titleCol && c.title !== 'created_by' && !READONLY_TYPES.has(c.type) && !hiddenCols.has(c.column_id)).slice(0, 4);
+  const coverColId = activeView?.fk_cover_image_col_id;
+  const coverCol = coverColId ? columns.find(c => c.column_id === coverColId) : null;
+  const detailCols = columns.filter(c => c !== titleCol && !c.primary_key && c.title !== 'created_by' && !hiddenCols.has(c.column_id));
 
   if (isLoading) {
     return (
@@ -4286,8 +5324,20 @@ function GalleryView({ rows, columns, isLoading, onAddRow, hiddenCols }: {
           return (
             <div
               key={rowId ?? i}
-              className="bg-card border border-border rounded-lg p-4 hover:shadow-lg transition-shadow space-y-2"
+              className="bg-card border border-border rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
+              onClick={() => onExpandRow?.(rowId)}
             >
+              {coverCol && (() => {
+                const coverVal = row[coverCol.title];
+                if (!coverVal) return <div className="w-full h-32 bg-muted/60" />;
+                try {
+                  const arr = Array.isArray(coverVal) ? coverVal : JSON.parse(String(coverVal));
+                  const img = arr.find((a: any) => a.mimetype?.startsWith('image/'));
+                  if (!img) return <div className="w-full h-32 bg-muted/60" />;
+                  return <img src={ncAttachmentUrl(img)} className="w-full h-32 object-cover" alt="" />;
+                } catch { return <div className="w-full h-32 bg-muted/60" />; }
+              })()}
+              <div className="p-4 space-y-2">
               <div className="text-sm font-semibold text-foreground truncate">
                 {titleCol ? String(row[titleCol.title] ?? '') : `#${rowId}`}
               </div>
@@ -4298,13 +5348,14 @@ function GalleryView({ rows, columns, isLoading, onAddRow, hiddenCols }: {
                 return (
                   <div key={c.column_id} className="flex items-start gap-1.5">
                     <ColIcon className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="text-[10px] text-muted-foreground">{c.title}</div>
-                      <div className="text-xs text-foreground/80 truncate max-w-[200px]">{String(val)}</div>
+                      <CompactCellDisplay value={val} col={c} />
                     </div>
                   </div>
                 );
               })}
+              </div>
             </div>
           );
         })}
@@ -4312,7 +5363,7 @@ function GalleryView({ rows, columns, isLoading, onAddRow, hiddenCols }: {
           onClick={onAddRow}
           className="border-2 border-dashed border-border rounded-lg p-4 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
         >
-          <Plus className="h-5 w-5 mr-1" /> 新增
+          <Plus className="h-5 w-5 mr-1" /> {t('dataTable.newRecord')}
         </button>
       </div>
     </div>
@@ -4326,6 +5377,7 @@ function FormView({ columns, tableId, onSubmit }: {
   tableId: string;
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
 }) {
+  const { t } = useT();
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -4344,7 +5396,7 @@ function FormView({ columns, tableId, onSubmit }: {
   return (
     <div className="flex-1 overflow-auto flex justify-center py-8">
       <div className="w-full max-w-lg space-y-4 px-4">
-        <h3 className="text-lg font-semibold text-foreground">新增记录</h3>
+        <h3 className="text-lg font-semibold text-foreground">{t('dataTable.newRecordTitle')}</h3>
         {columns.map(col => {
           const ColIcon = getColIcon(col.type);
           return (
@@ -4370,7 +5422,7 @@ function FormView({ columns, tableId, onSubmit }: {
                     onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.checked ? 'true' : '' }))}
                     className="rounded border-border"
                   />
-                  <span className="text-xs text-foreground">是</span>
+                  <span className="text-xs text-foreground">{t('dataTable.yes')}</span>
                 </label>
               ) : col.type === 'SingleSelect' && col.options?.length ? (
                 <select
@@ -4378,7 +5430,7 @@ function FormView({ columns, tableId, onSubmit }: {
                   onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.value }))}
                   className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground outline-none"
                 >
-                  <option value="">选择...</option>
+                  <option value="">{t('dataTable.selectPlaceholder')}</option>
                   {col.options.map(o => <option key={o.title} value={o.title}>{o.title}</option>)}
                 </select>
               ) : (
@@ -4400,9 +5452,9 @@ function FormView({ columns, tableId, onSubmit }: {
             disabled={submitting}
             className="px-6 py-2 bg-sidebar-primary text-sidebar-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? '提交中...' : '提交'}
+            {submitting ? t('dataTable.submitting') : t('dataTable.submit')}
           </button>
-          {submitted && <span className="text-xs text-green-500">提交成功 ✓</span>}
+          {submitted && <span className="text-xs text-green-500">{t('dataTable.submitted')}</span>}
         </div>
       </div>
     </div>
@@ -4416,6 +5468,7 @@ function CalendarView({ rows, columns, isLoading }: {
   columns: nc.NCColumn[];
   isLoading: boolean;
 }) {
+  const { t } = useT();
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -4430,8 +5483,8 @@ function CalendarView({ rows, columns, isLoading }: {
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="bg-card border border-border rounded-xl p-6 max-w-sm text-center space-y-3">
           <CalendarDays className="h-8 w-8 mx-auto text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">需要日期字段</h3>
-          <p className="text-xs text-muted-foreground">日历视图需要一个日期或日期时间字段来定位事件</p>
+          <h3 className="text-sm font-semibold text-foreground">{t('dataTable.needDateField')}</h3>
+          <p className="text-xs text-muted-foreground">{t('dataTable.needDateFieldHint')}</p>
         </div>
       </div>
     );
@@ -4457,7 +5510,8 @@ function CalendarView({ rows, columns, isLoading }: {
   const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
 
-  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const weekDaysRaw = t('dataTable.weekdays', { returnObjects: true });
+  const weekDays = Array.isArray(weekDaysRaw) ? weekDaysRaw as string[] : ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 
   if (isLoading) {
     return <div className="flex-1 p-4"><div className="h-full rounded bg-muted/50 animate-pulse" /></div>;
@@ -4467,7 +5521,7 @@ function CalendarView({ rows, columns, isLoading }: {
     <div className="flex-1 overflow-auto p-4 flex flex-col">
       <div className="flex items-center justify-between mb-3">
         <button onClick={prevMonth} className="p-1 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-        <h3 className="text-sm font-semibold text-foreground">{year}年{month + 1}月</h3>
+        <h3 className="text-sm font-semibold text-foreground">{t('dataTable.yearMonth', { year, month: month + 1 })}</h3>
         <button onClick={nextMonth} className="p-1 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
       </div>
       <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden flex-1">

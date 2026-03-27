@@ -236,7 +236,15 @@
   color: #2FCC71;
 }
 
-/* Hide list marker when list item only contains an image */
+/* Image inside a list item: prevent it from creating a new list counter */
+.outline-editor-content li > .image-node-wrapper,
+.outline-editor-content li > p > .image-node-wrapper {
+  list-style: none;
+  display: block;
+  margin: 0.5rem 0;
+}
+/* Paragraph containing only an image in a list item — hide the list marker */
+.outline-editor-content li:has(> .image-node-wrapper),
 .outline-editor-content li:has(> p > .image-node-wrapper:only-child) {
   list-style: none;
 }
@@ -324,14 +332,20 @@
   margin: 0.5rem 0;
   user-select: none;
   -webkit-user-select: none;
+  position: relative;
 }
 .outline-editor-content .image-node-wrapper img {
   max-width: 100%;
   border-radius: 0.25rem;
   transition: outline 0.15s;
 }
-.outline-editor-content .image-node-wrapper img::selection {
-  background: transparent;
+/* Kill ALL native ::selection on image wrappers — covers NodeSelection, TextSelection, and drag */
+.outline-editor-content .image-node-wrapper *::selection,
+.outline-editor-content .image-node-wrapper *::-moz-selection,
+.outline-editor-content .image-node-wrapper::selection,
+.outline-editor-content .image-node-wrapper::-moz-selection {
+  background: transparent !important;
+  color: inherit !important;
 }
 /* Prevent blue overlay on node-selected images (ProseMirror adds .ProseMirror-selectednode) */
 .outline-editor-content .image-node-wrapper.ProseMirror-selectednode,
@@ -339,25 +353,16 @@
   background: transparent !important;
   outline: none !important;
 }
-.outline-editor-content .image-node-wrapper.ProseMirror-selectednode *::selection,
-.outline-editor-content .image-node-wrapper.image-selected *::selection {
-  background: transparent;
-}
-/* Image selected state — blue overlay when part of text selection */
+/* Image in text selection range — custom styled indicator instead of blue overlay */
 .outline-editor-content .image-node-wrapper.image-in-selection img {
-  outline: 2px solid hsl(var(--sidebar-primary, 220 80% 60%));
+  outline: 2px solid hsl(var(--sidebar-primary, 151 66% 49%));
   outline-offset: 2px;
   border-radius: 4px;
 }
-.outline-editor-content .image-node-wrapper.image-in-selection {
-  position: relative;
-}
-.outline-editor-content .image-node-wrapper.image-in-selection::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: hsl(var(--sidebar-primary, 220 80% 60%) / 0.15);
-  border-radius: 4px;
+/* Caption placeholder */
+.outline-editor-content .image-node-wrapper [contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground, 0 0% 45%) / 0.4);
   pointer-events: none;
 }
 .outline-editor-content img {
@@ -776,6 +781,13 @@
   transition: background 100ms ease-in-out;
   cursor: pointer;
   border-radius: 2px;
+}
+
+/* Images with comment marks: colored border (applied via plugin since marks don't wrap NodeViews) */
+.outline-editor-content .image-node-wrapper.image-commented {
+  outline: 2px solid rgba(43, 194, 255, 0.6);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* Draft comments by the current user also show styling */

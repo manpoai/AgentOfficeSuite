@@ -9,7 +9,17 @@ const tNodes = tableNodes({
   tableGroup: 'block',
   cellContent: 'block+',
   cellAttributes: {
-    alignment: { default: null },
+    alignment: {
+      default: null,
+      getFromDOM(dom: HTMLElement) {
+        return dom.style.textAlign || null;
+      },
+      setDOMAttr(value: unknown, attrs: Record<string, unknown>) {
+        if (value) {
+          attrs.style = ((attrs.style as string) || '') + `text-align: ${value};`;
+        }
+      },
+    },
     background: {
       default: null,
       getFromDOM(dom: HTMLElement) {

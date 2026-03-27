@@ -10,6 +10,7 @@
  * - Debounced positioning to prevent flickering
  */
 import { Plugin, PluginKey, TextSelection } from 'prosemirror-state';
+import { DOMSerializer } from 'prosemirror-model';
 import type { EditorView } from 'prosemirror-view';
 import { getT } from '@/lib/i18n';
 
@@ -35,6 +36,31 @@ function blockAtCoords(view: EditorView, y: number): { pos: number; end: number;
   if (!coords) coords = view.posAtCoords({ left: editorRect.left + editorRect.width / 2, top: y });
   // Try the very left edge — helps when hovering over contenteditable=false (images)
   if (!coords) coords = view.posAtCoords({ left: editorRect.left + 1, top: y });
+
+  // If posAtCoords failed entirely, try elementFromPoint to find what's under the mouse
+  // This catches NodeView elements (images, tables, mermaid) that posAtCoords can't resolve
+  if (!coords) {
+    const xProbes = [editorRect.left + 10, editorRect.left + 60, editorRect.left + editorRect.width / 2];
+    for (const x of xProbes) {
+      const el = document.elementFromPoint(x, y);
+      if (el && view.dom.contains(el)) {
+        // Walk up to find a top-level block element
+        let node: HTMLElement | null = el as HTMLElement;
+        while (node && node !== view.dom) {
+          if (node.parentElement === view.dom) {
+            // Found a direct child of ProseMirror — this is a top-level block
+            const pos = view.posAtDOM(node, 0);
+            if (pos != null) {
+              coords = { pos, inside: -1 };
+              break;
+            }
+          }
+          node = node.parentElement;
+        }
+        if (coords) break;
+      }
+    }
+  }
   if (!coords) return null;
 
   let $pos = view.state.doc.resolve(coords.pos);
@@ -59,6 +85,35 @@ function blockAtCoords(view: EditorView, y: number): { pos: number; end: number;
   }
 
   // Check if we're inside a list — resolve to list_item level
+  // First, try to find the exact nested li via elementFromPoint
+  const elAtY = document.elementFromPoint(editorRect.left + 60, y) || document.elementFromPoint(editorRect.left + 100, y);
+  if (elAtY && view.dom.contains(elAtY)) {
+    // Walk up to find the innermost li element
+    let liEl: HTMLElement | null = elAtY as HTMLElement;
+    while (liEl && liEl !== view.dom) {
+      if (liEl.tagName === 'LI') {
+        const liPos = view.posAtDOM(liEl, 0);
+        if (liPos != null) {
+          const li$pos = view.state.doc.resolve(liPos);
+          // Find the list_item node at this position
+          for (let d = li$pos.depth; d >= 1; d--) {
+            const ancestor = li$pos.node(d);
+            if (LIST_ITEM_TYPES.has(ancestor.type.name)) {
+              const itemPos = li$pos.before(d);
+              const itemEnd = li$pos.after(d);
+              const dom = view.nodeDOM(itemPos) as HTMLElement | null;
+              const listPos = d > 1 ? li$pos.before(d - 1) : null;
+              return { pos: itemPos, end: itemEnd, node: ancestor, dom, depth: d, parentListPos: listPos };
+            }
+          }
+        }
+        break;
+      }
+      liEl = liEl.parentElement;
+    }
+  }
+
+  // Fallback: walk ancestors from resolved position
   for (let d = $pos.depth; d >= 1; d--) {
     const ancestor = $pos.node(d);
     if (LIST_ITEM_TYPES.has(ancestor.type.name)) {
@@ -82,6 +137,7 @@ function blockAtCoords(view: EditorView, y: number): { pos: number; end: number;
 /** Fallback: scan top-level doc children via their DOM rects */
 function findBlockByDOMScan(view: EditorView, y: number): { pos: number; node: any; dom: HTMLElement } | null {
   let pos = 0;
+  let closest: { pos: number; node: any; dom: HTMLElement; distance: number } | null = null;
   for (let i = 0; i < view.state.doc.childCount; i++) {
     const child = view.state.doc.child(i);
     const dom = view.nodeDOM(pos) as HTMLElement | null;
@@ -90,10 +146,18 @@ function findBlockByDOMScan(view: EditorView, y: number): { pos: number; node: a
       if (y >= rect.top && y <= rect.bottom) {
         return { pos, node: child, dom };
       }
+      // Track closest block for near-miss resolution (e.g., mouse in gap between blocks)
+      const distTop = Math.abs(y - rect.top);
+      const distBottom = Math.abs(y - rect.bottom);
+      const dist = Math.min(distTop, distBottom);
+      if (dist < 15 && (!closest || dist < closest.distance)) {
+        closest = { pos, node: child, dom, distance: dist };
+      }
     }
     pos += child.nodeSize;
   }
-  return null;
+  // Return closest block if within 15px gap
+  return closest ? { pos: closest.pos, node: closest.node, dom: closest.dom } : null;
 }
 
 /** Check if a node is an empty paragraph */
@@ -151,6 +215,47 @@ const LUCIDE_BLOCK = {
   'octagon-alert': '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(38, 90%, 50%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
   'square-asterisk': '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="hsl(270, 50%, 55%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8"/><path d="m8.5 9.5 7 5"/><path d="m8.5 14.5 7-5"/></svg>',
 };
+
+/** Copy a block node as both HTML and plain text to clipboard */
+async function copyBlockRich(view: EditorView, pos: number, node: any) {
+  const schema = view.state.schema;
+  const serializer = DOMSerializer.fromSchema(schema);
+
+  // Serialize node to HTML
+  const container = document.createElement('div');
+  const domFragment = serializer.serializeNode(node);
+  container.appendChild(domFragment);
+  const html = container.innerHTML;
+
+  // Generate plain text fallback
+  let plainText: string;
+  const name = node.type.name;
+  if (name === 'table') {
+    // Tab-separated rows
+    const rows: string[] = [];
+    node.forEach((row: any) => {
+      const cells: string[] = [];
+      row.forEach((cell: any) => { cells.push(cell.textContent); });
+      rows.push(cells.join('\t'));
+    });
+    plainText = rows.join('\n');
+  } else if (name === 'image') {
+    const alt = node.attrs.alt || '';
+    const src = node.attrs.src || '';
+    plainText = `![${alt}](${src})`;
+  } else if (name === 'code_block') {
+    plainText = node.textContent;
+  } else {
+    plainText = node.textContent;
+  }
+
+  // Use clipboard API to write both formats
+  const clipboardItem = new ClipboardItem({
+    'text/html': new Blob([html], { type: 'text/html' }),
+    'text/plain': new Blob([plainText], { type: 'text/plain' }),
+  });
+  await navigator.clipboard.write([clipboardItem]);
+}
 
 function buildMenuItems(): BlockMenuItem[] {
   const t = getT();
@@ -314,6 +419,19 @@ function buildMenuItems(): BlockMenuItem[] {
           text = '---';
         } else if (name === 'container_notice') {
           text = node.textContent || 'Notice';
+        } else if (name === 'paragraph') {
+          // Check for image-only paragraphs
+          let imgNode: any = null;
+          let hasOtherContent = false;
+          node.forEach((child: any) => {
+            if (child.type.name === 'image') imgNode = child;
+            else hasOtherContent = true;
+          });
+          if (imgNode && !hasOtherContent) {
+            text = imgNode.attrs.alt || imgNode.attrs.title || 'Image';
+          } else {
+            text = node.textContent || '';
+          }
         } else {
           text = node.textContent || '';
         }
@@ -330,7 +448,11 @@ function buildMenuItems(): BlockMenuItem[] {
       separator: true,
       action: (view, pos) => {
         const node = view.state.doc.nodeAt(pos);
-        if (node) navigator.clipboard.writeText(node.textContent).catch(() => {});
+        if (!node) return;
+        copyBlockRich(view, pos, node).catch(() => {
+          // Fallback to plain text
+          navigator.clipboard.writeText(node.textContent).catch(() => {});
+        });
       },
     },
     {
@@ -669,13 +791,13 @@ export function blockHandlePlugin(): Plugin {
     if (!handleEl) return;
     const handleRect = handleEl.getBoundingClientRect();
 
-    // Determine if this block is an "opaque" type (table, image) that only supports copy+delete
+    // Determine block category for menu filtering
     const blockNode = view.state.doc.nodeAt(blockPos);
-    let isOpaque = false;
+    let isTable = false;
+    let isImageOnly = false;
     if (blockNode) {
-      // Check the block itself or if it's a paragraph containing only an image
       if (blockNode.type.name === 'table') {
-        isOpaque = true;
+        isTable = true;
       } else if (blockNode.type.name === 'paragraph') {
         let hasImage = false;
         let hasOther = false;
@@ -683,9 +805,10 @@ export function blockHandlePlugin(): Plugin {
           if (child.type.name === 'image') hasImage = true;
           else hasOther = true;
         });
-        if (hasImage && !hasOther) isOpaque = true;
+        if (hasImage && !hasOther) isImageOnly = true;
       }
     }
+    const isOpaque = isTable || isImageOnly;
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position: fixed; inset: 0; z-index: 999;';
@@ -707,19 +830,34 @@ export function blockHandlePlugin(): Plugin {
       overflow-y: auto;
     `;
 
+    // Position menu below the handle, aligned to handle's left
     let top = handleRect.bottom + 4;
     let left = handleRect.left;
-    if (top + 400 > window.innerHeight) { top = handleRect.top - 400 - 4; if (top < 0) top = 8; }
+    // Sanity: if handle isn't visible (opacity 0), use block DOM position as fallback
+    if (handleRect.width === 0 || handleRect.height === 0) {
+      const blockDom = view.nodeDOM(blockPos) as HTMLElement | null;
+      if (blockDom) {
+        const blockRect = blockDom.getBoundingClientRect();
+        top = blockRect.top;
+        left = blockRect.left - 44;
+      }
+    }
     if (left < 8) left = 8;
+    const menuWidth = 200; // menu min-width
+    if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
+    // Temporarily append to measure actual height, then clamp
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
 
     let items = buildMenuItems();
-    // For opaque blocks (table, image-only paragraph), only show copy + delete
+    // For opaque blocks: table → copy+delete only; image → copy+delete+comment
     if (isOpaque) {
       items = items.filter(item => {
         const label = item.label.toLowerCase();
-        return item.danger || label.includes('copy') || label.includes('复制') || label.includes('comment') || label.includes('评论') || label.includes('コメント') || label.includes('댓글');
+        const isCopy = label.includes('copy') || label.includes('复制');
+        const isComment = label.includes('comment') || label.includes('评论') || label.includes('コメント') || label.includes('댓글');
+        if (isTable) return item.danger || isCopy; // No comment for tables
+        return item.danger || isCopy || isComment; // Comment allowed for images
       });
     }
 
@@ -800,6 +938,33 @@ export function blockHandlePlugin(): Plugin {
 
     overlay.appendChild(menu);
     document.body.appendChild(overlay);
+
+    // Measure actual menu dimensions and re-clamp position + max-height
+    const menuRect = menu.getBoundingClientRect();
+    const actualHeight = menuRect.height;
+    const actualWidth = menuRect.width;
+    let clampedTop = parseFloat(menu.style.top);
+    let clampedLeft = parseFloat(menu.style.left);
+    const padding = 8;
+
+    // If overflows bottom, flip above the handle
+    if (clampedTop + actualHeight > window.innerHeight - padding) {
+      clampedTop = handleRect.top - actualHeight - 4;
+      if (clampedTop < padding) clampedTop = padding;
+    }
+    // Dynamic max-height: ensure menu fits in available space with scrolling
+    const spaceBelow = window.innerHeight - clampedTop - padding;
+    if (actualHeight > spaceBelow) {
+      menu.style.maxHeight = `${spaceBelow}px`;
+    }
+    // Clamp right
+    if (clampedLeft + actualWidth > window.innerWidth - padding) {
+      clampedLeft = window.innerWidth - actualWidth - padding;
+    }
+    if (clampedLeft < padding) clampedLeft = padding;
+    menu.style.top = `${clampedTop}px`;
+    menu.style.left = `${clampedLeft}px`;
+
     menuOverlay = overlay;
     menuVisible = true;
   }
@@ -819,13 +984,18 @@ export function blockHandlePlugin(): Plugin {
     // Hysteresis: if mouse is still within the current block's rect, don't re-resolve
     // Skip hysteresis for list containers and tables — need to re-resolve within them
     if (currentBlockDom && currentBlockPos != null) {
-      const tag = currentBlockDom.tagName?.toLowerCase();
-      const skipHysteresis = tag === 'ol' || tag === 'ul' || tag === 'table';
-      if (!skipHysteresis) {
-        const rect = currentBlockDom.getBoundingClientRect();
-        if (y >= rect.top && y <= rect.bottom) {
-          // Still in same block — keep handle where it is
-          return;
+      // Check if DOM reference is still valid (NodeViews can re-render)
+      if (!currentBlockDom.isConnected) {
+        currentBlockDom = null;
+      } else {
+        const tag = currentBlockDom.tagName?.toLowerCase();
+        const skipHysteresis = tag === 'ol' || tag === 'ul' || tag === 'table';
+        if (!skipHysteresis) {
+          const rect = currentBlockDom.getBoundingClientRect();
+          if (y >= rect.top && y <= rect.bottom) {
+            // Still in same block — keep handle where it is
+            return;
+          }
         }
       }
     }
@@ -1096,6 +1266,36 @@ export function blockHandlePlugin(): Plugin {
         document.addEventListener('mouseup', boundDragEnd);
       });
 
+      // Wrapper-level mousemove — catches events ProseMirror handleDOMEvents misses
+      // (e.g., over NodeView elements with contentEditable=false, or entering from outside)
+      const wrapperMouseMove = (e: MouseEvent) => {
+        if (menuVisible || isDragging) return;
+        lastMouseY = e.clientY;
+        if (positionRAF == null) {
+          positionRAF = requestAnimationFrame(() => {
+            positionRAF = null;
+            positionHandle(editorView, lastMouseY);
+          });
+        }
+      };
+      wrapper.addEventListener('mousemove', wrapperMouseMove);
+
+      // Wrapper-level mouseleave — only hide when mouse truly leaves the wrapper
+      const wrapperMouseLeave = (e: MouseEvent) => {
+        if (menuVisible || isDragging || !handleEl) return;
+        // Check if the mouse moved to the handle itself (which is inside wrapper)
+        const relatedTarget = e.relatedTarget as HTMLElement | null;
+        if (relatedTarget && (wrapper.contains(relatedTarget) || handleEl.contains(relatedTarget))) return;
+        setTimeout(() => {
+          if (!menuVisible && !isDragging && handleEl) {
+            if (!handleEl.matches(':hover')) {
+              handleEl.style.opacity = '0';
+            }
+          }
+        }, 200);
+      };
+      wrapper.addEventListener('mouseleave', wrapperMouseLeave);
+
       return {
         update() {},
         destroy() {
@@ -1104,6 +1304,8 @@ export function blockHandlePlugin(): Plugin {
           hideDragIndicator();
           handleEl = null;
           currentBlockDom = null;
+          wrapper.removeEventListener('mousemove', wrapperMouseMove);
+          wrapper.removeEventListener('mouseleave', wrapperMouseLeave);
           if (boundDragMove) document.removeEventListener('mousemove', boundDragMove);
           if (boundDragEnd) document.removeEventListener('mouseup', boundDragEnd);
         },
@@ -1121,18 +1323,6 @@ export function blockHandlePlugin(): Plugin {
               positionRAF = null;
               positionHandle(view, lastMouseY);
             });
-          }
-          return false;
-        },
-        mouseleave(_view, _event) {
-          if (!menuVisible && !isDragging && handleEl) {
-            setTimeout(() => {
-              if (!menuVisible && !isDragging && handleEl) {
-                if (!handleEl.matches(':hover')) {
-                  handleEl.style.opacity = '0';
-                }
-              }
-            }, 200);
           }
           return false;
         },

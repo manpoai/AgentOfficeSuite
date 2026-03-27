@@ -94,6 +94,42 @@ try {
   )`);
 } catch { /* already exists */ }
 
+// Migrate: create presentations table
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS presentations (
+    id TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL DEFAULT '{"slides":[]}',
+    created_by TEXT,
+    updated_by TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+} catch { /* already exists */ }
+
+// Migrate: create spreadsheets table
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS spreadsheets (
+    id TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT,
+    updated_by TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+} catch { /* already exists */ }
+
+// Migrate: create diagrams table
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS diagrams (
+    id TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}',
+    created_by TEXT,
+    updated_by TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+} catch { /* already exists */ }
+
 // ─── Helpers ─────────────────────────────────────
 function genId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -2891,6 +2927,236 @@ app.patch('/api/boards/:id', authenticateAgent, (req, res) => {
   res.json({ saved: true, updated_at: now });
 });
 
+// ─── Presentations (Fabric.js PPT) ─────────────────
+// API: create a presentation
+app.post('/api/presentations', authenticateAgent, (req, res) => {
+  const { title = '' } = req.body;
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const agentName = req.agent?.name || null;
+  const defaultData = JSON.stringify({ slides: [] });
+
+  db.prepare(`INSERT INTO presentations (id, data_json, created_by, updated_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+  // Create content_item entry
+  const nodeId = `presentation:${id}`;
+  const isoNow = new Date().toISOString();
+  contentItemsUpsert.run(
+    nodeId, id, 'presentation', title || '',
+    null, req.body.parent_id || null, null,
+    agentName, agentName, isoNow, isoNow, null, Date.now()
+  );
+
+  const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+  res.status(201).json({ presentation_id: id, item });
+});
+
+// API: get presentation data
+app.get('/api/presentations/:id', authenticateAgent, (req, res) => {
+  const pres = db.prepare('SELECT * FROM presentations WHERE id = ?').get(req.params.id);
+  if (!pres) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({
+    id: pres.id,
+    data: JSON.parse(pres.data_json),
+    created_by: pres.created_by,
+    updated_by: pres.updated_by,
+    created_at: pres.created_at,
+    updated_at: pres.updated_at,
+  });
+});
+
+// API: save presentation data (auto-save from frontend)
+app.patch('/api/presentations/:id', authenticateAgent, (req, res) => {
+  const pres = db.prepare('SELECT * FROM presentations WHERE id = ?').get(req.params.id);
+  if (!pres) return res.status(404).json({ error: 'NOT_FOUND' });
+
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'MISSING_DATA' });
+
+  const now = Date.now();
+  const agentName = req.agent?.name || null;
+  db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+
+  res.json({ saved: true, updated_at: now });
+});
+
+// ─── Presentation Semantic Slide Endpoints ──────────
+// Layout templates for Agent-friendly slide creation
+const SLIDE_LAYOUTS = {
+  title: (opts) => ({
+    elements: [
+      { type: 'textbox', left: 80, top: 200, width: 800, height: 80, text: opts.title || '', fontSize: 48, fontWeight: 'bold', textAlign: 'center', fill: '#1a1a1a' },
+    ],
+    background: opts.background || '#ffffff',
+    notes: opts.notes || '',
+  }),
+  'title-content': (opts) => ({
+    elements: [
+      { type: 'textbox', left: 60, top: 40, width: 840, height: 60, text: opts.title || '', fontSize: 36, fontWeight: 'bold', fill: '#1a1a1a' },
+      { type: 'textbox', left: 60, top: 120, width: 840, height: 340, text: (opts.bullets || []).map(b => `• ${b}`).join('\n'), fontSize: 22, fill: '#333333', lineHeight: 1.6 },
+    ],
+    background: opts.background || '#ffffff',
+    notes: opts.notes || '',
+  }),
+  'title-image': (opts) => ({
+    elements: [
+      { type: 'textbox', left: 60, top: 40, width: 840, height: 60, text: opts.title || '', fontSize: 36, fontWeight: 'bold', fill: '#1a1a1a' },
+      { type: 'image', left: 160, top: 130, width: 640, height: 330, src: opts.image || '' },
+    ],
+    background: opts.background || '#ffffff',
+    notes: opts.notes || '',
+  }),
+  'two-column': (opts) => ({
+    elements: [
+      { type: 'textbox', left: 60, top: 40, width: 840, height: 60, text: opts.title || '', fontSize: 36, fontWeight: 'bold', fill: '#1a1a1a' },
+      { type: 'textbox', left: 60, top: 120, width: 400, height: 340, text: opts.left_content || '', fontSize: 20, fill: '#333333', lineHeight: 1.5 },
+      { type: 'textbox', left: 500, top: 120, width: 400, height: 340, text: opts.right_content || '', fontSize: 20, fill: '#333333', lineHeight: 1.5 },
+    ],
+    background: opts.background || '#ffffff',
+    notes: opts.notes || '',
+  }),
+  blank: (opts) => ({
+    elements: [],
+    background: opts.background || '#ffffff',
+    notes: opts.notes || '',
+  }),
+};
+
+// API: append a slide (supports semantic layout)
+app.post('/api/presentations/:id/slides', authenticateAgent, (req, res) => {
+  const pres = db.prepare('SELECT * FROM presentations WHERE id = ?').get(req.params.id);
+  if (!pres) return res.status(404).json({ error: 'NOT_FOUND' });
+
+  const data = JSON.parse(pres.data_json);
+  const { layout, ...opts } = req.body;
+
+  let slide;
+  if (layout && SLIDE_LAYOUTS[layout]) {
+    slide = SLIDE_LAYOUTS[layout](opts);
+  } else if (req.body.elements) {
+    // Raw Fabric.js elements
+    slide = { elements: req.body.elements, background: req.body.background || '#ffffff', notes: req.body.notes || '' };
+  } else {
+    // Default blank
+    slide = SLIDE_LAYOUTS.blank(opts);
+  }
+
+  data.slides.push(slide);
+  const now = Date.now();
+  const agentName = req.agent?.name || null;
+  db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+
+  res.status(201).json({ index: data.slides.length - 1, slide, updated_at: now });
+});
+
+// API: update a single slide
+app.patch('/api/presentations/:id/slides/:index', authenticateAgent, (req, res) => {
+  const pres = db.prepare('SELECT * FROM presentations WHERE id = ?').get(req.params.id);
+  if (!pres) return res.status(404).json({ error: 'NOT_FOUND' });
+
+  const data = JSON.parse(pres.data_json);
+  const idx = parseInt(req.params.index, 10);
+  if (idx < 0 || idx >= data.slides.length) return res.status(404).json({ error: 'SLIDE_NOT_FOUND' });
+
+  const { layout, ...opts } = req.body;
+  if (layout && SLIDE_LAYOUTS[layout]) {
+    data.slides[idx] = SLIDE_LAYOUTS[layout](opts);
+  } else {
+    // Merge provided fields into existing slide
+    Object.assign(data.slides[idx], req.body);
+  }
+
+  const now = Date.now();
+  const agentName = req.agent?.name || null;
+  db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+
+  res.json({ index: idx, slide: data.slides[idx], updated_at: now });
+});
+
+// API: delete a single slide
+app.delete('/api/presentations/:id/slides/:index', authenticateAgent, (req, res) => {
+  const pres = db.prepare('SELECT * FROM presentations WHERE id = ?').get(req.params.id);
+  if (!pres) return res.status(404).json({ error: 'NOT_FOUND' });
+
+  const data = JSON.parse(pres.data_json);
+  const idx = parseInt(req.params.index, 10);
+  if (idx < 0 || idx >= data.slides.length) return res.status(404).json({ error: 'SLIDE_NOT_FOUND' });
+
+  data.slides.splice(idx, 1);
+  const now = Date.now();
+  const agentName = req.agent?.name || null;
+  db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+
+  res.json({ deleted: true, remaining: data.slides.length, updated_at: now });
+});
+
+// ─── Spreadsheet CRUD ────────────────────────────
+app.post('/api/spreadsheets', authenticateAgent, (req, res) => {
+  const agentName = req.agentConfig?.name || 'unknown';
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const defaultData = {};
+  db.prepare(`INSERT INTO spreadsheets (id, data_json, created_by, updated_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(id, JSON.stringify(defaultData), agentName, agentName, now, now);
+  res.json({ id, data: defaultData, created_by: agentName, created_at: now, updated_at: now });
+});
+
+app.get('/api/spreadsheets/:id', authenticateAgent, (req, res) => {
+  const row = db.prepare('SELECT * FROM spreadsheets WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Spreadsheet not found' });
+  let data;
+  try { data = JSON.parse(row.data_json); } catch { data = {}; }
+  res.json({ id: row.id, data, created_by: row.created_by, updated_by: row.updated_by, created_at: row.created_at, updated_at: row.updated_at });
+});
+
+app.patch('/api/spreadsheets/:id', authenticateAgent, (req, res) => {
+  const row = db.prepare('SELECT * FROM spreadsheets WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Spreadsheet not found' });
+  const agentName = req.agentConfig?.name || 'unknown';
+  const now = Date.now();
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+  db.prepare('UPDATE spreadsheets SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+  res.json({ saved: true, updated_at: now });
+});
+
+// ─── Diagram CRUD ────────────────────────────────
+app.post('/api/diagrams', authenticateAgent, (req, res) => {
+  const agentName = req.agentConfig?.name || 'unknown';
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const defaultData = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
+  db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(id, JSON.stringify(defaultData), agentName, agentName, now, now);
+  res.json({ id, data: defaultData, created_by: agentName, created_at: now, updated_at: now });
+});
+
+app.get('/api/diagrams/:id', authenticateAgent, (req, res) => {
+  const row = db.prepare('SELECT * FROM diagrams WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Diagram not found' });
+  let data;
+  try { data = JSON.parse(row.data_json); } catch { data = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }; }
+  res.json({ id: row.id, data, created_by: row.created_by, updated_by: row.updated_by, created_at: row.created_at, updated_at: row.updated_at });
+});
+
+app.patch('/api/diagrams/:id', authenticateAgent, (req, res) => {
+  const row = db.prepare('SELECT * FROM diagrams WHERE id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Diagram not found' });
+  const agentName = req.agentConfig?.name || 'unknown';
+  const now = Date.now();
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'data is required' });
+  db.prepare('UPDATE diagrams SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(data), agentName, now, req.params.id);
+  res.json({ saved: true, updated_at: now });
+});
+
 // API: list content items for sidebar (or trash)
 app.get('/api/content-items', authenticateAgent, (req, res) => {
   if (req.query.deleted === 'true') {
@@ -2904,8 +3170,8 @@ app.get('/api/content-items', authenticateAgent, (req, res) => {
 // API: create content item (doc or table) — Gateway is source of truth
 app.post('/api/content-items', authenticateAgent, async (req, res) => {
   const { type, title = '', parent_id = null, collection_id, columns } = req.body;
-  if (!type || !['doc', 'table', 'board'].includes(type)) {
-    return res.status(400).json({ error: 'INVALID_TYPE', message: 'type must be "doc", "table", or "board"' });
+  if (!type || !['doc', 'table', 'board', 'presentation', 'spreadsheet', 'diagram'].includes(type)) {
+    return res.status(400).json({ error: 'INVALID_TYPE', message: 'type must be "doc", "table", "board", "presentation", "spreadsheet", or "diagram"' });
   }
 
   const now = new Date().toISOString();
@@ -3029,6 +3295,69 @@ app.post('/api/content-items', authenticateAgent, async (req, res) => {
     const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
     return res.status(201).json({ item });
   }
+
+  if (type === 'presentation') {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const isoNow = new Date().toISOString();
+    const agentName = req.agent?.name || null;
+    const defaultData = JSON.stringify({ slides: [] });
+
+    db.prepare(`INSERT INTO presentations (id, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+    const nodeId = `presentation:${id}`;
+    contentItemsUpsert.run(
+      nodeId, id, 'presentation', title || '',
+      null, parent_id, null,
+      agentName, agentName, isoNow, isoNow, null, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+    return res.status(201).json({ item });
+  }
+
+  if (type === 'spreadsheet') {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const isoNow = new Date().toISOString();
+    const agentName = req.agent?.name || null;
+    const defaultData = JSON.stringify({});
+
+    db.prepare(`INSERT INTO spreadsheets (id, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+    const nodeId = `spreadsheet:${id}`;
+    contentItemsUpsert.run(
+      nodeId, id, 'spreadsheet', title || '',
+      null, parent_id, null,
+      agentName, agentName, isoNow, isoNow, null, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+    return res.status(201).json({ item });
+  }
+
+  if (type === 'diagram') {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const isoNow = new Date().toISOString();
+    const agentName = req.agent?.name || null;
+    const defaultData = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+
+    db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+    const nodeId = `diagram:${id}`;
+    contentItemsUpsert.run(
+      nodeId, id, 'diagram', title || '',
+      null, parent_id, null,
+      agentName, agentName, isoNow, isoNow, null, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+    return res.status(201).json({ item });
+  }
 });
 
 // API: soft-delete content item (move to trash)
@@ -3092,6 +3421,15 @@ app.delete('/api/content-items/:id', authenticateAgent, async (req, res) => {
   } else if (item.type === 'board') {
     // Soft-delete only — board data preserved until permanent delete
     db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+  } else if (item.type === 'presentation') {
+    // Soft-delete only — presentation data preserved until permanent delete
+    db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+  } else if (item.type === 'spreadsheet') {
+    // Soft-delete only — spreadsheet data preserved until permanent delete
+    db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+  } else if (item.type === 'diagram') {
+    // Soft-delete only — diagram data preserved until permanent delete
+    db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
   }
 
   res.json({ deleted: true });
@@ -3132,6 +3470,12 @@ app.delete('/api/content-items/:id/permanent', authenticateAgent, async (req, re
     }
   } else if (item.type === 'board') {
     db.prepare('DELETE FROM boards WHERE id = ?').run(item.raw_id);
+  } else if (item.type === 'presentation') {
+    db.prepare('DELETE FROM presentations WHERE id = ?').run(item.raw_id);
+  } else if (item.type === 'spreadsheet') {
+    db.prepare('DELETE FROM spreadsheets WHERE id = ?').run(item.raw_id);
+  } else if (item.type === 'diagram') {
+    db.prepare('DELETE FROM diagrams WHERE id = ?').run(item.raw_id);
   }
 
   // Remove from content_items

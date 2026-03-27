@@ -23,7 +23,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { path: stri
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { path: string[] } }) {
-  return proxy(req, params.path);
+  // Only pass body if request has content (e.g. unlink records sends JSON body)
+  const hasContent = req.headers.get('content-type') || req.headers.get('content-length');
+  return proxy(req, params.path, !!hasContent);
 }
 
 async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
@@ -47,8 +49,11 @@ async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
       body = await req.arrayBuffer();
       headers['Content-Type'] = ct; // Preserve original with boundary
     } else {
-      body = await req.text();
-      if (ct) headers['Content-Type'] = ct;
+      const text = await req.text();
+      if (text) {
+        body = text;
+        if (ct) headers['Content-Type'] = ct;
+      }
     }
   }
 

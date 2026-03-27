@@ -530,15 +530,23 @@ export function floatingToolbarPlugin(): Plugin {
     const end = view.coordsAtPos(to);
 
     // Use viewport coordinates (fixed positioning)
-    const midX = (start.left + end.left) / 2;
-    const top = start.top - 44; // above the selection
+    // When selection spans multiple lines, use the midpoint of the first line
+    const midX = start.top === end.top
+      ? (start.left + end.left) / 2
+      : (start.left + view.dom.getBoundingClientRect().right) / 2;
 
     toolbarEl.style.display = 'flex';
-    // Measure toolbar width for centering
-    const toolbarWidth = toolbarEl.offsetWidth || 400;
+    // Force reflow to get accurate dimensions
+    const toolbarWidth = toolbarEl.getBoundingClientRect().width || 400;
+    const toolbarHeight = toolbarEl.getBoundingClientRect().height || 44;
+    const top = start.top - toolbarHeight - 4; // above the selection
     const leftPos = Math.max(8, Math.min(midX - toolbarWidth / 2, window.innerWidth - toolbarWidth - 8));
+    let finalTop = Math.max(8, top);
+    if (finalTop + toolbarHeight > window.innerHeight - 8) {
+      finalTop = window.innerHeight - toolbarHeight - 8;
+    }
     toolbarEl.style.left = `${leftPos}px`;
-    toolbarEl.style.top = `${Math.max(8, top)}px`;
+    toolbarEl.style.top = `${finalTop}px`;
     isShown = true;
   }
 
@@ -611,7 +619,10 @@ export function floatingToolbarPlugin(): Plugin {
             return;
           }
 
-          if (isMouseDown) return;
+          if (isMouseDown) {
+            hide();
+            return;
+          }
 
           // Hide toolbar for node selections (e.g. image selected)
           if (selection instanceof NodeSelection) {

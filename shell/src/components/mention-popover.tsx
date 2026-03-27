@@ -149,7 +149,7 @@ export function MentionPopover({
   return (
     <div
       className="fixed z-50 bg-card border border-border rounded-lg shadow-xl py-1 w-56 max-h-48 overflow-y-auto"
-      style={{ left: anchorRect.left, bottom: `calc(100vh - ${anchorRect.bottom}px + 4px)` }}
+      style={{ left: Math.min(anchorRect.left, window.innerWidth - 232), bottom: `calc(100vh - ${anchorRect.bottom}px + 4px)` }}
     >
       {matches.map((m, i) => (
         <button

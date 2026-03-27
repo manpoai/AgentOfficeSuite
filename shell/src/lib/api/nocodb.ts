@@ -236,6 +236,14 @@ export async function updateKanbanConfig(viewId: string, config: { fk_grp_col_id
   });
 }
 
+export async function updateGalleryConfig(viewId: string, config: { fk_cover_image_col_id?: string }): Promise<void> {
+  await ncFetch(`/views/${viewId}/gallery`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+}
+
 export async function queryRowsByView(
   tableId: string,
   viewId: string,
@@ -269,6 +277,14 @@ export async function deleteFilter(filterId: string): Promise<void> {
   await ncFetch(`/filters/${filterId}`, { method: 'DELETE' });
 }
 
+export async function updateFilter(filterId: string, updates: { fk_column_id?: string; comparison_op?: string; value?: string; logical_op?: string }): Promise<void> {
+  await ncFetch(`/filters/${filterId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
 // ── View sorts ──
 
 export async function listSorts(viewId: string): Promise<NCSort[]> {
@@ -286,6 +302,14 @@ export async function createSort(viewId: string, sort: { fk_column_id: string; d
 
 export async function deleteSort(sortId: string): Promise<void> {
   await ncFetch(`/sorts/${sortId}`, { method: 'DELETE' });
+}
+
+export async function updateSort(sortId: string, updates: { fk_column_id?: string; direction?: string }): Promise<void> {
+  await ncFetch(`/sorts/${sortId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
 }
 
 // ── View columns (field visibility/width per view) ──

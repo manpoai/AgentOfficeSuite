@@ -152,6 +152,7 @@ services:
       FORCE_HTTPS: "false"
       # 文件存储 (MinIO / S3 compatible)
       FILE_STORAGE: s3
+      FILE_STORAGE_UPLOAD_MAX_SIZE: "26214400"
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
       AWS_REGION: us-east-1

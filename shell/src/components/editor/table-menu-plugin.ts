@@ -9,7 +9,7 @@
  * - Cell selection toolbar (formatting, headings, merge/unmerge, link)
  * - Single cell focus: only shows bars, no floating toolbar
  */
-import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from 'prosemirror-state';
+import { Plugin, PluginKey, Selection, TextSelection, type EditorState, type Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { Fragment, type Node as PmNode } from 'prosemirror-model';
 import { toggleMark, setBlockType, wrapIn, lift } from 'prosemirror-commands';
@@ -30,6 +30,22 @@ import {
 import { getT } from '@/lib/i18n';
 
 export const tableMenuKey = new PluginKey('tableMenu');
+
+/** Clamp a dropdown's position so it stays within the viewport */
+function clampDropdownPosition(el: HTMLElement, parentRect: DOMRect) {
+  // After the element is appended, check if it overflows viewport
+  requestAnimationFrame(() => {
+    const rect = el.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 8) {
+      const newLeft = Math.max(0, (parseFloat(el.style.left) || 0) - (rect.right - window.innerWidth + 8));
+      el.style.left = `${newLeft}px`;
+    }
+    if (rect.bottom > window.innerHeight - 8) {
+      const newTop = Math.max(0, (parseFloat(el.style.top) || 0) - (rect.bottom - window.innerHeight + 8));
+      el.style.top = `${newTop}px`;
+    }
+  });
+}
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -146,6 +162,8 @@ export function tableMenuPlugin(): Plugin {
     isActive = false;
     openMenuType = null;
     openMenuIndex = -1;
+    lastBarTablePos = -1;
+    lastBarTableSize = -1;
   }
 
   function hideAll() {
@@ -153,6 +171,8 @@ export function tableMenuPlugin(): Plugin {
     isActive = false;
     closeContextMenu();
     closeCellToolbar();
+    lastBarTablePos = -1;
+    lastBarTableSize = -1;
   }
 
   function closeContextMenu() {
@@ -525,6 +545,7 @@ export function tableMenuPlugin(): Plugin {
     colorPicker.style.left = `${anchorRect.left - parentRect.left}px`;
     colorPicker.style.top = `${anchorRect.bottom - parentRect.top + 4}px`;
     getContainer(view).appendChild(colorPicker);
+    clampDropdownPosition(colorPicker, parentRect);
   }
 
   function applyCellBackground(view: EditorView, color: string) {
@@ -595,11 +616,13 @@ export function tableMenuPlugin(): Plugin {
       for (const cellPos of cellPositions) {
         const cell = view.state.doc.nodeAt(cellPos);
         if (!cell) continue;
-        // Create a TextSelection spanning all content inside the cell
+        // Create a selection spanning all content inside the cell
         const from = cellPos + 1;
         const to = cellPos + cell.nodeSize - 1;
+        // Use Selection.findFrom which safely handles block content (cells have block+ content model)
         const $from = view.state.doc.resolve(from);
-        const textSel = TextSelection.create(view.state.doc, from, to);
+        const safeSel = Selection.findFrom($from, 1, true);
+        const textSel = safeSel || Selection.near($from);
         const tempState = view.state.apply(view.state.tr.setSelection(textSel));
         command(tempState, (tr) => {
           // Apply steps from the temp transaction to the real view
@@ -718,29 +741,77 @@ export function tableMenuPlugin(): Plugin {
       }
       view.dispatch(tr);
     } else {
-      // Single cell text selection — use standard commands
+      // Single cell text selection — find the containing cell and manually toggle
       const { $from } = view.state.selection;
       const LIST_TYPES = new Set(['bullet_list', 'ordered_list', 'checkbox_list']);
-      let inList = false;
-      let inSameList = false;
+
+      // Find the cell containing the selection
+      let cellPos = -1;
       for (let d = $from.depth; d > 0; d--) {
         const node = $from.node(d);
-        if (LIST_TYPES.has(node.type.name)) {
-          inList = true;
-          inSameList = node.type === listType;
+        if (node.type.name === 'table_cell' || node.type.name === 'table_header') {
+          cellPos = $from.before(d);
           break;
         }
       }
-      if (inSameList) {
-        // Unwrap from list
-        const itemType2 = listTypeName === 'checkbox_list' ? schema.nodes.checkbox_item : schema.nodes.list_item;
-        liftListItem(itemType2)(view.state, view.dispatch);
-      } else if (inList) {
-        // Already in a different list type — this is complex, just unwrap first then wrap
-        // For simplicity, just use wrapInList which handles it
-        wrapInList(listType)(view.state, view.dispatch);
+
+      if (cellPos >= 0) {
+        // Inside a table cell — use manual wrap/unwrap
+        const cell = view.state.doc.nodeAt(cellPos);
+        if (!cell) return;
+        const innerFrom = cellPos + 1;
+        const itemType = listTypeName === 'checkbox_list' ? schema.nodes.checkbox_item : schema.nodes.list_item;
+
+        // Check if content is already wrapped in this list type
+        const isWrapped = cell.firstChild?.type === listType;
+
+        const tr = view.state.tr;
+        if (isWrapped) {
+          // Unwrap: replace list with its items' content
+          const firstChild = cell.firstChild;
+          if (firstChild) {
+            const paras: any[] = [];
+            firstChild.forEach((item: any) => {
+              item.forEach((child: any) => { paras.push(child); });
+            });
+            tr.replaceWith(innerFrom, innerFrom + firstChild.nodeSize, paras);
+          }
+        } else {
+          // Unwrap existing different list type first
+          let contentToWrap = cell.content;
+          if (cell.firstChild && LIST_TYPES.has(cell.firstChild.type.name)) {
+            const paras: any[] = [];
+            cell.firstChild.forEach((item: any) => {
+              item.forEach((child: any) => { paras.push(child); });
+            });
+            contentToWrap = Fragment.from(paras);
+          }
+          // Wrap each block in a list item
+          const items: any[] = [];
+          contentToWrap.forEach((child: any) => {
+            const attrs = listTypeName === 'checkbox_list' ? { checked: false } : null;
+            items.push(itemType.create(attrs, child));
+          });
+          const list = listType.create(null, items);
+          tr.replaceWith(innerFrom, innerFrom + cell.content.size, list);
+        }
+        view.dispatch(tr);
       } else {
-        wrapInList(listType)(view.state, view.dispatch);
+        // Not in a table — use standard commands
+        let inSameList = false;
+        for (let d = $from.depth; d > 0; d--) {
+          const node = $from.node(d);
+          if (LIST_TYPES.has(node.type.name)) {
+            inSameList = node.type === listType;
+            break;
+          }
+        }
+        if (inSameList) {
+          const itemType2 = listTypeName === 'checkbox_list' ? schema.nodes.checkbox_item : schema.nodes.list_item;
+          liftListItem(itemType2)(view.state, view.dispatch);
+        } else {
+          wrapInList(listType)(view.state, view.dispatch);
+        }
       }
     }
   }
@@ -880,49 +951,7 @@ export function tableMenuPlugin(): Plugin {
 
     cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
 
-    // ── Group 3: Alignment (dropdown) ──
-    const currentAlign = (() => {
-      if (isCellSel) {
-        let align = 'left';
-        (sel as any).forEachCell((_cell: any, pos: number) => {
-          const node = view.state.doc.nodeAt(pos);
-          if (node?.attrs.alignment) align = node.attrs.alignment;
-        });
-        return align;
-      }
-      const { $from } = view.state.selection;
-      for (let d = $from.depth; d > 0; d--) {
-        const n = $from.node(d);
-        if (n.type.name === 'table_cell' || n.type.name === 'table_header') {
-          return n.attrs.alignment || 'left';
-        }
-      }
-      return 'left';
-    })();
-
-    const alignIcons: Record<string, string> = {
-      left: svgIcon('<line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/>'),
-      center: svgIcon('<line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/>'),
-      right: svgIcon('<line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/>'),
-    };
-
-    const alignBtn = el('div', `${P}-toolbar-btn`);
-    alignBtn.innerHTML = alignIcons[currentAlign] + svgIcon('<path d="M6 9l6 6 6-6"/>', 10);
-    alignBtn.style.cursor = 'pointer';
-    alignBtn.style.display = 'flex';
-    alignBtn.style.alignItems = 'center';
-    alignBtn.style.gap = '2px';
-    alignBtn.title = t('table.alignment') || 'Alignment';
-    alignBtn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      showAlignmentDropdown(view, alignBtn);
-    });
-    cellToolbar.appendChild(alignBtn);
-
-    cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
-
-    // ── Group 4: Basic styles (Bold, Italic, Strikethrough, Underline) ──
+    // ── Group 3: Basic styles (Bold, Italic, Strikethrough, Underline) ──
     const styleItems = [
       { icon: svgIcon('<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>', 16), title: t('editor.bold') || 'Bold', mark: 'strong' },
       { icon: svgIcon('<line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/>'), title: t('editor.italic') || 'Italic', mark: 'em' },
@@ -1059,6 +1088,7 @@ export function tableMenuPlugin(): Plugin {
     }
 
     getContainer(view).appendChild(cellToolbar);
+    clampDropdownPosition(cellToolbar, parentRect);
   }
 
   // ── Alignment dropdown ──
@@ -1126,6 +1156,7 @@ export function tableMenuPlugin(): Plugin {
     alignDropdown.style.left = `${anchorRect.left - parentRect.left}px`;
     alignDropdown.style.top = `${anchorRect.bottom - parentRect.top + 4}px`;
     getContainer(view).appendChild(alignDropdown);
+    clampDropdownPosition(alignDropdown, parentRect);
   }
 
   // ── Heading dropdown ──
@@ -1168,6 +1199,7 @@ export function tableMenuPlugin(): Plugin {
     alignDropdown.style.left = `${anchorRect.left - parentRect.left}px`;
     alignDropdown.style.top = `${anchorRect.bottom - parentRect.top + 4}px`;
     getContainer(view).appendChild(alignDropdown);
+    clampDropdownPosition(alignDropdown, parentRect);
   }
 
   // ── List dropdown ──
@@ -1211,6 +1243,7 @@ export function tableMenuPlugin(): Plugin {
     alignDropdown.style.left = `${anchorRect.left - parentRect.left}px`;
     alignDropdown.style.top = `${anchorRect.bottom - parentRect.top + 4}px`;
     getContainer(view).appendChild(alignDropdown);
+    clampDropdownPosition(alignDropdown, parentRect);
   }
 
   // ── Highlight color picker for table toolbar ──
@@ -1293,7 +1326,24 @@ export function tableMenuPlugin(): Plugin {
     colorPicker.style.left = `${anchorRect.left - parentRect.left}px`;
     colorPicker.style.top = `${anchorRect.bottom - parentRect.top + 4}px`;
     getContainer(view).appendChild(colorPicker);
+    clampDropdownPosition(colorPicker, parentRect);
   }
+
+  // ── Mouse tracking for selection stability ──
+  let isMouseDragging = false;
+  const onTMMouseDown = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't set dragging flag for clicks inside our own UI (toolbar buttons, dropdowns)
+    if (container && container.contains(target)) return;
+    isMouseDragging = true;
+  };
+  const onTMMouseUp = () => {
+    if (!isMouseDragging) return; // was a click on our UI, not a drag
+    isMouseDragging = false;
+    if (currentView) update(currentView);
+  };
+  document.addEventListener('mousedown', onTMMouseDown);
+  document.addEventListener('mouseup', onTMMouseUp);
 
   // ── Main update ────────────────────────────────────────────────
 
@@ -1301,8 +1351,9 @@ export function tableMenuPlugin(): Plugin {
     currentView = view;
     const state = view.state;
 
-    // Handle click outside to close context menu
-    // (handled via document listener in the plugin view init)
+    // If a dropdown (alignment, heading, list, color picker) is open, don't rebuild
+    // — rebuilding would destroy the dropdown
+    const hasOpenDropdown = !!(alignDropdown || colorPicker);
 
     // If multi-cell selection, show unified toolbar
     if (isCellSelection(state)) {
@@ -1310,7 +1361,9 @@ export function tableMenuPlugin(): Plugin {
       if (info) {
         showBars(view, info);
       }
-      showCellToolbar(view);
+      if (hasOpenDropdown) return; // preserve open dropdown
+      if (!isMouseDragging) showCellToolbar(view);
+      else closeCellToolbar();
       return;
     }
 
@@ -1319,9 +1372,10 @@ export function tableMenuPlugin(): Plugin {
       const info = findTableInfo(state);
       if (info) {
         showBars(view, info);
-        // If text is selected inside a cell, show unified toolbar
+        if (hasOpenDropdown) return; // preserve open dropdown
+        // If text is selected inside a cell, show unified toolbar (only after mouse released)
         const { from, to, empty } = state.selection;
-        if (!empty && from !== to) {
+        if (!empty && from !== to && !isMouseDragging) {
           showCellToolbar(view);
         } else {
           closeCellToolbar();
@@ -1334,6 +1388,10 @@ export function tableMenuPlugin(): Plugin {
     hideAll();
   }
 
+  // Track which table the bars were last built for to avoid unnecessary rebuilds
+  let lastBarTablePos = -1;
+  let lastBarTableSize = -1;
+
   function showBars(view: EditorView, info: NonNullable<ReturnType<typeof findTableInfo>>) {
     const mount = view.dom.parentElement;
     if (!mount) return;
@@ -1345,6 +1403,24 @@ export function tableMenuPlugin(): Plugin {
     c.style.display = 'block';
     isActive = true;
 
+    // Only rebuild bars if the table structure changed (different position or size)
+    const tableSize = info.tableNode.nodeSize;
+    if (lastBarTablePos === info.tablePos && lastBarTableSize === tableSize && topBar && leftBar) {
+      // Just reposition existing bars without rebuilding
+      const parentRect = mount.getBoundingClientRect();
+      const tableRect = tableDOM.getBoundingClientRect();
+      topBar.style.left = `${tableRect.left - parentRect.left}px`;
+      topBar.style.top = `${tableRect.top - parentRect.top - 16}px`;
+      topBar.style.width = `${tableRect.width}px`;
+      leftBar.style.left = `${tableRect.left - parentRect.left - 16}px`;
+      leftBar.style.top = `${tableRect.top - parentRect.top}px`;
+      leftBar.style.height = `${tableRect.height}px`;
+      return;
+    }
+
+    lastBarTablePos = info.tablePos;
+    lastBarTableSize = tableSize;
+
     const parentRect = mount.getBoundingClientRect();
     buildTopBar(view, info, tableDOM, parentRect);
     buildLeftBar(view, info, tableDOM, parentRect);
@@ -1352,11 +1428,13 @@ export function tableMenuPlugin(): Plugin {
 
   // Document click handler to close menus
   function onDocumentClick(e: MouseEvent) {
-    if (!contextMenu && !colorPicker && !alignDropdown) return;
     const target = e.target as HTMLElement;
+    // Don't close anything if click is inside our own container (toolbar, dropdown, etc.)
+    if (container && container.contains(target)) return;
     if (contextMenu && contextMenu.contains(target)) return;
     if (colorPicker && colorPicker.contains(target)) return;
     if (alignDropdown && alignDropdown.contains(target)) return;
+    if (!contextMenu && !colorPicker && !alignDropdown && !cellToolbar) return;
     closeContextMenu();
     closeCellToolbar();
   }
@@ -1373,6 +1451,8 @@ export function tableMenuPlugin(): Plugin {
         },
         destroy() {
           document.removeEventListener('mousedown', onDocumentClick, true);
+          document.removeEventListener('mousedown', onTMMouseDown);
+          document.removeEventListener('mouseup', onTMMouseUp);
           destroyAll();
         },
       };

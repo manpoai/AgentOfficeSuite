@@ -243,7 +243,7 @@ export async function listDeletedContentItems(): Promise<ContentItem[]> {
 }
 
 export async function createContentItem(opts: {
-  type: 'doc' | 'table' | 'board';
+  type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram';
   title: string;
   parent_id?: string | null;
   collection_id?: string;
@@ -393,6 +393,66 @@ export async function getBoard(boardId: string): Promise<{
 
 export async function saveBoard(boardId: string, data: Record<string, unknown>): Promise<{ saved: boolean; updated_at: number }> {
   return gwFetch(`/boards/${boardId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Presentations (Fabric.js PPT) ─────────────────
+export async function getPresentation(presId: string): Promise<{
+  id: string;
+  data: { slides: any[] };
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+}> {
+  return gwFetch(`/presentations/${presId}`);
+}
+
+export async function savePresentation(presId: string, data: { slides: any[] }): Promise<{ saved: boolean; updated_at: number }> {
+  return gwFetch(`/presentations/${presId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Spreadsheets (Univer) ─────────────────────────
+export async function getSpreadsheet(sheetId: string): Promise<{
+  id: string;
+  data: any;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+}> {
+  return gwFetch(`/spreadsheets/${sheetId}`);
+}
+
+export async function saveSpreadsheet(sheetId: string, data: any): Promise<{ saved: boolean; updated_at: number }> {
+  return gwFetch(`/spreadsheets/${sheetId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Diagrams (ReactFlow) ─────────────────────────
+export async function getDiagram(diagramId: string): Promise<{
+  id: string;
+  data: { nodes: any[]; edges: any[]; viewport?: { x: number; y: number; zoom: number } };
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+}> {
+  return gwFetch(`/diagrams/${diagramId}`);
+}
+
+export async function saveDiagram(diagramId: string, data: { nodes: any[]; edges: any[]; viewport?: any }): Promise<{ saved: boolean; updated_at: number }> {
+  return gwFetch(`/diagrams/${diagramId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data }),

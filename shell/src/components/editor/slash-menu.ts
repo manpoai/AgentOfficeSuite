@@ -8,6 +8,7 @@ import type { EditorView } from 'prosemirror-view';
 import { schema } from './schema';
 import { setBlockType, wrapIn } from 'prosemirror-commands';
 import { getT } from '@/lib/i18n';
+import { uploadAndInsert } from './image-plugin';
 
 export const slashMenuKey = new PluginKey('slashMenu');
 
@@ -35,7 +36,7 @@ function wrapWithNotice(view: EditorView, style: string) {
   view.focus();
 }
 
-function buildSlashItems(): SlashMenuItem[] {
+function buildSlashItems(getDocId?: () => string | undefined): SlashMenuItem[] {
   const t = getT();
   return [
     // --- Headings ---
@@ -104,9 +105,21 @@ function buildSlashItems(): SlashMenuItem[] {
     {
       label: t('editor.image'), description: t('editor.imageDesc'), icon: '🖼', keywords: 'image picture photo img',
       command: (view) => {
-        const url = prompt(t('editor.imagePrompt'));
-        if (!url) return;
-        insertBlock(view, schema.nodes.image.create({ src: url, alt: '' }));
+        // Open file picker for image upload
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.style.display = 'none';
+        input.addEventListener('change', () => {
+          const file = input.files?.[0];
+          if (file) {
+            const { from } = view.state.selection;
+            uploadAndInsert(view, file, from, getDocId?.());
+          }
+          input.remove();
+        });
+        document.body.appendChild(input);
+        input.click();
       },
     },
     // --- Notices / Callouts ---
@@ -156,10 +169,10 @@ function createMenuDOM(): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'slash-menu';
   el.style.cssText = `
-    position: absolute; z-index: 100; display: none;
+    position: fixed; z-index: 1000; display: none;
     background: hsl(var(--popover, 0 0% 100%)); border: 1px solid hsl(var(--border, 0 0% 90%));
     border-radius: 8px; padding: 4px; width: 260px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15); max-height: 420px; overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15); max-height: 420px; overflow-y: auto; overflow-x: hidden;
     color: hsl(var(--popover-foreground, 0 0% 9%));
   `;
   return el;
@@ -206,7 +219,7 @@ function renderItems(
   });
 }
 
-export function slashMenuPlugin(): Plugin {
+export function slashMenuPlugin(getDocId?: () => string | undefined): Plugin {
   let menuEl: HTMLDivElement | null = null;
   let active = false;
   let filterText = '';
@@ -214,7 +227,7 @@ export function slashMenuPlugin(): Plugin {
   let slashPos = -1;
 
   function getFilteredItems(): SlashMenuItem[] {
-    const items = buildSlashItems();
+    const items = buildSlashItems(getDocId);
     if (!filterText) return items;
     const q = filterText.toLowerCase();
     return items.filter(item =>
@@ -269,19 +282,39 @@ export function slashMenuPlugin(): Plugin {
     if (!menuEl || slashPos < 0) return;
     try {
       const coords = view.coordsAtPos(slashPos);
-      const editorRect = view.dom.closest('.outline-editor')?.getBoundingClientRect() || view.dom.getBoundingClientRect();
-      const menuHeight = menuEl.offsetHeight || 420; // fallback to max-height
-      const leftPos = coords.left - editorRect.left;
+      const padding = 8; // min distance from viewport edges
 
-      // Check if menu would overflow below the viewport
-      if (coords.bottom + menuHeight + 4 > window.innerHeight) {
-        // Position above the cursor
-        menuEl.style.top = `${coords.top - editorRect.top - menuHeight - 4}px`;
+      // Available space below and above the cursor (in viewport coords)
+      const spaceBelow = window.innerHeight - coords.bottom - padding - 4;
+      const spaceAbove = coords.top - padding - 4;
+
+      // Reset max-height to natural so we can measure content height
+      menuEl.style.maxHeight = '9999px';
+      const naturalHeight = menuEl.scrollHeight;
+
+      if (naturalHeight <= spaceBelow) {
+        // Fits below — place below cursor
+        menuEl.style.top = `${coords.bottom + 4}px`;
+        menuEl.style.maxHeight = `${spaceBelow}px`;
+      } else if (naturalHeight <= spaceAbove) {
+        // Fits above — place above cursor
+        menuEl.style.top = `${coords.top - naturalHeight - 4}px`;
+        menuEl.style.maxHeight = `${spaceAbove}px`;
+      } else if (spaceBelow >= spaceAbove) {
+        // More space below — use all of it with scroll
+        menuEl.style.top = `${coords.bottom + 4}px`;
+        menuEl.style.maxHeight = `${spaceBelow}px`;
       } else {
-        // Position below the cursor (default)
-        menuEl.style.top = `${coords.bottom - editorRect.top + 4}px`;
+        // More space above — use all of it with scroll
+        const cappedHeight = Math.min(naturalHeight, spaceAbove);
+        menuEl.style.top = `${coords.top - cappedHeight - 4}px`;
+        menuEl.style.maxHeight = `${spaceAbove}px`;
       }
-      menuEl.style.left = `${leftPos}px`;
+
+      // Clamp horizontally within viewport
+      const menuWidth = menuEl.offsetWidth || 260;
+      const clampedLeft = Math.max(padding, Math.min(coords.left, window.innerWidth - menuWidth - padding));
+      menuEl.style.left = `${clampedLeft}px`;
     } catch {
       // Position may be invalid if doc changed
     }
@@ -307,11 +340,7 @@ export function slashMenuPlugin(): Plugin {
     key: slashMenuKey,
     view(editorView) {
       menuEl = createMenuDOM();
-      const container = editorView.dom.closest('.outline-editor');
-      if (container) {
-        (container as HTMLElement).style.position = 'relative';
-        container.appendChild(menuEl);
-      }
+      document.body.appendChild(menuEl);
 
       // Listen for programmatic slash menu trigger (from "+" button)
       const handleOpenSlash = () => {

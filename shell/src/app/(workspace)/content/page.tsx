@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ol from '@/lib/api/outline';
-import { FileText, Table2, Pencil, Plus, ArrowLeft, Trash2, X, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Download, ChevronRight, ChevronDown, FolderOpen, Smile, Eye, Code2, Maximize2, RotateCcw, ArrowLeftToLine, ArrowRightToLine, Link2 } from 'lucide-react';
+import { FileText, Table2, Pencil, Plus, ArrowLeft, Trash2, X, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Download, ChevronRight, ChevronDown, FolderOpen, Smile, Eye, Code2, Maximize2, RotateCcw, ArrowLeftToLine, ArrowRightToLine, Link2, Presentation, Sheet, GitBranch } from 'lucide-react';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -14,6 +14,9 @@ import RevisionHistory from '@/components/RevisionHistory';
 import type { OLRevision } from '@/lib/api/outline';
 import { TableEditor } from '@/components/table-editor/TableEditor';
 import { BoardEditor } from '@/components/board-editor/BoardEditor';
+import { PresentationEditor } from '@/components/presentation-editor/PresentationEditor';
+import { SpreadsheetEditor } from '@/components/spreadsheet-editor/SpreadsheetEditor';
+import { DiagramEditor } from '@/components/diagram-editor/DiagramEditor';
 
 const RevisionPreview = dynamic(() => import('@/components/RevisionPreview'), { ssr: false });
 import * as gw from '@/lib/api/gateway';
@@ -46,15 +49,15 @@ type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | 
 type ContentNode = {
   id: string;         // doc:<id> or table:<id>
   rawId: string;      // original id without prefix
-  type: 'doc' | 'table' | 'board';
+  type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram';
   title: string;
   emoji?: string;
   createdAt: number;
   updatedAt?: string;
-  parentId: string | null;  // parent node id (doc:<id> or table:<id> or board:<id>)
+  parentId: string | null;
 };
 
-type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'board'; id: string } | null;
+type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'board'; id: string } | { type: 'presentation'; id: string } | { type: 'spreadsheet'; id: string } | { type: 'diagram'; id: string } | null;
 
 /** Tree ordering stored in localStorage */
 interface TreeState {
@@ -117,6 +120,9 @@ function selectionFromURL(): Selection | null {
     if (id.startsWith('doc:')) return { type: 'doc', id: id.slice(4) };
     if (id.startsWith('table:')) return { type: 'table', id: id.slice(6) };
     if (id.startsWith('board:')) return { type: 'board', id: id.slice(6) };
+    if (id.startsWith('presentation:')) return { type: 'presentation', id: id.slice(13) };
+    if (id.startsWith('spreadsheet:')) return { type: 'spreadsheet', id: id.slice(12) };
+    if (id.startsWith('diagram:')) return { type: 'diagram', id: id.slice(8) };
   } catch { /* SSR or invalid */ }
   return null;
 }
@@ -227,6 +233,9 @@ export default function ContentPage() {
   const selectedDocId = selection?.type === 'doc' ? selection.id : null;
   const selectedTableId = selection?.type === 'table' ? selection.id : null;
   const selectedBoardId = selection?.type === 'board' ? selection.id : null;
+  const selectedPresentationId = selection?.type === 'presentation' ? selection.id : null;
+  const selectedSpreadsheetId = selection?.type === 'spreadsheet' ? selection.id : null;
+  const selectedDiagramId = selection?.type === 'diagram' ? selection.id : null;
 
   const { data: selectedDoc } = useQuery({
     queryKey: ['outline-doc', selectedDocId],
@@ -243,8 +252,8 @@ export default function ContentPage() {
       map.set(item.id, {
         id: item.id,
         rawId: item.raw_id,
-        type: item.type as 'doc' | 'table' | 'board',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : t('content.untitledBoard')),
+        type: item.type as 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram',
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'board' ? t('content.untitledBoard') : item.type === 'spreadsheet' ? (t('content.untitledSpreadsheet') || 'Untitled Spreadsheet') : item.type === 'diagram' ? (t('content.untitledDiagram') || 'Untitled Diagram') : (t('content.untitledPresentation') || 'Untitled Presentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
@@ -571,6 +580,78 @@ export default function ContentPage() {
     }
   };
 
+  const handleCreatePresentation = async (parentNodeId?: string) => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const item = await gw.createContentItem({
+        type: 'presentation',
+        title: '',
+        parent_id: parentNodeId || null,
+      });
+      if (parentNodeId) {
+        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      const sel = { type: 'presentation' as const, id: item.raw_id };
+      setSelection(sel);
+      syncSelectionToURL(sel);
+      setMobileView('detail');
+    } catch (e) {
+      console.error('Create presentation failed:', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCreateSpreadsheet = async (parentNodeId?: string) => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const item = await gw.createContentItem({
+        type: 'spreadsheet',
+        title: '',
+        parent_id: parentNodeId || null,
+      });
+      if (parentNodeId) {
+        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      const sel = { type: 'spreadsheet' as const, id: item.raw_id };
+      setSelection(sel);
+      syncSelectionToURL(sel);
+      setMobileView('detail');
+    } catch (e) {
+      console.error('Create spreadsheet failed:', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCreateDiagram = async (parentNodeId?: string) => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const item = await gw.createContentItem({
+        type: 'diagram',
+        title: '',
+        parent_id: parentNodeId || null,
+      });
+      if (parentNodeId) {
+        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      const sel = { type: 'diagram' as const, id: item.raw_id };
+      setSelection(sel);
+      syncSelectionToURL(sel);
+      setMobileView('detail');
+    } catch (e) {
+      console.error('Create diagram failed:', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const updateTreeParent = (nodeId: string, parentId: string) => {
     setTreeState(prev => {
       const next = {
@@ -886,6 +967,30 @@ export default function ContentPage() {
                       <Pencil className="h-4 w-4 text-muted-foreground" />
                       {t('content.newBoard')}
                     </button>
+                    <button
+                      onClick={() => { setShowNewMenu(false); handleCreatePresentation(); }}
+                      disabled={creating}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <Presentation className="h-4 w-4 text-muted-foreground" />
+                      {t('content.newPresentation') || 'New Presentation'}
+                    </button>
+                    <button
+                      onClick={() => { setShowNewMenu(false); handleCreateSpreadsheet(); }}
+                      disabled={creating}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <Sheet className="h-4 w-4 text-muted-foreground" />
+                      {t('content.newSpreadsheet') || 'New Spreadsheet'}
+                    </button>
+                    <button
+                      onClick={() => { setShowNewMenu(false); handleCreateDiagram(); }}
+                      disabled={creating}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      <GitBranch className="h-4 w-4 text-muted-foreground" />
+                      {t('content.newDiagram') || 'New Diagram'}
+                    </button>
                   </div>
                 </>
               )}
@@ -953,6 +1058,9 @@ export default function ContentPage() {
                         onCreateDoc={handleCreateDoc}
                         onCreateTable={handleCreateTable}
                         onCreateBoard={handleCreateBoard}
+                        onCreatePresentation={handleCreatePresentation}
+                        onCreateSpreadsheet={handleCreateSpreadsheet}
+                        onCreateDiagram={handleCreateDiagram}
                         onRequestDelete={requestDelete}
                         depth={0}
                         creating={creating}
@@ -966,6 +1074,14 @@ export default function ContentPage() {
                         <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
                           {dragActiveNode.type === 'table'
                             ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                            : dragActiveNode.type === 'board'
+                            ? <Pencil className="h-4 w-4 text-muted-foreground shrink-0" />
+                            : dragActiveNode.type === 'presentation'
+                            ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                            : dragActiveNode.type === 'spreadsheet'
+                            ? <Sheet className="h-4 w-4 text-muted-foreground shrink-0" />
+                            : dragActiveNode.type === 'diagram'
+                            ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
                             : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                           }
                           <span className="truncate">{dragActiveNode.title}</span>
@@ -1108,12 +1224,90 @@ export default function ContentPage() {
             docListVisible={docListVisible}
             onToggleDocList={() => setDocListVisible(v => !v)}
           />
+        ) : selectedPresentationId ? (
+          <PresentationEditor
+            presentationId={selectedPresentationId}
+            breadcrumb={(() => {
+              const path: { id: string; title: string }[] = [];
+              let nodeId: string | null = `presentation:${selectedPresentationId}`;
+              while (nodeId) {
+                const node = effectiveNodes.get(nodeId);
+                if (!node) break;
+                path.unshift({ id: node.rawId, title: node.title });
+                nodeId = node.parentId;
+              }
+              return path;
+            })()}
+            onBack={() => setMobileView('list')}
+            onDeleted={() => {
+              setSelection(null); setMobileView('list');
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }}
+            onCopyLink={() => {
+              navigator.clipboard.writeText(buildContentLink({ type: 'presentation', id: selectedPresentationId }));
+            }}
+            docListVisible={docListVisible}
+            onToggleDocList={() => setDocListVisible(v => !v)}
+          />
+        ) : selectedSpreadsheetId ? (
+          <SpreadsheetEditor
+            spreadsheetId={selectedSpreadsheetId}
+            breadcrumb={(() => {
+              const path: { id: string; title: string }[] = [];
+              let nodeId: string | null = `spreadsheet:${selectedSpreadsheetId}`;
+              while (nodeId) {
+                const node = effectiveNodes.get(nodeId);
+                if (!node) break;
+                path.unshift({ id: node.rawId, title: node.title });
+                nodeId = node.parentId;
+              }
+              return path;
+            })()}
+            onBack={() => setMobileView('list')}
+            onDeleted={() => {
+              setSelection(null); setMobileView('list');
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }}
+            onCopyLink={() => {
+              navigator.clipboard.writeText(buildContentLink({ type: 'spreadsheet', id: selectedSpreadsheetId }));
+            }}
+            docListVisible={docListVisible}
+            onToggleDocList={() => setDocListVisible(v => !v)}
+          />
+        ) : selectedDiagramId ? (
+          <DiagramEditor
+            diagramId={selectedDiagramId}
+            breadcrumb={(() => {
+              const path: { id: string; title: string }[] = [];
+              let nodeId: string | null = `diagram:${selectedDiagramId}`;
+              while (nodeId) {
+                const node = effectiveNodes.get(nodeId);
+                if (!node) break;
+                path.unshift({ id: node.rawId, title: node.title });
+                nodeId = node.parentId;
+              }
+              return path;
+            })()}
+            onBack={() => setMobileView('list')}
+            onDeleted={() => {
+              setSelection(null); setMobileView('list');
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }}
+            onCopyLink={() => {
+              navigator.clipboard.writeText(buildContentLink({ type: 'diagram', id: selectedDiagramId }));
+            }}
+            docListVisible={docListVisible}
+            onToggleDocList={() => setDocListVisible(v => !v)}
+          />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
             <div className="flex gap-3 mb-2">
               <FileText className="h-8 w-8 opacity-20" />
               <Table2 className="h-8 w-8 opacity-20" />
               <Pencil className="h-8 w-8 opacity-20" />
+              <Presentation className="h-8 w-8 opacity-20" />
+              <Sheet className="h-8 w-8 opacity-20" />
+              <GitBranch className="h-8 w-8 opacity-20" />
             </div>
             <p className="text-sm">{t('content.selectHint')}</p>
             <p className="text-xs text-muted-foreground/50">{t('content.createHint')}</p>
@@ -1166,7 +1360,7 @@ export default function ContentPage() {
 
 function TreeNodeRecursive({
   nodeId, nodes, childrenMap, selection, expandedIds, onSelect, onToggle,
-  onCreateDoc, onCreateTable, onCreateBoard, onRequestDelete, depth, creating, dropIntent, dragActiveId,
+  onCreateDoc, onCreateTable, onCreateBoard, onCreatePresentation, onCreateSpreadsheet, onCreateDiagram, onRequestDelete, depth, creating, dropIntent, dragActiveId,
 }: {
   nodeId: string;
   nodes: Map<string, ContentNode>;
@@ -1178,6 +1372,9 @@ function TreeNodeRecursive({
   onCreateDoc: (parentId?: string) => void;
   onCreateTable: (parentId?: string) => void;
   onCreateBoard: (parentId?: string) => void;
+  onCreatePresentation: (parentId?: string) => void;
+  onCreateSpreadsheet: (parentId?: string) => void;
+  onCreateDiagram: (parentId?: string) => void;
   onRequestDelete: (nodeId: string) => void;
   depth: number;
   creating: boolean;
@@ -1210,7 +1407,10 @@ function TreeNodeRecursive({
         onCreateChild={(type) => {
           if (type === 'doc') onCreateDoc(nodeId);
           else if (type === 'table') onCreateTable(nodeId);
-          else onCreateBoard(nodeId);
+          else if (type === 'board') onCreateBoard(nodeId);
+          else if (type === 'presentation') onCreatePresentation(nodeId);
+          else if (type === 'spreadsheet') onCreateSpreadsheet(nodeId);
+          else onCreateDiagram(nodeId);
         }}
         onRequestDelete={onRequestDelete}
         creating={creating}
@@ -1232,6 +1432,9 @@ function TreeNodeRecursive({
               onCreateDoc={onCreateDoc}
               onCreateTable={onCreateTable}
               onCreateBoard={onCreateBoard}
+              onCreatePresentation={onCreatePresentation}
+              onCreateSpreadsheet={onCreateSpreadsheet}
+              onCreateDiagram={onCreateDiagram}
               onRequestDelete={onRequestDelete}
               depth={depth + 1}
               creating={creating}
@@ -1260,7 +1463,7 @@ function DraggableTreeNode({
   isExpanded: boolean;
   onToggle: () => void;
   depth: number;
-  onCreateChild: (type: 'doc' | 'table' | 'board') => void;
+  onCreateChild: (type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram') => void;
   onRequestDelete: (nodeId: string) => void;
   creating?: boolean;
   dropPosition?: 'before' | 'after' | 'inside' | null;
@@ -1379,6 +1582,8 @@ function DraggableTreeNode({
               ? <Table2 className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
               : node.type === 'board'
               ? <Pencil className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+              : node.type === 'presentation'
+              ? <Presentation className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
               : <FileText className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
             }
           </button>
@@ -1440,6 +1645,30 @@ function DraggableTreeNode({
                   >
                     <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                     {t('content.newBoard')}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('presentation'); }}
+                    disabled={creating}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    <Presentation className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t('content.newPresentation') || 'New Presentation'}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('spreadsheet'); }}
+                    disabled={creating}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    <Sheet className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t('content.newSpreadsheet') || 'New Spreadsheet'}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('diagram'); }}
+                    disabled={creating}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t('content.newDiagram') || 'New Diagram'}
                   </button>
                 </div>
               </>
@@ -1520,6 +1749,12 @@ function TreeNodeItem({
         ? <Table2 className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
         : node.type === 'board'
         ? <Pencil className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+        : node.type === 'presentation'
+        ? <Presentation className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+        : node.type === 'spreadsheet'
+        ? <Sheet className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+        : node.type === 'diagram'
+        ? <GitBranch className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
         : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
       }
       <span className="truncate">{node.title}</span>

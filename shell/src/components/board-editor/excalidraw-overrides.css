@@ -1,0 +1,30 @@
+/* ASuite Excalidraw overrides — green theme + hide native hamburger */
+
+/* Hide the native hamburger menu button */
+.excalidraw .dropdown-menu-button {
+  display: none !important;
+}
+
+/* Override purple primary to ASuite green (light mode) */
+.excalidraw {
+  --color-primary: #2acf7f !important;
+  --color-primary-darker: #24b16d !important;
+  --color-primary-darkest: #1e945b !important;
+  --color-primary-light: #ddf8eb !important;
+  --color-primary-light-darker: #c7f3de !important;
+  --color-primary-hover: #26ba72 !important;
+  --color-promo: #2acf7f !important;
+  --color-logo-icon: #2acf7f !important;
+}
+
+/* Override for dark mode */
+.excalidraw.theme--dark {
+  --color-primary: #40d78e !important;
+  --color-primary-darker: #55dc9b !important;
+  --color-primary-darkest: #6ae0a7 !important;
+  --color-primary-light: #156941 !important;
+  --color-primary-light-darker: #115434 !important;
+  --color-primary-hover: #5edea0 !important;
+  --color-promo: #40d78e !important;
+  --color-logo-icon: #40d78e !important;
+}

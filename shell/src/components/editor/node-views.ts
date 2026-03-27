@@ -4,7 +4,7 @@
  * - mermaid code_block: Mermaid diagrams as SVG
  */
 import type { Node as PMNode } from 'prosemirror-model';
-import { NodeSelection } from 'prosemirror-state';
+import { NodeSelection, Selection } from 'prosemirror-state';
 import type { EditorView, NodeView } from 'prosemirror-view';
 
 /** Lazy-load mermaid via CDN <script> tag (avoids webpack bundling issues). */
@@ -167,29 +167,43 @@ class ImageNodeView implements NodeView {
     toolbarContainer.appendChild(imgContainer);
     toolbarContainer.appendChild(this.toolbar);
 
-    // Caption input (shown when image is selected) — inside toolbarContainer so width matches image
+    // Caption (editable div — wraps text, centered, shown when selected or has content)
     this.captionContainer = document.createElement('div');
-    this.captionContainer.style.cssText = 'display:none;text-align:center;margin-top:4px;width:100%;overflow:hidden;';
-    this.captionInput = document.createElement('input');
-    this.captionInput.type = 'text';
-    this.captionInput.placeholder = 'Write a caption';
-    this.captionInput.value = node.attrs.alt || '';
-    this.captionInput.style.cssText = 'width:100%;box-sizing:border-box;text-align:center;font-size:13px;color:hsl(var(--muted-foreground, 0 0% 45%));background:transparent;border:none;outline:none;padding:4px 8px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;user-select:text;-webkit-user-select:text;cursor:text;';
-    this.captionInput.addEventListener('mousedown', (e) => {
+    this.captionContainer.style.cssText = 'text-align:center;margin-top:4px;width:100%;';
+    this.captionInput = document.createElement('div') as any;
+    (this.captionInput as HTMLElement).contentEditable = 'true';
+    (this.captionInput as HTMLElement).dataset.placeholder = 'Write a caption';
+    (this.captionInput as HTMLElement).textContent = node.attrs.alt || '';
+    (this.captionInput as HTMLElement).style.cssText = 'width:100%;box-sizing:border-box;text-align:center;font-size:13px;color:hsl(var(--muted-foreground, 0 0% 45%));background:transparent;border:none;outline:none;padding:4px 8px;user-select:text;-webkit-user-select:text;cursor:text;word-wrap:break-word;overflow-wrap:break-word;min-height:1.5em;';
+    // Show placeholder when empty
+    const updatePlaceholder = () => {
+      const el = this.captionInput as unknown as HTMLElement;
+      if (!el.textContent?.trim()) {
+        el.style.color = 'hsl(var(--muted-foreground, 0 0% 45%) / 0.5)';
+      } else {
+        el.style.color = 'hsl(var(--muted-foreground, 0 0% 45%))';
+      }
+    };
+    // Hide caption container if no content and not selected
+    const hasCaptionContent = () => !!(node.attrs.alt?.trim());
+    if (!hasCaptionContent()) this.captionContainer.style.display = 'none';
+    (this.captionInput as HTMLElement).addEventListener('mousedown', (e) => {
       e.stopPropagation();
     });
-    this.captionInput.addEventListener('dragstart', (e) => {
+    (this.captionInput as HTMLElement).addEventListener('dragstart', (e) => {
       e.preventDefault();
       e.stopPropagation();
     });
-    this.captionInput.addEventListener('keydown', (e) => {
+    (this.captionInput as HTMLElement).addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
-        this.captionInput?.blur();
+        e.preventDefault();
+        (this.captionInput as unknown as HTMLElement).blur();
       }
     });
-    this.captionInput.addEventListener('blur', () => {
-      const val = this.captionInput?.value || '';
+    (this.captionInput as HTMLElement).addEventListener('input', updatePlaceholder);
+    (this.captionInput as HTMLElement).addEventListener('blur', () => {
+      const val = (this.captionInput as unknown as HTMLElement).textContent?.trim() || '';
       if (val !== (this.node.attrs.alt || '')) {
         const pos = this.getPos();
         if (pos != null) {
@@ -197,8 +211,10 @@ class ImageNodeView implements NodeView {
           this.view.dispatch(tr);
         }
       }
+      updatePlaceholder();
     });
-    this.captionContainer.appendChild(this.captionInput);
+    updatePlaceholder();
+    this.captionContainer.appendChild(this.captionInput as unknown as HTMLElement);
     toolbarContainer.appendChild(this.captionContainer);
 
     this.dom.appendChild(toolbarContainer);
@@ -380,7 +396,28 @@ class ImageNodeView implements NodeView {
   private showToolbar() {
     this.toolbar.style.display = 'flex';
     this.toolbar.style.alignItems = 'center';
+    // Reset to default centered position
+    this.toolbar.style.left = '50%';
+    this.toolbar.style.transform = 'translateX(-50%)';
     this.updateSizeLabel();
+    // Clamp toolbar within viewport after render
+    requestAnimationFrame(() => {
+      const tbRect = this.toolbar.getBoundingClientRect();
+      if (tbRect.left < 8) {
+        // Shift right so toolbar starts at left edge + padding
+        const parentRect = this.toolbar.offsetParent?.getBoundingClientRect();
+        if (parentRect) {
+          this.toolbar.style.left = `${8 - parentRect.left}px`;
+          this.toolbar.style.transform = 'none';
+        }
+      } else if (tbRect.right > window.innerWidth - 8) {
+        const parentRect = this.toolbar.offsetParent?.getBoundingClientRect();
+        if (parentRect) {
+          this.toolbar.style.left = `${window.innerWidth - 8 - tbRect.width - parentRect.left}px`;
+          this.toolbar.style.transform = 'none';
+        }
+      }
+    });
   }
 
   private hideToolbar() {
@@ -395,8 +432,12 @@ class ImageNodeView implements NodeView {
     if (node.attrs.width) this.img.style.width = node.attrs.width;
     else this.img.style.width = '';
     this.dom.style.textAlign = node.attrs.align || 'center';
-    if (this.captionInput && document.activeElement !== this.captionInput) {
-      this.captionInput.value = node.attrs.alt || '';
+    if (this.captionInput && document.activeElement !== (this.captionInput as unknown as HTMLElement)) {
+      (this.captionInput as unknown as HTMLElement).textContent = node.attrs.alt || '';
+      // Show caption if has content, hide if empty and not selected
+      const hasContent = !!(node.attrs.alt?.trim());
+      const isSelected = this.dom.classList.contains('image-selected');
+      if (this.captionContainer) this.captionContainer.style.display = (hasContent || isSelected) ? 'block' : 'none';
     }
     return true;
   }
@@ -410,7 +451,11 @@ class ImageNodeView implements NodeView {
     this.img.style.outlineOffset = '2px';
     this.showToolbar();
     if (this.captionContainer) this.captionContainer.style.display = 'block';
-    if (this.captionInput) this.captionInput.value = this.node.attrs.alt || '';
+    if (this.captionInput) {
+      (this.captionInput as unknown as HTMLElement).textContent = this.node.attrs.alt || '';
+    }
+    // Clear any native browser selection to prevent blue overlay
+    window.getSelection()?.removeAllRanges();
   }
 
   deselectNode() {
@@ -420,7 +465,9 @@ class ImageNodeView implements NodeView {
     this.img.style.outline = 'none';
     this.img.style.outlineOffset = '';
     this.hideToolbar();
-    if (this.captionContainer) this.captionContainer.style.display = 'none';
+    // Hide caption if no content
+    const hasContent = !!(this.node.attrs.alt?.trim());
+    if (this.captionContainer) this.captionContainer.style.display = hasContent ? 'block' : 'none';
   }
 
   destroy() {
@@ -579,11 +626,14 @@ class MermaidBlockView implements NodeView {
     // Focus the code
     const pos = this.getPos();
     if (pos != null) {
-      const tr = this.view.state.tr.setSelection(
-        this.view.state.selection.constructor.near(this.view.state.doc.resolve(pos + 1))
-      );
-      this.view.dispatch(tr);
-      this.view.focus();
+      try {
+        const clampedPos = Math.min(pos + 1, this.view.state.doc.content.size);
+        const $pos = this.view.state.doc.resolve(clampedPos);
+        const sel = Selection.near($pos);
+        const tr = this.view.state.tr.setSelection(sel);
+        this.view.dispatch(tr);
+        this.view.focus();
+      } catch { /* ignore selection errors at document boundaries */ }
     }
   }
 

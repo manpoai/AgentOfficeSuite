@@ -340,72 +340,139 @@ export function Comments({
   const resolvedCount = comments.filter(c => !!c.resolved_by).length;
   const unresolvedCount = comments.filter(c => !c.resolved_by).length;
 
-  const renderComment = (c: Comment, opts: { onReply?: () => void; isReply?: boolean } = {}) => (
-    <div className={cn("flex gap-2.5 group p-2 rounded-lg hover:bg-accent/30 transition-colors", c.resolved_by && "opacity-60")}>
-      <div className={cn(
-        'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0 mt-0.5',
-        getAvatarColor(c.actor)
-      )}>
-        {getInitial(c.actor)}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-foreground">{c.actor}</span>
-          <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at, t)}</span>
-          <CommentMenu
-            comment={c}
-            onReply={opts.onReply}
-            onEdit={editComment ? () => { setEditingId(c.id); setEditText(c.text); } : undefined}
-            onDelete={deleteComment ? () => handleDelete(c.id) : undefined}
-            onResolve={!opts.isReply && resolveComment && !c.resolved_by ? () => handleResolve(c.id) : undefined}
-            onUnresolve={!opts.isReply && unresolveComment && c.resolved_by ? () => handleUnresolve(c.id) : undefined}
-            onCopyLink={() => {
-              navigator.clipboard.writeText(`${window.location.href}#comment-${c.id}`);
-            }}
-          />
+  // Inline reply state — separate from the bottom input
+  const [inlineReplyId, setInlineReplyId] = useState<string | null>(null);
+  const [inlineReplyText, setInlineReplyText] = useState('');
+  const [inlineReplyPosting, setInlineReplyPosting] = useState(false);
+  const inlineReplyRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInlineReply = async (parentId: string) => {
+    if (!inlineReplyText.trim() || inlineReplyPosting) return;
+    setInlineReplyPosting(true);
+    try {
+      await postComment(inlineReplyText.trim(), parentId);
+      setInlineReplyText('');
+      setInlineReplyId(null);
+      queryClient.invalidateQueries({ queryKey });
+    } catch (e) {
+      console.error('Reply failed:', e);
+    } finally {
+      setInlineReplyPosting(false);
+    }
+  };
+
+  const renderComment = (c: Comment, opts: { onReply?: () => void; isReply?: boolean; parentId?: string } = {}) => (
+    <div>
+      <div className={cn("flex gap-2.5 group p-2 rounded-lg hover:bg-accent/30 transition-colors", c.resolved_by && "opacity-60")}>
+        <div className={cn(
+          'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold text-white shrink-0 mt-0.5',
+          getAvatarColor(c.actor)
+        )}>
+          {getInitial(c.actor)}
         </div>
-        {editingId === c.id ? (
-          <div className="mt-1">
-            <textarea
-              ref={editInputRef}
-              value={editText}
-              onChange={e => { setEditText(e.target.value); autoResize(e.target); }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(c.id); }
-                if (e.key === 'Escape') handleCancelEdit();
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-foreground">{c.actor}</span>
+            <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at, t)}</span>
+            <CommentMenu
+              comment={c}
+              onEdit={editComment ? () => { setEditingId(c.id); setEditText(c.text); } : undefined}
+              onDelete={deleteComment ? () => handleDelete(c.id) : undefined}
+              onResolve={!opts.isReply && resolveComment && !c.resolved_by ? () => handleResolve(c.id) : undefined}
+              onUnresolve={!opts.isReply && unresolveComment && c.resolved_by ? () => handleUnresolve(c.id) : undefined}
+              onCopyLink={() => {
+                navigator.clipboard.writeText(`${window.location.href}#comment-${c.id}`);
               }}
-              rows={2}
-              className="w-full text-xs bg-muted rounded-lg px-2 py-1.5 text-foreground outline-none resize-none border border-sidebar-primary/50"
+            />
+          </div>
+          {editingId === c.id ? (
+            <div className="mt-1">
+              <textarea
+                ref={editInputRef}
+                value={editText}
+                onChange={e => { setEditText(e.target.value); autoResize(e.target); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(c.id); }
+                  if (e.key === 'Escape') handleCancelEdit();
+                }}
+                rows={2}
+                className="w-full text-xs bg-muted rounded-lg px-2 py-1.5 text-foreground outline-none resize-none border border-sidebar-primary/50"
+                autoFocus
+              />
+              <div className="flex items-center gap-1 mt-1">
+                <button
+                  onClick={() => handleEdit(c.id)}
+                  disabled={!editText.trim()}
+                  className="text-[10px] px-2 py-0.5 bg-sidebar-primary text-white rounded disabled:opacity-30"
+                >
+                  {t('comments.save')}
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="text-[10px] px-2 py-0.5 text-muted-foreground hover:text-foreground"
+                >
+                  {t('comments.cancel')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <CommentBody text={c.text} />
+              {c.resolved_by && (
+                <div className="flex items-center gap-1 mt-1">
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  <span className="text-[10px] text-green-600">{t('comments.resolvedBy', { name: c.resolved_by.name || c.resolved_by.id })}</span>
+                </div>
+              )}
+              {/* Reply button — directly visible under comment content */}
+              {opts.onReply && !c.resolved_by && (
+                <button
+                  onClick={opts.onReply}
+                  className="flex items-center gap-1 mt-1.5 text-[11px] text-muted-foreground hover:text-sidebar-primary transition-colors"
+                >
+                  <Reply className="h-3 w-3" />
+                  {t('comments.reply')}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      {/* Inline reply input — appears right below this comment */}
+      {inlineReplyId === (opts.parentId || c.id) && !opts.isReply && (
+        <div className="ml-8 mt-1 mb-2">
+          <div className="flex gap-2">
+            <textarea
+              ref={inlineReplyRef}
+              value={inlineReplyText}
+              onChange={e => { setInlineReplyText(e.target.value); autoResize(e.target); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleInlineReply(opts.parentId || c.id); }
+                if (e.key === 'Escape') { setInlineReplyId(null); setInlineReplyText(''); }
+              }}
+              placeholder={t('comments.replyPlaceholder') || t('comments.placeholder')}
+              rows={1}
+              className="flex-1 text-xs bg-muted rounded-lg px-3 py-2 text-foreground outline-none placeholder:text-muted-foreground resize-none border border-sidebar-primary/30 focus:border-sidebar-primary/60"
               autoFocus
             />
-            <div className="flex items-center gap-1 mt-1">
+            <div className="flex flex-col gap-1 self-end">
               <button
-                onClick={() => handleEdit(c.id)}
-                disabled={!editText.trim()}
-                className="text-[10px] px-2 py-0.5 bg-sidebar-primary text-white rounded disabled:opacity-30"
+                onClick={() => handleInlineReply(opts.parentId || c.id)}
+                disabled={!inlineReplyText.trim() || inlineReplyPosting}
+                className="p-1.5 text-sidebar-primary hover:opacity-80 disabled:opacity-30 transition-opacity rounded"
               >
-                {t('comments.save')}
+                <Send className="h-3.5 w-3.5" />
               </button>
               <button
-                onClick={handleCancelEdit}
-                className="text-[10px] px-2 py-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => { setInlineReplyId(null); setInlineReplyText(''); }}
+                className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded"
               >
-                {t('comments.cancel')}
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
-        ) : (
-          <>
-            <CommentBody text={c.text} />
-            {c.resolved_by && (
-              <div className="flex items-center gap-1 mt-1">
-                <CheckCircle2 className="h-3 w-3 text-green-500" />
-                <span className="text-[10px] text-green-600">{t('comments.resolvedBy', { name: c.resolved_by.name || c.resolved_by.id })}</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
@@ -484,6 +551,15 @@ export function Comments({
           >
             <Send className="h-3.5 w-3.5" />
           </button>
+          {(quote || replyToId) && (
+            <button
+              onClick={() => { setQuote(''); setNewComment(''); setReplyToId(null); setReplyToName(''); }}
+              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded"
+              title={t('comments.cancel')}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         {uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-muted/80 rounded-lg">
@@ -554,18 +630,17 @@ export function Comments({
               const replies = repliesByParent.get(c.id) || [];
               const hasReplies = replies.length > 0;
               const isExpanded = expandedThreads.has(c.id);
+              const triggerReply = () => {
+                setInlineReplyId(c.id);
+                setInlineReplyText('');
+                if (hasReplies && !isExpanded) {
+                  setExpandedThreads(prev => new Set(prev).add(c.id));
+                }
+                setTimeout(() => inlineReplyRef.current?.focus(), 100);
+              };
               return (
                 <div key={c.id}>
-                  {renderComment(c, {
-                    onReply: () => {
-                      setReplyToId(c.id);
-                      setReplyToName(c.actor);
-                      if (hasReplies && !isExpanded) {
-                        setExpandedThreads(prev => new Set(prev).add(c.id));
-                      }
-                      setTimeout(() => commentInputRef.current?.focus(), 100);
-                    },
-                  })}
+                  {renderComment(c, { onReply: triggerReply })}
                   {/* Thread replies */}
                   {hasReplies && (
                     <div className="ml-8">
@@ -584,12 +659,9 @@ export function Comments({
                       {isExpanded && replies.map(r => (
                         <div key={r.id}>
                           {renderComment(r, {
-                            onReply: () => {
-                              setReplyToId(c.id);
-                              setReplyToName(r.actor);
-                              setTimeout(() => commentInputRef.current?.focus(), 100);
-                            },
+                            onReply: triggerReply,
                             isReply: true,
+                            parentId: c.id,
                           })}
                         </div>
                       ))}

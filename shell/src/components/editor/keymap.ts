@@ -242,6 +242,66 @@ function deleteEmptyFirstBlock(state: EditorState, dispatch?: (tr: Transaction) 
 }
 
 /**
+ * Delete any empty block (paragraph, heading, etc.) when Backspace is pressed at its start.
+ * Works at any nesting depth (top-level, inside list items, blockquotes, etc.).
+ * Only fires when the block is completely empty and there's a previous sibling or parent to fall back to.
+ */
+function deleteEmptyBlock(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { $from, empty } = state.selection;
+  if (!empty) return false;
+
+  const parent = $from.parent;
+
+  if ($from.parentOffset !== 0) return false; // cursor must be at start
+
+  // Check if block is truly empty (no content, or only whitespace/hard_breaks)
+  const isEffectivelyEmpty = parent.content.size === 0 ||
+    (parent.childCount === 1 && parent.firstChild?.type.name === 'hard_break') ||
+    (parent.isTextblock && parent.textContent.trim() === '' && !parent.firstChild?.type.isAtom);
+
+  if (!isEffectivelyEmpty) return false;
+
+  // Find the depth at which this empty block sits as a child
+  for (let d = $from.depth; d >= 1; d--) {
+    const indexInParent = $from.index(d - 1);
+    const parentNode = $from.node(d - 1);
+
+    // Can only delete if there's a previous sibling or this isn't the only child
+    // Don't delete the only/first child of a list_item or checkbox_item (required by schema)
+    const parentType = parentNode.type.name;
+    if ((parentType === 'list_item' || parentType === 'checkbox_item') && indexInParent === 0) {
+      // First child of list item — this is the required paragraph, can't delete it directly
+      // But if the list item has other children, we can merge this into the previous list item
+      // Let other handlers (smartListBackspace) deal with it
+      return false;
+    }
+
+    if (indexInParent > 0) {
+      // There's a previous sibling — delete this empty block
+      if (dispatch) {
+        const deleteFrom = $from.before(d);
+        const deleteTo = $from.after(d);
+        const tr = state.tr.delete(deleteFrom, deleteTo);
+        // Place cursor at end of previous sibling
+        const mappedPos = tr.mapping.map(deleteFrom);
+        const clampedPos = Math.min(mappedPos, tr.doc.content.size);
+        const $pos = tr.doc.resolve(clampedPos);
+        const sel = TextSelection.findFrom($pos, -1, true);
+        if (sel) tr.setSelection(sel);
+        dispatch(tr.scrollIntoView());
+      }
+      return true;
+    }
+
+    // indexInParent === 0 — check if we can delete at a higher level
+    // If parent has only this one child and parent itself can be deleted
+    if (d === 1 && state.doc.childCount <= 1) return false;
+  }
+
+  return false;
+}
+
+/**
  * Protect inline atoms (images) from accidental deletion via Backspace.
  * Based on Outline's DeleteNearAtom extension (GitHub Issue #10681).
  *
@@ -318,7 +378,6 @@ function protectAtomOnBackspace(state: EditorState, dispatch?: (tr: Transaction)
   }
 
   // Case 2: Cursor is right after an inline image atom (same paragraph, non-empty)
-  // → select the image instead of deleting it
   if (selection instanceof TextSelection) {
     const { $cursor } = selection;
     if ($cursor) {
@@ -326,6 +385,27 @@ function protectAtomOnBackspace(state: EditorState, dispatch?: (tr: Transaction)
       const nodeAfter = $cursor.nodeAfter;
 
       if (nodeBefore?.isAtom && nodeBefore.isInline && nodeBefore.type === schema.nodes.image) {
+        // If the image is the ONLY content in this paragraph, and there's a previous sibling,
+        // join this paragraph into the previous one (moving the image to end of prev paragraph).
+        // This eliminates the "undeletable empty line" that is actually an image-only paragraph.
+        const parentBlock = $cursor.parent;
+        const isImageOnly = parentBlock.childCount === 1 && parentBlock.firstChild?.type === schema.nodes.image;
+        if (isImageOnly) {
+          // Find previous sibling at current depth
+          for (let d = $cursor.depth; d >= 1; d--) {
+            const idx = $cursor.index(d - 1);
+            if (idx > 0) {
+              if (dispatch) {
+                // Use joinBackward-like behavior: delete the boundary between this block and previous
+                const blockStart = $cursor.before(d);
+                const tr = state.tr.join(blockStart);
+                dispatch(tr.scrollIntoView());
+              }
+              return true;
+            }
+          }
+        }
+        // Default: select the image (protects from accidental deletion)
         if (dispatch) {
           const imagePos = $cursor.pos - nodeBefore.nodeSize;
           dispatch(state.tr.setSelection(NodeSelection.create(state.doc, imagePos)).scrollIntoView());
@@ -462,7 +542,7 @@ export function buildKeymap() {
   });
 
   // Backspace: custom handlers before default behavior
-  keys['Backspace'] = chainCommands(deleteSelection, protectAtomOnBackspace, deleteEmptyFirstBlock, smartListBackspace, preventJoinIntoList, joinBackward, selectNodeBackward);
+  keys['Backspace'] = chainCommands(deleteSelection, deleteEmptyBlock, protectAtomOnBackspace, deleteEmptyFirstBlock, smartListBackspace, preventJoinIntoList, joinBackward, selectNodeBackward);
 
   // Delete (forward): protect images from forward-delete joining
   keys['Delete'] = chainCommands(deleteSelection, protectAtomOnDelete, joinForward, selectNodeForward);

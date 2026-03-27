@@ -48,7 +48,9 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
 
       let doc: any;
       try {
-        doc = Node.fromJSON(schema, data);
+        // Sanitize JSON to handle unknown node types/marks before parsing
+        const sanitized = sanitizeDocJson(data, schema);
+        doc = Node.fromJSON(schema, sanitized);
       } catch (e) {
         console.error('Failed to parse revision JSON:', e);
         if (mountRef.current) {
@@ -61,7 +63,7 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
       let diffPlugin: any = null;
       if (highlightChanges && prevData) {
         try {
-          const decorations = await computeDiffDecorations(Node, schema, data, prevData, doc);
+          const decorations = await computeDiffDecorations(Node, schema, sanitizeDocJson(data, schema), sanitizeDocJson(prevData, schema), doc);
           diffPlugin = new PMPlugin({
             props: {
               decorations() { return decorations; },
@@ -191,6 +193,85 @@ function extractTextWithPositions(doc: any): { text: string; posMap: PosMapEntry
   });
 
   return { text: parts.join(''), posMap };
+}
+
+/**
+ * Mapping from Outline's node type names to our schema's node type names.
+ * Outline uses short names (tr, td, th, br, hr) while prosemirror-tables
+ * and our schema use longer names (table_row, table_cell, etc.).
+ */
+const NODE_TYPE_MAP: Record<string, string> = {
+  tr: 'table_row',
+  td: 'table_cell',
+  th: 'table_header',
+  br: 'hard_break',
+  hr: 'horizontal_rule',
+  code_fence: 'code_block',
+};
+
+/** Mapping from Outline's mark type names to our schema's mark type names. */
+const MARK_TYPE_MAP: Record<string, string> = {
+  code_inline: 'code',
+};
+
+/**
+ * Recursively sanitize ProseMirror JSON: map Outline node/mark type names
+ * to our schema's names, strip truly unknown types, and fix attributes.
+ */
+function sanitizeDocJson(data: Record<string, unknown>, schema: any): Record<string, unknown> {
+  function sanitizeNode(node: any): any {
+    if (!node || typeof node !== 'object') return node;
+
+    // Map Outline node type name to our schema name
+    let type = node.type as string;
+    if (NODE_TYPE_MAP[type]) {
+      type = NODE_TYPE_MAP[type];
+    }
+
+    // Check if node type exists in schema
+    const nodeType = schema.nodes[type];
+
+    if (!nodeType && type !== 'text') {
+      // Truly unknown type — try to preserve content
+      if (node.content && Array.isArray(node.content)) {
+        return {
+          type: 'paragraph',
+          content: (node.content as any[]).map(sanitizeNode).filter(Boolean),
+        };
+      }
+      return null;
+    }
+
+    const result: any = { type };
+
+    // Sanitize attributes
+    if (node.attrs) {
+      result.attrs = { ...node.attrs };
+    }
+
+    // Sanitize marks — map type names and strip unknown marks
+    if (node.marks && Array.isArray(node.marks)) {
+      result.marks = (node.marks as any[]).map((m: any) => {
+        const mappedType = MARK_TYPE_MAP[m.type] || m.type;
+        if (!schema.marks[mappedType]) return null;
+        return mappedType !== m.type ? { ...m, type: mappedType } : m;
+      }).filter(Boolean);
+    }
+
+    // Preserve text
+    if (node.text !== undefined) {
+      result.text = node.text;
+    }
+
+    // Recursively sanitize children
+    if (node.content && Array.isArray(node.content)) {
+      result.content = (node.content as any[]).map(sanitizeNode).filter(Boolean);
+    }
+
+    return result;
+  }
+
+  return sanitizeNode(data);
 }
 
 function charIdxToPos(targetCharIdx: number, posMap: PosMapEntry[]): number | null {
