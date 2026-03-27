@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as ol from '@/lib/api/outline';
+import * as docApi from '@/lib/api/documents';
+import type { Document as DocType, Comment as DocComment, Revision as DocRevision } from '@/lib/api/documents';
 import { FileText, Table2, Pencil, Plus, ArrowLeft, Trash2, X, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Download, ChevronRight, ChevronDown, FolderOpen, Smile, Eye, Code2, Maximize2, RotateCcw, ArrowLeftToLine, ArrowRightToLine, Link2, Presentation, Sheet, GitBranch } from 'lucide-react';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { cn } from '@/lib/utils';
@@ -11,7 +12,7 @@ import dynamic from 'next/dynamic';
 import { Editor, SearchBar } from '@/components/editor';
 import { Comments } from '@/components/comments/Comments';
 import RevisionHistory from '@/components/RevisionHistory';
-import type { OLRevision } from '@/lib/api/outline';
+// DocRevision is imported above
 import { TableEditor } from '@/components/table-editor/TableEditor';
 import { BoardEditor } from '@/components/board-editor/BoardEditor';
 import { PresentationEditor } from '@/components/presentation-editor/PresentationEditor';
@@ -211,12 +212,6 @@ export default function ContentPage() {
     return icons;
   }, [contentItems]);
 
-  const { data: collections } = useQuery({
-    queryKey: ['outline-collections'],
-    queryFn: ol.listCollections,
-    staleTime: 5 * 60 * 1000,
-  });
-
   const { data: deletedItems, isLoading: deletedLoading } = useQuery({
     queryKey: ['content-items-deleted'],
     queryFn: gw.listDeletedContentItems,
@@ -225,8 +220,8 @@ export default function ContentPage() {
   });
 
   const { data: searchResults } = useQuery({
-    queryKey: ['outline-search', searchQuery],
-    queryFn: () => ol.searchDocuments(searchQuery),
+    queryKey: ['document-search', searchQuery],
+    queryFn: () => docApi.searchDocuments(searchQuery),
     enabled: searchQuery.length >= 2,
   });
 
@@ -238,8 +233,8 @@ export default function ContentPage() {
   const selectedDiagramId = selection?.type === 'diagram' ? selection.id : null;
 
   const { data: selectedDoc } = useQuery({
-    queryKey: ['outline-doc', selectedDocId],
-    queryFn: () => ol.getDocument(selectedDocId!),
+    queryKey: ['document', selectedDocId],
+    queryFn: () => docApi.getDocument(selectedDocId!),
     enabled: !!selectedDocId,
     staleTime: 5 * 60 * 1000, // 5 min — avoid background refetch replacing local editor state with round-tripped markdown
     refetchOnWindowFocus: false, // Prevent refetch from overwriting local editor state
@@ -355,7 +350,7 @@ export default function ContentPage() {
             rawId: r.document.id,
             type: 'doc' as const,
             title: r.document.title,
-            emoji: customIcons?.[r.document.id] || (r.document as any).icon || r.document.emoji,
+            emoji: customIcons?.[r.document.id] || r.document.icon || undefined,
             createdAt: 0,
             parentId: null,
           }))
@@ -507,15 +502,12 @@ export default function ContentPage() {
 
   const handleCreateDoc = async (parentNodeId?: string) => {
     if (creating) return;
-    const collectionId = collections?.[0]?.id;
-    if (!collectionId) return;
     setCreating(true);
     try {
       const item = await gw.createContentItem({
         type: 'doc',
         title: '',
         parent_id: parentNodeId || null,
-        collection_id: collectionId,
       });
       if (parentNodeId) {
         setExpandedIds(prev => new Set(prev).add(parentNodeId));
@@ -779,11 +771,6 @@ export default function ContentPage() {
         return next;
       });
 
-      // If both are docs, also move in Outline API
-      if (activeNode.type === 'doc' && overNode.type === 'doc') {
-        ol.moveDocument(activeNode.rawId, overNode.rawId).catch(e => console.error('Move doc failed:', e));
-      }
-
       // Expand the target so user sees the dropped item
       setExpandedIds(prev => new Set(prev).add(overId));
     } else {
@@ -835,18 +822,6 @@ export default function ContentPage() {
           return next;
         });
 
-        // If doc moving to/from doc parent, update in Outline
-        if (activeNode.type === 'doc') {
-          if (overParent !== '__root__') {
-            const newParentNode = effectiveNodes.get(overParent);
-            if (newParentNode?.type === 'doc') {
-              ol.moveDocument(activeNode.rawId, newParentNode.rawId).catch(e => console.error('Move doc failed:', e));
-            }
-          } else {
-            // Moving to root
-            ol.moveDocument(activeNode.rawId, null).catch(e => console.error('Move doc failed:', e));
-          }
-        }
       }
     }
   };
@@ -1596,8 +1571,8 @@ function DraggableTreeNode({
                 onSelect={(em) => handleIconSelect(em)}
                 onRemove={node.emoji ? () => handleIconSelect(null) : undefined}
                 onUploadImage={node.type === 'doc' ? async (file) => {
-                  const result = await ol.uploadAttachment(file, node.rawId);
-                  return result.data.url;
+                  const result = await docApi.uploadFile(file, node.rawId);
+                  return result.url;
                 } : undefined}
               />
             </div>
@@ -1824,7 +1799,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
 /* Emoji picker is now a separate component: @/components/EmojiPicker */
 
 function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onNavigate, docListVisible, onToggleDocList }: {
-  doc: ol.OLDocument;
+  doc: DocType;
   customIcon?: string;
   breadcrumb: { id: string; title: string }[];
   onBack: () => void;
@@ -1839,10 +1814,10 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
 
   // Shared comment fetch function — used by both highlight extraction and Comments component
   const fetchDocComments = useCallback(async () => {
-    const comments = await ol.listComments(doc.id);
+    const comments = await docApi.listComments(doc.id);
     return comments.map(c => ({
       id: c.id,
-      text: ol.proseMirrorToText(c.data),
+      text: docApi.proseMirrorToText(c.data),
       actor: c.createdBy?.name || 'Unknown',
       parent_id: c.parentCommentId || null,
       resolved_by: c.resolvedBy || null,
@@ -1873,20 +1848,20 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
   const [showHistory, setShowHistory] = useState(false);
   const [commentQuote, setCommentQuote] = useState('');
   const [title, setTitle] = useState(doc.title);
-  const [emoji, setEmoji] = useState<string | null>(customIcon || (doc as any).icon?.trim() || doc.emoji?.trim() || null);
+  const [emoji, setEmoji] = useState<string | null>(customIcon || doc.icon?.trim() || null);
   const [text, setText] = useState(doc.text);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showTitleIcon, setShowTitleIcon] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
-  const [fullWidth, setFullWidth] = useState(doc.fullWidth ?? false);
+  const [fullWidth, setFullWidth] = useState(doc.full_width ?? false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchWithReplace, setSearchWithReplace] = useState(false);
   const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
   const [commentTopOffset, setCommentTopOffset] = useState<number | null>(null);
-  const [insightsEnabled, setInsightsEnabled] = useState(doc.insightsEnabled ?? true);
-  const [previewRevision, setPreviewRevision] = useState<OLRevision | null>(null);
-  const [prevRevision, setPrevRevision] = useState<OLRevision | null>(null);
+  const [insightsEnabled, setInsightsEnabled] = useState(true);
+  const [previewRevision, setPreviewRevision] = useState<DocRevision | null>(null);
+  const [prevRevision, setPrevRevision] = useState<DocRevision | null>(null);
   const [highlightChanges, setHighlightChanges] = useState(false);
   const titleSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1895,7 +1870,7 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
   const docIdRef = useRef(doc.id);
   const latestTitleRef = useRef(doc.title);
   const latestTextRef = useRef(doc.text);
-  const latestEmojiRef = useRef((customIcon || (doc as any).icon || doc.emoji || null) as string | null);
+  const latestEmojiRef = useRef((customIcon || doc.icon || null) as string | null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -2009,11 +1984,11 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
     if (textSaveTimerRef.current) { clearTimeout(textSaveTimerRef.current); textSaveTimerRef.current = null; }
     docIdRef.current = doc.id;
     setTitle(doc.title);
-    setEmoji(customIcon || (doc as any).icon?.trim() || doc.emoji?.trim() || null);
+    setEmoji(customIcon || doc.icon?.trim() || null);
     setText(doc.text);
     latestTitleRef.current = doc.title;
     latestTextRef.current = doc.text;
-    latestEmojiRef.current = (customIcon || (doc as any).icon || doc.emoji || null) as string | null;
+    latestEmojiRef.current = (customIcon || doc.icon || null) as string | null;
     setSaveStatus('saved');
     setShowHistory(false);
     setPreviewRevision(null);
@@ -2043,13 +2018,13 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
       const savingEmoji = latestEmojiRef.current;
       const outlineEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
       const titleToSave = savingTitle ?? '';
-      const savedDoc = await ol.updateDocument(saveDocId, titleToSave, savingText, outlineEmoji);
+      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, outlineEmoji);
       // Only update cache if no newer save of either type has been scheduled
       if (titleVersionRef.current !== titleVersion || textVersionRef.current !== textVersion) return;
       const confirmedTitle = savedDoc.title;
       const confirmedEmoji = savingEmoji;
-      queryClient.setQueryData<ol.OLDocument>(['outline-doc', saveDocId], (old) =>
-        old ? { ...old, title: confirmedTitle, text: savingText, emoji: confirmedEmoji } : old
+      queryClient.setQueryData<DocType>(['document', saveDocId], (old) =>
+        old ? { ...old, title: confirmedTitle, text: savingText, icon: confirmedEmoji } : old
       );
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
       if (saveDocId === docIdRef.current) {
@@ -2089,12 +2064,9 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
   }, [executeSave]);
 
   useEffect(() => {
-    const docId = doc.id;
     return () => {
       if (titleSaveTimerRef.current) clearTimeout(titleSaveTimerRef.current);
       if (textSaveTimerRef.current) clearTimeout(textSaveTimerRef.current);
-      // Signal editing session end — triggers Outline to create a revision snapshot
-      ol.updateDocument(docId, undefined, undefined, undefined, { done: true }).catch(() => {});
     };
   }, [doc.id]);
 
@@ -2183,8 +2155,8 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
             onClick={() => setShowHistory(true)}
             className="text-[11px] text-muted-foreground/50 mt-0.5 hover:text-muted-foreground transition-colors cursor-pointer"
           >
-            {formatRelativeTime(doc.updatedAt)}
-            {doc.updatedBy?.name && <span> · {doc.updatedBy.name}</span>}
+            {formatRelativeTime(doc.updated_at)}
+            {doc.updated_by && <span> · {doc.updated_by}</span>}
           </button>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -2227,7 +2199,7 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
                   <div className="border-t border-border my-1" />
                   <DocMenuToggle icon={Maximize2} label={t('content.fullWidth')} checked={fullWidth} onChange={async (v) => {
                     setFullWidth(v);
-                    await ol.updateDocument(doc.id, undefined, undefined, undefined, { fullWidth: v });
+                    await docApi.updateDocument(doc.id, undefined, undefined, undefined, { fullWidth: v });
                   }} />
                 </div>
               </>
@@ -2330,8 +2302,8 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
                     onSelect={(em) => handleEmojiSelect(em)}
                     onRemove={emoji ? () => handleEmojiSelect(null) : undefined}
                     onUploadImage={async (file) => {
-                      const result = await ol.uploadAttachment(file, doc.id);
-                      return result.data.url;
+                      const result = await docApi.uploadFile(file, doc.id);
+                      return result.url;
                     }}
                   />
                 </div>
@@ -2385,20 +2357,20 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
               fetchComments={fetchDocComments}
               postComment={(text, parentId) => gw.commentOnDoc(doc.id, text, parentId)}
               editComment={async (commentId, text) => {
-                await ol.updateComment(commentId, ol.textToProseMirror(text));
+                await docApi.updateComment(commentId, docApi.textToProseMirror(text));
               }}
               deleteComment={async (commentId) => {
-                await ol.deleteComment(commentId);
+                await docApi.deleteComment(commentId);
               }}
               resolveComment={async (commentId) => {
-                await ol.resolveComment(commentId);
+                await docApi.resolveComment(commentId);
               }}
               unresolveComment={async (commentId) => {
-                await ol.unresolveComment(commentId);
+                await docApi.unresolveComment(commentId);
               }}
               uploadImage={async (file) => {
-                const result = await ol.uploadAttachment(file, doc.id);
-                return result.data.url;
+                const result = await docApi.uploadFile(file, doc.id);
+                return result.url;
               }}
               initialQuote={commentQuote}
               onQuoteConsumed={() => setCommentQuote('')}
@@ -2414,21 +2386,21 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
     {showHistory && (
       <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
         <RevisionHistory
-          doc={doc}
+          doc={doc as any}
           onClose={() => { setShowHistory(false); setPreviewRevision(null); setPrevRevision(null); }}
           onRestored={async () => {
-            await queryClient.invalidateQueries({ queryKey: ['outline-doc', doc.id] });
+            await queryClient.invalidateQueries({ queryKey: ['document', doc.id] });
             await queryClient.invalidateQueries({ queryKey: ['content-items'] });
-            const restored = await queryClient.fetchQuery({ queryKey: ['outline-doc', doc.id], queryFn: () => ol.getDocument(doc.id) });
+            const restored = await queryClient.fetchQuery({ queryKey: ['document', doc.id], queryFn: () => docApi.getDocument(doc.id) });
             setTitle(restored.title);
             setText(restored.text);
             latestTitleRef.current = restored.title;
             latestTextRef.current = restored.text;
-            latestEmojiRef.current = ((restored as any).icon || restored.emoji || null) as string | null;
+            latestEmojiRef.current = (restored.icon || null) as string | null;
             setEditorKey(k => k + 1);
             onSaved();
           }}
-          onSelect={(rev, prev) => { setPreviewRevision(rev); setPrevRevision(prev); }}
+          onSelect={(rev, prev) => { setPreviewRevision(rev as any); setPrevRevision(prev as any); }}
           highlightChanges={highlightChanges}
           onHighlightChangesToggle={() => setHighlightChanges(v => !v)}
         />
