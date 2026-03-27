@@ -12,6 +12,7 @@ import { useT } from '@/lib/i18n';
 
 // Excalidraw is client-only (no SSR) — dynamically imported in the component
 let ExcalidrawComponent: React.ComponentType<any> | null = null;
+let MainMenuComponent: React.ComponentType<any> | null = null;
 let exportToBlobFn: any = null;
 let excalidrawLoaded = false;
 
@@ -20,6 +21,7 @@ function loadExcalidraw() {
   return Promise.all([
     import('@excalidraw/excalidraw').then((mod) => {
       ExcalidrawComponent = mod.Excalidraw;
+      MainMenuComponent = mod.MainMenu;
       exportToBlobFn = mod.exportToBlob;
     }),
     // Excalidraw requires its CSS for toolbar/UI to render
@@ -352,7 +354,10 @@ export function BoardEditor({
                 ? 'dark'
                 : 'light'
             }
-          />
+          >
+            {/* Empty MainMenu hides the native hamburger menu button */}
+            {MainMenuComponent && <MainMenuComponent />}
+          </ExcalidrawComponent>
         )}
       </div>
     </div>
