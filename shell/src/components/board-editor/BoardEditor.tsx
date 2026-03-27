@@ -13,8 +13,13 @@ let excalidrawLoaded = false;
 
 function loadExcalidraw() {
   if (excalidrawLoaded) return Promise.resolve();
-  return import('@excalidraw/excalidraw').then((mod) => {
-    ExcalidrawComponent = mod.Excalidraw;
+  return Promise.all([
+    import('@excalidraw/excalidraw').then((mod) => {
+      ExcalidrawComponent = mod.Excalidraw;
+    }),
+    // Excalidraw requires its CSS for toolbar/UI to render
+    import('@excalidraw/excalidraw/index.css'),
+  ]).then(() => {
     excalidrawLoaded = true;
   });
 }
@@ -160,8 +165,8 @@ export function BoardEditor({
         </button>
       </div>
 
-      {/* Excalidraw canvas */}
-      <div className="flex-1 min-h-0">
+      {/* Excalidraw canvas — needs explicit height for Excalidraw to fill */}
+      <div className="flex-1 min-h-0 relative">
         {ExcalidrawComponent && (
           <ExcalidrawComponent
             initialData={board.data}
