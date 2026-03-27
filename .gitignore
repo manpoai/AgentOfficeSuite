@@ -28,3 +28,4 @@ dex-data/
 
 # PM2
 ecosystem.config.cjs
+.worktrees/
