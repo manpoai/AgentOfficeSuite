@@ -178,6 +178,21 @@ function buildSlashItems(getDocId?: () => string | undefined): SlashMenuItem[] {
         view.focus();
       },
     },
+    // --- Diagram Embed ---
+    {
+      label: 'Embed Diagram', description: 'Embed a diagram with live preview', icon: '\u{1F500}', keywords: 'diagram embed flowchart graph x6',
+      command: (view) => {
+        const diagramId = prompt('Enter diagram ID:');
+        if (!diagramId) return;
+        const node = schema.nodes.diagram_embed.create({
+          diagramId,
+          title: 'Diagram',
+        });
+        const { from, to } = view.state.selection;
+        view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
+        view.focus();
+      },
+    },
   ];
 }
 

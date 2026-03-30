@@ -14,7 +14,7 @@ import {
   ArrowUpToLine, ArrowDownToLine, MoveUp, MoveDown,
   FlipHorizontal2, FlipVertical2, RotateCcw,
   Replace, PanelRightClose, PanelRight, X,
-  Table2, Trash, MessageSquare, Clock,
+  Table2, Trash, MessageSquare, Clock, Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -102,6 +102,89 @@ function formatRelativeTime(ts: number): string {
   if (hours < 24) return `${hours} hours ago`;
   const days = Math.floor(hours / 24);
   return `${days} days ago`;
+}
+
+// ─── SVG rendering for X6 diagram cells ────────────
+function escapeXmlPPT(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderCellsToSVG(cells: any[]): string {
+  if (!cells || cells.length === 0) {
+    return '<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">Empty diagram</text></svg>';
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const nodes: any[] = [];
+  const edges: any[] = [];
+
+  for (const cell of cells) {
+    if (cell.shape === 'edge' || cell.shape === 'mindmap-edge' || cell.source) {
+      edges.push(cell);
+    } else if (cell.position) {
+      nodes.push(cell);
+      const x = cell.position.x;
+      const y = cell.position.y;
+      const w = cell.size?.width || 120;
+      const h = cell.size?.height || 60;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    }
+  }
+
+  if (nodes.length === 0) {
+    return '<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">No nodes</text></svg>';
+  }
+
+  const padding = 40;
+  const vbW = maxX - minX + padding * 2;
+  const vbH = maxY - minY + padding * 2;
+  const offsetX = -minX + padding;
+  const offsetY = -minY + padding;
+
+  let svgContent = '';
+
+  const nodeMap = new Map<string, any>();
+  for (const n of nodes) nodeMap.set(n.id, n);
+
+  for (const edge of edges) {
+    const src = typeof edge.source === 'string' ? edge.source : edge.source?.cell;
+    const tgt = typeof edge.target === 'string' ? edge.target : edge.target?.cell;
+    const srcNode = nodeMap.get(src);
+    const tgtNode = nodeMap.get(tgt);
+    if (srcNode && tgtNode) {
+      const x1 = srcNode.position.x + (srcNode.size?.width || 120) / 2 + offsetX;
+      const y1 = srcNode.position.y + (srcNode.size?.height || 60) / 2 + offsetY;
+      const x2 = tgtNode.position.x + (tgtNode.size?.width || 120) / 2 + offsetX;
+      const y2 = tgtNode.position.y + (tgtNode.size?.height || 60) / 2 + offsetY;
+      const strokeColor = edge.attrs?.line?.stroke || '#999';
+      svgContent += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${strokeColor}" stroke-width="1.5" marker-end="url(#arrowhead)"/>`;
+    }
+  }
+
+  for (const n of nodes) {
+    const x = n.position.x + offsetX;
+    const y = n.position.y + offsetY;
+    const w = n.size?.width || 120;
+    const h = n.size?.height || 60;
+    const fill = n.attrs?.body?.fill || '#fff';
+    const stroke = n.attrs?.body?.stroke || '#333';
+    const label = n.attrs?.label?.text || n.attrs?.text?.text || '';
+    const rx = n.shape?.includes('circle') || n.shape?.includes('ellipse') ? Math.min(w, h) / 2 : 6;
+
+    svgContent += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+    if (label) {
+      const fontSize = Math.min(12, w / label.length * 1.5);
+      svgContent += `<text x="${x + w / 2}" y="${y + h / 2}" text-anchor="middle" dominant-baseline="central" fill="#333" font-size="${fontSize}" font-family="system-ui, sans-serif">${escapeXmlPPT(label)}</text>`;
+    }
+  }
+
+  return `<svg viewBox="0 0 ${vbW} ${vbH}" xmlns="http://www.w3.org/2000/svg">
+    <defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#999"/></marker></defs>
+    ${svgContent}
+  </svg>`;
 }
 
 // ─── Fit canvas to container using Fabric.js zoom ────
@@ -285,6 +368,14 @@ export function PresentationEditor({
     canvas.on('selection:created', onSelect);
     canvas.on('selection:updated', onSelect);
     canvas.on('selection:cleared', onDeselect);
+
+    // Double-click to open embedded diagrams
+    canvas.on('mouse:dblclick', (e: any) => {
+      const obj = e.target;
+      if (obj && (obj as any).__diagramId) {
+        window.location.href = `/content?id=diagram:${encodeURIComponent((obj as any).__diagramId)}`;
+      }
+    });
 
     // ResizeObserver for responsive sizing
     const container = canvasContainerRef.current;
@@ -836,6 +927,50 @@ export function PresentationEditor({
     setSelectedTool('select');
   }, []);
 
+  // ─── Diagram insertion ─────────────────────────────
+  const insertDiagram = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !fabricModule) return;
+    const diagramId = prompt('Enter diagram ID:');
+    if (!diagramId) return;
+
+    try {
+      const res = await fetch(`/api/gateway/diagrams/${diagramId}`);
+      if (!res.ok) throw new Error('Failed to load diagram');
+      const data = await res.json();
+      const cells = data.data?.cells || data.data?.nodes || [];
+
+      const svgStr = renderCellsToSVG(cells);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+
+      const { FabricImage } = fabricModule;
+      const imgEl = new window.Image();
+      imgEl.onload = () => {
+        const scale = Math.min(400 / (imgEl.width || 400), 300 / (imgEl.height || 300), 1);
+        const fabricImg = new FabricImage(imgEl, {
+          left: 100,
+          top: 100,
+          scaleX: scale,
+          scaleY: scale,
+        });
+        (fabricImg as any).__diagramId = diagramId;
+
+        canvas.add(fabricImg);
+        canvas.setActiveObject(fabricImg);
+        canvas.renderAll();
+        URL.revokeObjectURL(url);
+      };
+      imgEl.onerror = () => {
+        console.error('Failed to load diagram SVG as image');
+        URL.revokeObjectURL(url);
+      };
+      imgEl.src = url;
+    } catch (err) {
+      console.error('Failed to insert diagram:', err);
+    }
+  }, []);
+
   const deleteSelected = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1037,6 +1172,7 @@ export function PresentationEditor({
         <ToolBtn icon={TriangleIcon} onClick={() => addShape('triangle')} title="Triangle" />
         <ToolBtn icon={ImageIcon} onClick={addImage} title="Image" />
         <ToolBtn icon={Table2} onClick={() => addTable(3, 3)} title="Table" />
+        <ToolBtn icon={Workflow} onClick={insertDiagram} title="Insert Diagram" />
         <div className="w-px h-5 bg-border mx-1" />
         {/* Spacer to push format toggle to the right */}
         <div className="flex-1" />
