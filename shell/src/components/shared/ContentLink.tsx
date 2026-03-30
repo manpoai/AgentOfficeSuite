@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { FileText, Table2, Presentation, GitBranch, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import { getContentItem, type ContentItem } from '@/lib/api/gateway';
 
 interface ContentLinkProps {
@@ -19,21 +20,6 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string; size?
   presentation: Presentation,
   diagram: GitBranch,
 };
-
-function formatRelativeTime(dateStr: string | null | undefined): string {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
 
 function getContentType(id: string): string {
   const colonIdx = id.indexOf(':');

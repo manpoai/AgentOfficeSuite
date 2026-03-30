@@ -714,6 +714,36 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     }
   }, [views.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Mobile: prevent body scroll when horizontally scrolling the table grid ──
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    let startX = 0;
+    let startY = 0;
+    let locked = false;
+    const onTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      locked = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (!locked && dx > dy && dx > 10) {
+        locked = true; // horizontal scroll detected
+      }
+      if (locked) {
+        e.preventDefault(); // prevent body scroll during horizontal table scroll
+      }
+    };
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, []);
+
   // ── Column drag-over state for drop indicator ──
   const [colDragOver, setColDragOver] = useState<{ overId: string; side: 'left' | 'right' } | null>(null);
   const [colDragActiveId, setColDragActiveId] = useState<string | null>(null);
@@ -807,7 +837,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setShowCreateView(false);
       refreshMeta();
       setActiveViewId(view.view_id);
-    } catch {}
+    } catch (e) { console.error('Create view failed:', e); }
   };
 
   const handleRenameView = async (viewId: string) => {
@@ -815,7 +845,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     try {
       await nc.renameView(viewId, viewTitleValue.trim());
       refreshMeta();
-    } catch {}
+    } catch (e) { console.error('Rename view failed:', e); }
     setEditingViewTitle(null);
   };
 
@@ -824,7 +854,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await nc.deleteView(viewId);
       refreshMeta();
       if (activeViewId === viewId) setActiveViewId(null);
-    } catch {}
+    } catch (e) { console.error('Delete view failed:', e); }
     setViewMenu(null);
   };
 
@@ -836,7 +866,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refresh();
       setNewFilterCol('');
       setNewFilterVal('');
-    } catch {}
+    } catch (e) { console.error('Add filter failed:', e); }
   };
 
   const handleDeleteFilter = async (filterId: string) => {
@@ -844,7 +874,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await nc.deleteFilter(filterId);
       refreshFilters();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Delete filter failed:', e); }
   };
 
   const handleUpdateFilter = async (filterId: string, updates: { fk_column_id?: string; comparison_op?: string; value?: string }) => {
@@ -852,7 +882,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await nc.updateFilter(filterId, updates);
       refreshFilters();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Update filter failed:', e); }
   };
 
   const handleAddSort = async () => {
@@ -862,7 +892,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshSorts();
       refresh();
       setNewSortCol('');
-    } catch {}
+    } catch (e) { console.error('Add sort failed:', e); }
   };
 
   // Sort from column header menu — syncs with toolbar sort via API
@@ -871,13 +901,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     // Remove existing sort on this column if any
     const existingSort = viewSorts?.find(s => s.fk_column_id === columnId);
     if (existingSort) {
-      try { await nc.deleteSort(existingSort.sort_id); } catch {}
+      try { await nc.deleteSort(existingSort.sort_id); } catch (e) { console.error('Delete existing sort failed:', e); }
     }
     try {
       await nc.createSort(activeViewId, { fk_column_id: columnId, direction });
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Create sort failed:', e); }
   };
 
   const handleDeleteSort = async (sortId: string) => {
@@ -885,7 +915,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await nc.deleteSort(sortId);
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Delete sort failed:', e); }
   };
 
   const handleUpdateSort = async (sortId: string, updates: { fk_column_id?: string; direction?: string }) => {
@@ -893,7 +923,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await nc.updateSort(sortId, updates);
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Update sort failed:', e); }
   };
 
   // ── Sort ──
@@ -1975,7 +2005,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                             const newView = await nc.createView(tableId, copyTitle, VIEW_TYPES.find(vt => vt.typeNum === v.type)?.type || 'grid');
                             refreshMeta();
                             setActiveViewId(newView.view_id);
-                          } catch {}
+                          } catch (e) { console.error('Duplicate view failed:', e); }
                         }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
@@ -2058,7 +2088,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                       }
                       refreshMeta();
                       setActiveViewId(newView.view_id);
-                    } catch {}
+                    } catch (e) { console.error('Create view failed:', e); }
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                 >
@@ -2827,7 +2857,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         // Grid view (default)
         return null;
       })() || (
-      <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' as any }}>
+      <div ref={gridScrollRef} className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' as any }}>
         {isLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
@@ -5352,7 +5382,7 @@ function FormView({ columns, tableId, onSubmit }: {
       setFormData({});
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 2000);
-    } catch {}
+    } catch (e) { console.error('Form submit failed:', e); }
     setSubmitting(false);
   };
 

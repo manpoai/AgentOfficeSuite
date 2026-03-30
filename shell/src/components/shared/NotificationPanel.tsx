@@ -5,20 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Check, MessageSquare, FileText, Table2, Bot, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
-
-function formatRelativeTime(ts: string): string {
-  try {
-    const diff = Date.now() - new Date(ts).getTime();
-    if (diff < 60_000) return 'just now';
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-    if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
-    return new Date(ts).toLocaleDateString('zh-CN');
-  } catch {
-    return '';
-  }
-}
 
 const NOTIF_ICON: Record<string, React.ReactNode> = {
   doc_update: <FileText className="h-4 w-4" />,
@@ -59,8 +47,8 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
     try {
       await gw.markAllNotificationsRead();
       invalidate();
-    } catch {
-      // silently fail
+    } catch (e) {
+      console.error('Mark all notifications read failed:', e);
     }
   }, [invalidate]);
 
@@ -74,8 +62,8 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
         router.push(notif.link);
       }
       onClose();
-    } catch {
-      // silently fail
+    } catch (e) {
+      console.error('Notification click handler failed:', e);
     }
   }, [router, onClose, invalidate]);
 

@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, X, MoreHorizontal, Pencil, Trash2, CheckCircle2, Undo2, Image as ImageIcon, Paperclip, Copy, Link, Reply, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import type { Comment } from '@/lib/api/gateway';
 import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
 import { useT } from '@/lib/i18n';
@@ -35,18 +36,9 @@ interface CommentsProps {
   topOffset?: number | null;
 }
 
-function timeAgo(dateStr: string, t: (key: string, params?: Record<string, string | number>) => string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return t('comments.justNow');
-  if (mins < 60) return t('comments.minutesAgo', { n: mins });
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return t('comments.hoursAgo', { n: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 7) return t('comments.daysAgo', { n: days });
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// timeAgo delegates to the shared formatRelativeTime utility
+function timeAgo(dateStr: string): string {
+  return formatRelativeTime(dateStr);
 }
 
 function getInitial(name: string): string {
@@ -373,7 +365,7 @@ export function Comments({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-foreground">{c.actor}</span>
-            <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at, t)}</span>
+            <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at)}</span>
             <CommentMenu
               comment={c}
               onEdit={editComment ? () => { setEditingId(c.id); setEditText(c.text); } : undefined}

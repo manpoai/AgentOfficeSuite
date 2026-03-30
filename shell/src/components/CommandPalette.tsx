@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, Table2, Presentation, GitBranch, Users, Settings, Search, ArrowRight, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
 import { useT } from '@/lib/i18n';
 
@@ -45,18 +46,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 }
 
 function formatTime(ts?: string): string {
-  if (!ts) return '';
-  try {
-    const d = new Date(ts);
-    const now = Date.now();
-    const diff = now - d.getTime();
-    if (diff < 60_000) return 'just now';
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-    return d.toLocaleDateString('zh-CN');
-  } catch {
-    return '';
-  }
+  return formatRelativeTime(ts);
 }
 
 export function CommandPalette() {
