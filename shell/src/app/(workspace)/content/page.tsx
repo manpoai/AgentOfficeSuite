@@ -820,6 +820,54 @@ export default function ContentPage() {
 
   const dragActiveNode = dragActiveId ? effectiveNodes.get(dragActiveId) : null;
 
+  // ── Mobile swipe-back gesture (left edge → right swipe returns to list) ──
+  const [swipeProgress, setSwipeProgress] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const isMobile = window.innerWidth < 768;
+    if (!isMobile) return;
+
+    let startX = 0;
+    let startY = 0;
+    let swiping = false;
+
+    const onStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch.clientX < 30 && mobileView === 'detail') {
+        startX = touch.clientX;
+        startY = touch.clientY;
+        swiping = true;
+        setSwipeProgress(0);
+      }
+    };
+
+    const onMove = (e: TouchEvent) => {
+      if (!swiping) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dy > 50) { swiping = false; setSwipeProgress(0); return; } // vertical scroll, cancel
+      if (dx > 0) {
+        setSwipeProgress(Math.min(dx / 80, 1));
+      }
+      if (dx > 80) {
+        swiping = false;
+        setSwipeProgress(0);
+        setMobileView('list');
+      }
+    };
+
+    const onEnd = () => { swiping = false; setSwipeProgress(0); };
+
+    window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchmove', onMove, { passive: true });
+    window.addEventListener('touchend', onEnd);
+    return () => {
+      window.removeEventListener('touchstart', onStart);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onEnd);
+    };
+  }, [mobileView]);
+
   // Get depth of a node for rendering
   const getDepth = (nodeId: string): number => {
     let depth = 0;
@@ -832,7 +880,21 @@ export default function ContentPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden flex-col md:flex-row">
+    <div className="flex h-full overflow-hidden flex-col md:flex-row relative">
+      {/* Mobile swipe-back indicator */}
+      {swipeProgress > 0 && mobileView === 'detail' && (
+        <div
+          className="fixed left-0 top-0 bottom-0 z-50 pointer-events-none flex items-center md:hidden"
+          style={{ width: 32 }}
+        >
+          <div
+            className="w-8 h-16 flex items-center justify-center rounded-r-lg bg-primary/20 backdrop-blur-sm transition-opacity"
+            style={{ opacity: swipeProgress, transform: `translateX(${swipeProgress * 12 - 12}px)` }}
+          >
+            <ArrowLeft className="w-4 h-4 text-primary" style={{ opacity: swipeProgress }} />
+          </div>
+        </div>
+      )}
       {/* Unified sidebar (desktop only) — includes logo, search, tree, settings */}
       <ContentSidebar
         collapsed={sidebarCollapsed}

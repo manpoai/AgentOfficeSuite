@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Table2, Presentation, GitBranch, Users, Settings, Search, ArrowRight, Loader2 } from 'lucide-react';
+import { FileText, Table2, Presentation, GitBranch, Users, Settings, Search, ArrowRight, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import * as gw from '@/lib/api/gateway';
 import { useT } from '@/lib/i18n';
@@ -245,14 +245,14 @@ export function CommandPalette() {
   let flatIndex = -1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-0 md:pt-[15vh]">
+      {/* Backdrop (hidden on mobile since we go full-screen) */}
+      <div className="absolute inset-0 bg-black/50 hidden md:block" onClick={() => setOpen(false)} />
 
-      {/* Dialog */}
-      <div className="relative w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+      {/* Dialog — full-screen on mobile, centered card on desktop */}
+      <div className="relative w-full h-full md:h-auto md:max-w-lg bg-card md:border md:border-border md:rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}
@@ -260,14 +260,18 @@ export function CommandPalette() {
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('command.placeholder')}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+            className="flex-1 bg-transparent text-sm md:text-sm text-base text-foreground placeholder:text-muted-foreground outline-none"
           />
           {isSearching && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />}
-          <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">ESC</kbd>
+          <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded hidden md:inline">ESC</kbd>
+          {/* Mobile close button */}
+          <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-muted md:hidden">
+            <X className="h-5 w-5 text-muted-foreground" />
+          </button>
         </div>
 
         {/* Results */}
-        <div className="max-h-[50vh] overflow-y-auto py-1">
+        <div className="flex-1 md:flex-none md:max-h-[50vh] overflow-y-auto py-1">
           {/* Loading state for search */}
           {isSearchMode && isSearching && displayItems.length === 0 && (
             <div className="flex items-center justify-center gap-2 py-8">
@@ -298,7 +302,7 @@ export function CommandPalette() {
                     onClick={() => item.action()}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     className={cn(
-                      'w-full flex items-center gap-3 px-4 py-2 text-left transition-colors',
+                      'w-full flex items-center gap-3 px-4 py-2 min-h-[48px] md:min-h-0 text-left transition-colors',
                       selectedIndex === idx ? 'bg-accent' : 'hover:bg-accent/50'
                     )}
                   >
@@ -324,8 +328,8 @@ export function CommandPalette() {
           ))}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-border flex items-center gap-4 text-[10px] text-muted-foreground">
+        {/* Footer — hidden on mobile */}
+        <div className="px-4 py-2 border-t border-border items-center gap-4 text-[10px] text-muted-foreground hidden md:flex">
           <span><kbd className="bg-muted px-1 py-0.5 rounded">↑↓</kbd> {t('command.navHint').replace('↑↓ ', '')}</span>
           <span><kbd className="bg-muted px-1 py-0.5 rounded">Enter</kbd> {t('command.enterHint').replace('Enter ', '')}</span>
           <span><kbd className="bg-muted px-1 py-0.5 rounded">Esc</kbd> {t('command.escHint').replace('Esc ', '')}</span>

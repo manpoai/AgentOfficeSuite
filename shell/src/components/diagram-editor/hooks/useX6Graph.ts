@@ -55,10 +55,18 @@ export function useX6Graph(
 
           // Canvas navigation
           // Right-click drag = pan; two-finger trackpad scroll = pan (handled below)
-          panning: { enabled: true, eventTypes: ['rightMouseDown'] },
+          // On mobile (touch devices), left mouse down (= finger drag) also pans
+          panning: {
+            enabled: true,
+            eventTypes: typeof window !== 'undefined' && 'ontouchstart' in window
+              ? ['leftMouseDown', 'rightMouseDown']
+              : ['rightMouseDown'],
+          },
           mousewheel: {
             enabled: true,
-            modifiers: ['ctrl', 'meta'],
+            modifiers: typeof window !== 'undefined' && 'ontouchstart' in window
+              ? []           // Allow pinch-zoom on mobile without modifier keys
+              : ['ctrl', 'meta'],
             zoomAtMousePosition: true,
             minScale: 0.2,
             maxScale: 3,
@@ -112,9 +120,10 @@ export function useX6Graph(
         });
 
         // ── Plugins ──
+        const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window;
         graph.use(new Selection({
           enabled: true,
-          rubberband: true,
+          rubberband: !isTouchDevice, // Disable rubberband on touch — conflicts with panning
           showNodeSelectionBox: true,
           multiple: true,
           movable: true,

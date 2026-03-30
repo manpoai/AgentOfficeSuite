@@ -250,6 +250,16 @@ export function PresentationEditor({
   const [showPropertyPanel, setShowPropertyPanel] = useState(true);
   const [showComments, setShowComments] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [mobileEditMode, setMobileEditMode] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
+
+  // Track screen width for mobile vertical preview
+  useEffect(() => {
+    const checkMobile = () => setIsMobileView(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Auto-save revision tracking
   const lastRevisionRef = useRef<number>(0);
@@ -570,6 +580,10 @@ export function PresentationEditor({
             fabricImg.set('stroke', el.stroke);
             fabricImg.set('strokeWidth', el.strokeWidth || 0);
           }
+          // Restore diagram metadata for embedded diagrams
+          if (el.__diagramId) {
+            (fabricImg as any).__diagramId = el.__diagramId;
+          }
           canvas.add(fabricImg);
           canvas.renderAll();
           pendingImages--;
@@ -703,7 +717,7 @@ export function PresentationEditor({
         });
       } else if (objType === 'image') {
         // FIX 2: Save actual scaleX/scaleY from Fabric object, plus natural dimensions
-        elements.push({
+        const imgData: any = {
           ...base,
           type: 'image',
           src: obj.getSrc?.() || '',
@@ -715,7 +729,12 @@ export function PresentationEditor({
           stroke: obj.stroke || '',
           strokeWidth: obj.strokeWidth || 0,
           borderRadius: obj.clipPath?.rx ? Math.round(obj.clipPath.rx * (obj.scaleX || 1)) : 0,
-        });
+        };
+        // Preserve diagram metadata for embedded diagrams
+        if ((obj as any).__diagramId) {
+          imgData.__diagramId = (obj as any).__diagramId;
+        }
+        elements.push(imgData);
       } else if (objType === 'table') {
         elements.push({
           ...base,
@@ -1091,13 +1110,63 @@ export function PresentationEditor({
     );
   }
 
+  // ─── Mobile Vertical Preview Mode ────────────────
+  if (isMobileView && !mobileEditMode) {
+    return (
+      <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-card">
+        {/* Header */}
+        <div className="flex items-center border-b border-border shrink-0">
+          <ContentTopBar
+            breadcrumb={breadcrumb}
+            onBack={onBack}
+            docListVisible={docListVisible}
+            onToggleDocList={onToggleDocList}
+            title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
+            titlePlaceholder={t('content.untitledPresentation') || 'Untitled Presentation'}
+            onTitleChange={async (newTitle) => {
+              if (newTitle !== currentTitle) {
+                await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
+                queryClient.invalidateQueries({ queryKey: ['content-items'] });
+              }
+            }}
+            actions={<>
+              <button
+                onClick={startPresentation}
+                className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                title="Present"
+              >
+                <Play className="h-3.5 w-3.5" />
+              </button>
+            </>}
+          />
+        </div>
+        {/* Vertical scroll preview */}
+        <div className="flex-1 overflow-y-auto bg-[#f0f0f0] dark:bg-zinc-900 px-4 py-4 space-y-3">
+          {slides.map((slide, i) => (
+            <button
+              key={i}
+              onClick={() => {
+                setCurrentSlideIndex(i);
+                setMobileEditMode(true);
+              }}
+              className="block w-full rounded-lg overflow-hidden shadow-md border border-border/50 bg-card"
+              style={{ aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}` }}
+            >
+              <SlideThumb slide={slide} />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-card">
       {/* ─── Header Bar ─── */}
       <div className="flex items-center border-b border-border shrink-0">
         <ContentTopBar
           breadcrumb={breadcrumb}
-          onBack={onBack}
+          onBack={isMobileView && mobileEditMode ? () => setMobileEditMode(false) : onBack}
           docListVisible={docListVisible}
           onToggleDocList={onToggleDocList}
           title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
@@ -1190,8 +1259,8 @@ export function PresentationEditor({
 
       {/* ─── Main Area: Slide List + Canvas + Property Panel ── */}
       <div className="flex-1 flex min-h-0">
-        {/* Slide List (left) */}
-        <div className="w-[220px] border-r border-border flex flex-col shrink-0 bg-muted/20">
+        {/* Slide List (left) — hidden on mobile */}
+        <div className="w-[220px] border-r border-border flex-col shrink-0 bg-muted/20 hidden md:flex">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border">
             <span className="text-xs font-medium text-muted-foreground">Slides ({slides.length})</span>
             <button onClick={addSlide} className="p-1 text-muted-foreground hover:text-foreground" title="Add slide">

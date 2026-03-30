@@ -442,6 +442,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
   // CSV import state
   const [csvImportData, setCsvImportData] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [csvColMap, setCsvColMap] = useState<Record<number, string>>({}); // csvColIdx → tableColTitle
@@ -2826,7 +2827,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         // Grid view (default)
         return null;
       })() || (
-      <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none' }}>
+      <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' as any }}>
         {isLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
@@ -2835,7 +2836,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
           </div>
         ) : (
           <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd} onDragOver={handleColumnDragOver} onDragStart={(e) => setColDragActiveId(String(e.active.id))} onDragCancel={() => { setColDragOver(null); setColDragActiveId(null); }}>
-          <table className="text-sm border-collapse table-fixed">
+          <table className="text-sm border-collapse table-fixed" style={{ minWidth: `${32 + visibleCols.length * 120}px` }}>
             <thead>
               <tr className="border-b border-border bg-muted/30 sticky top-0 z-[5]">
                 <th className="px-1 py-1.5 text-center text-[10px] font-normal text-muted-foreground/50 group/hdr sticky left-0 z-[6] bg-card relative after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }}>
