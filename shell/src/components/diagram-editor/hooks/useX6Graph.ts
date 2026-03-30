@@ -194,14 +194,33 @@ export function useX6Graph(
             hideAllPorts();
           }, 200);
         };
-        // Hide ports on blank click or selection change
+        // Show ports on node click
+        const onNodeClick = (e: any) => {
+          const node = e.node || e.cell;
+          if (!node || !node.isNode()) return;
+          // Don't show ports on preview nodes
+          if (node.getData()?._isPreview) return;
+          showPortsOn(node);
+        };
+        // Hide ports on blank click
         const onBlankClick = () => { hideAllPorts(); };
-        const onSelectionChanged = () => { hideAllPorts(); };
+        // On selection change, show ports on the selected node (if single node)
+        const onSelectionChanged = () => {
+          const selected = graph.getSelectedCells();
+          if (selected.length === 1 && selected[0].isNode()) {
+            if (!selected[0].getData()?._isPreview) {
+              showPortsOn(selected[0]);
+              return;
+            }
+          }
+          hideAllPorts();
+        };
 
         graph.on('node:mouseenter', onNodeEnter);
         graph.on('node:mouseleave', onNodeLeave);
         graph.on('node:port:mouseenter', onPortEnter);
         graph.on('node:port:mouseleave', onPortLeave);
+        graph.on('node:click', onNodeClick);
         graph.on('blank:click', onBlankClick);
         graph.on('selection:changed', onSelectionChanged);
 

@@ -673,12 +673,18 @@ function X6DiagramEditorInner({
     };
 
     const clearPreview = () => {
-      if (graph.hasCell(PREVIEW_EDGE_ID)) graph.removeCell(PREVIEW_EDGE_ID);
-      if (graph.hasCell(PREVIEW_NODE_ID)) graph.removeCell(PREVIEW_NODE_ID);
+      try {
+        if (graph.hasCell(PREVIEW_EDGE_ID)) graph.removeCell(PREVIEW_EDGE_ID);
+      } catch { /* ignore */ }
+      try {
+        if (graph.hasCell(PREVIEW_NODE_ID)) graph.removeCell(PREVIEW_NODE_ID);
+      } catch { /* ignore */ }
     };
 
     // Track which port is currently hovered for style restoration
     let hoveredPortInfo: { nodeId: string; portId: string } | null = null;
+    // Suppress preview re-creation briefly after port click
+    let suppressPreview = false;
 
     const restorePortStyle = () => {
       if (!hoveredPortInfo) return;
@@ -694,17 +700,25 @@ function X6DiagramEditorInner({
     const handlePortClick = ({ e, node, port }: { e: MouseEvent; node: Node; port: string }) => {
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
+      // Suppress preview for a short period to prevent re-creation from mouseenter
+      suppressPreview = true;
+      setTimeout(() => { suppressPreview = false; }, 500);
       clearPreview();
       restorePortStyle();
       const newNode = quickCreateNode(graph, node, port);
       if (newNode) {
         graph.select(newNode);
       }
+      // Double-clear after node creation in case events re-triggered
+      clearPreview();
     };
 
     const handlePortEnter = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
+      if (suppressPreview) return;
+      // Don't show preview on preview nodes
+      if (node.getData()?._isPreview) return;
 
       // Restore previous port style if different
       restorePortStyle();
@@ -762,7 +776,7 @@ function X6DiagramEditorInner({
       });
     };
 
-    const handlePortLeave = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
+    const handlePortLeave = () => {
       restorePortStyle();
       clearPreview();
     };
@@ -778,14 +792,12 @@ function X6DiagramEditorInner({
     graph.on('node:port:mouseleave', handlePortLeave);
     graph.on('blank:click', handleCleanup);
     graph.on('blank:mousedown', handleCleanup);
-    graph.on('node:click', handleCleanup);
     return () => {
       graph.off('node:port:click', handlePortClick);
       graph.off('node:port:mouseenter', handlePortEnter);
       graph.off('node:port:mouseleave', handlePortLeave);
       graph.off('blank:click', handleCleanup);
       graph.off('blank:mousedown', handleCleanup);
-      graph.off('node:click', handleCleanup);
       clearPreview();
     };
   }, [graph, activeTool]);
