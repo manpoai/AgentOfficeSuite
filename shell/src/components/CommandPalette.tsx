@@ -3,10 +3,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { MessageSquare, FileText, CheckSquare, Users, Settings, Search, ArrowRight } from 'lucide-react';
+import { FileText, Users, Settings, Search, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import * as gw from '@/lib/api/gateway';
-import type { Document as DocType } from '@/lib/api/documents';
 import { useT } from '@/lib/i18n';
 
 interface CommandItem {
@@ -27,13 +26,11 @@ export function CommandPalette() {
   const { t } = useT();
 
   // Fetch data for search
-  const { data: tasks } = useQuery({ queryKey: ['tasks'], queryFn: gw.listTasks, staleTime: 30_000 });
   const { data: contentItems } = useQuery({ queryKey: ['content-items'], queryFn: gw.listContentItems, staleTime: 30_000 });
   const docs = useMemo(() => contentItems?.filter(i => i.type === 'doc').map(i => ({
-    id: i.raw_id, title: i.title, text: '', icon: i.icon || undefined,
-    full_width: false, created_by: i.created_by || null, updated_by: i.updated_by || null,
-    created_at: i.created_at || '', updated_at: i.updated_at || '',
-  } as DocType)), [contentItems]);
+    id: i.raw_id, title: i.title,
+    updated_at: i.updated_at || '',
+  })), [contentItems]);
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: gw.listAgents, staleTime: 30_000 });
 
   // Listen for Cmd+K / Ctrl+K
@@ -69,9 +66,7 @@ export function CommandPalette() {
 
     // Navigation commands (always available)
     const navItems = [
-      { label: t('command.navIM'), path: '/im', icon: <MessageSquare className="h-4 w-4" /> },
       { label: t('command.navContent'), path: '/content', icon: <FileText className="h-4 w-4" /> },
-      { label: t('command.navTasks'), path: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
       { label: t('command.navContacts'), path: '/contacts', icon: <Users className="h-4 w-4" /> },
       { label: t('command.navSettings'), path: '/settings', icon: <Settings className="h-4 w-4" /> },
     ];
@@ -85,27 +80,13 @@ export function CommandPalette() {
       });
     });
 
-    // Tasks
-    if (tasks) {
-      tasks.forEach(tk => {
-        result.push({
-          id: `task-${tk.task_id}`,
-          label: tk.title,
-          sublabel: tk.assignees?.[0] || '',
-          icon: <CheckSquare className="h-4 w-4 text-blue-400" />,
-          action: () => navigate('/tasks'),
-          category: t('command.catTasks'),
-        });
-      });
-    }
-
     // Docs
     if (docs) {
       docs.forEach(d => {
         result.push({
           id: `doc-${d.id}`,
           label: d.title,
-          sublabel: new Date(d.updatedAt).toLocaleDateString('zh-CN'),
+          sublabel: d.updated_at ? new Date(d.updated_at).toLocaleDateString('zh-CN') : '',
           icon: <FileText className="h-4 w-4 text-blue-400" />,
           action: () => navigate('/content'),
           category: t('command.catDocs'),
@@ -128,7 +109,7 @@ export function CommandPalette() {
     }
 
     return result;
-  }, [tasks, docs, agents, navigate]);
+  }, [docs, agents, navigate, t]);
 
   // Filter items
   const filtered = useMemo(() => {

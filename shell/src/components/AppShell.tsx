@@ -1,24 +1,18 @@
 'use client';
 import { usePathname, useRouter } from 'next/navigation';
-import { Sun, Moon, Globe, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Sun, Moon, Globe, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useIMStore } from '@/lib/stores/im';
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
-import * as mm from '@/lib/api/mm';
 import { CommandPalette } from './CommandPalette';
 import { useT, LOCALE_LABELS, type Locale } from '@/lib/i18n';
-import Image from 'next/image';
 
-const NAV_KEYS = ['im', 'content', 'tasks', 'contacts'] as const;
+const NAV_KEYS = ['content', 'contacts'] as const;
 const NAV_ICONS: Record<typeof NAV_KEYS[number], string> = {
-  im: '/icons/icon-messenger.svg',
   content: '/icons/icon-docs.svg',
-  tasks: '/icons/icon-tasks.svg',
   contacts: '/icons/icon-contacts.svg',
 };
-const NAV_LABELS: Record<typeof NAV_KEYS[number], string> = { im: 'Messenger', content: 'Docs', tasks: 'Tasks', contacts: 'Contacts' };
+const NAV_LABELS: Record<typeof NAV_KEYS[number], string> = { content: 'Docs', contacts: 'Contacts' };
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -34,12 +28,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     label: NAV_LABELS[id],
     icon: NAV_ICONS[id],
   }));
-
-  const { data: me } = useQuery({
-    queryKey: ['mm-me'],
-    queryFn: mm.getMe,
-    staleTime: 300_000,
-  });
 
   // Load collapsed state from localStorage
   useEffect(() => {
@@ -79,17 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const { channels, channelMembers } = useIMStore();
-  const totalUnread = useMemo(() => {
-    let count = 0;
-    for (const ch of channels) {
-      const member = channelMembers[ch.id];
-      if (member) count += Math.max(0, ch.total_msg_count - member.msg_count);
-    }
-    return count;
-  }, [channels, channelMembers]);
-
-  const activeModule = NAV_ITEMS.find(n => pathname.startsWith(n.path))?.id ?? 'im';
+  const activeModule = NAV_ITEMS.find(n => pathname.startsWith(n.path))?.id ?? 'content';
 
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -156,14 +134,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   />
                 </span>
                 <span className={cn('whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>{item.label}</span>
-                {item.id === 'im' && totalUnread > 0 && (
-                  <span className={cn(
-                    'absolute min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full',
-                    collapsed ? 'top-0 right-0' : 'right-2'
-                  )}>
-                    {totalUnread > 99 ? '99+' : totalUnread}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -311,11 +281,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={cn('h-5 w-5', isActive ? 'opacity-80' : 'opacity-50')}
               />
               <span className="text-[10px] mt-0.5">{item.label}</span>
-              {item.id === 'im' && totalUnread > 0 && (
-                <span className="absolute top-1 right-2 min-w-[16px] h-4 px-1 flex items-center justify-center text-[9px] font-bold text-white bg-red-500 rounded-full">
-                  {totalUnread > 99 ? '99+' : totalUnread}
-                </span>
-              )}
             </button>
           );
         })}

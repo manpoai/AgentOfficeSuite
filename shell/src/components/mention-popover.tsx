@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import * as mm from '@/lib/api/mm';
 import * as gw from '@/lib/api/gateway';
 import { cn } from '@/lib/utils';
 
@@ -32,52 +30,12 @@ function useMentionCandidates() {
     staleTime: 60_000,
   });
 
-  // Fetch team members from MM
-  const { data: teams } = useQuery({
-    queryKey: ['mm-teams'],
-    queryFn: mm.getTeams,
-    staleTime: 120_000,
-  });
-
-  const teamId = teams?.[0]?.id;
-
-  const { data: teamUsers = [] } = useQuery({
-    queryKey: ['mm-team-users', teamId],
-    queryFn: () => mm.autocompleteUsers('', teamId!),
-    enabled: !!teamId,
-    staleTime: 60_000,
-  });
-
-  // Merge: agents + MM users, deduplicated
-  const candidates: MentionCandidate[] = [];
-  const seen = new Set<string>();
-
-  // Agents first (they're the primary use case per moonyaan)
-  agents.forEach(a => {
-    const key = a.name;
-    if (!seen.has(key)) {
-      seen.add(key);
-      candidates.push({
-        id: a.agent_id,
-        username: a.name,
-        displayName: a.display_name || a.name,
-        isAgent: true,
-      });
-    }
-  });
-
-  // MM users
-  teamUsers.forEach(u => {
-    const key = u.username;
-    if (!seen.has(key)) {
-      seen.add(key);
-      candidates.push({
-        id: u.id,
-        username: u.username,
-        displayName: u.nickname || u.first_name || u.username,
-      });
-    }
-  });
+  const candidates: MentionCandidate[] = agents.map(a => ({
+    id: a.agent_id,
+    username: a.name,
+    displayName: a.display_name || a.name,
+    isAgent: true,
+  }));
 
   return candidates;
 }
@@ -160,18 +118,12 @@ export function MentionPopover({
             i === selectedIndex ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50'
           )}
         >
-          {m.isAgent ? (
-            <span className="w-5 h-5 rounded-full bg-sidebar-primary/20 flex items-center justify-center text-[10px] text-sidebar-primary shrink-0">A</span>
-          ) : (
-            <img src={mm.getProfileImageUrl(m.id)} alt="" className="w-5 h-5 rounded-full bg-muted shrink-0" />
-          )}
+          <span className="w-5 h-5 rounded-full bg-sidebar-primary/20 flex items-center justify-center text-[10px] text-sidebar-primary shrink-0">A</span>
           <div className="min-w-0 flex-1">
             <span className="text-sm truncate block">{m.displayName}</span>
             <span className="text-[10px] text-muted-foreground">@{m.username}</span>
           </div>
-          {m.isAgent && (
-            <span className="text-[9px] bg-sidebar-primary/10 text-sidebar-primary px-1.5 py-0.5 rounded shrink-0">Agent</span>
-          )}
+          <span className="text-[9px] bg-sidebar-primary/10 text-sidebar-primary px-1.5 py-0.5 rounded shrink-0">Agent</span>
         </button>
       ))}
     </div>

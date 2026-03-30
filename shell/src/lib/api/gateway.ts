@@ -24,21 +24,6 @@ export interface Agent {
   last_seen_at?: number | null;
 }
 
-export interface Task {
-  task_id: string;
-  title: string;
-  description?: string;
-  status: 'todo' | 'in_progress' | 'done' | 'cancelled' | null;
-  priority?: string;
-  assignee_name?: string;
-  assignees?: string[];
-  start_date?: string | null;
-  target_date?: string | null;
-  url?: string;
-  created_at?: number;
-  updated_at?: number;
-}
-
 // ── Agents ──
 
 export async function listAgents(): Promise<Agent[]> {
@@ -72,65 +57,6 @@ export async function uploadAgentAvatar(name: string, file: File): Promise<{ ava
   return res.json();
 }
 
-// ── Tasks ──
-
-export async function listTasks(): Promise<Task[]> {
-  const data = await gwFetch<{ tasks: Task[] }>('/tasks');
-  return data.tasks;
-}
-
-export async function createTask(title: string, opts?: {
-  description?: string;
-  assignee?: string;
-  priority?: string;
-  start_date?: string;
-  target_date?: string;
-}): Promise<Task> {
-  return gwFetch('/tasks', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title,
-      description: opts?.description,
-      assignee_name: opts?.assignee,
-      priority: opts?.priority,
-      start_date: opts?.start_date,
-      target_date: opts?.target_date,
-    }),
-  });
-}
-
-export async function updateTask(taskId: string, fields: {
-  title?: string;
-  description?: string;
-  priority?: string;
-  assignee_name?: string;
-  start_date?: string | null;
-  target_date?: string | null;
-}): Promise<Task> {
-  return gwFetch(`/tasks/${taskId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  });
-}
-
-export async function updateTaskStatus(taskId: string, status: string): Promise<void> {
-  await gwFetch(`/tasks/${taskId}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-}
-
-export async function commentOnTask(taskId: string, text: string): Promise<void> {
-  await gwFetch(`/tasks/${taskId}/comments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-}
-
 // ── Comments ──
 
 export interface Comment {
@@ -143,11 +69,6 @@ export interface Comment {
   resolved_at?: string | null;
   created_at: string;
   updated_at?: string;
-}
-
-export async function listTaskComments(taskId: string): Promise<Comment[]> {
-  const data = await gwFetch<{ comments: Comment[] }>(`/tasks/${taskId}/comments`);
-  return data.comments;
 }
 
 export async function listDocComments(docId: string): Promise<Comment[]> {
@@ -243,7 +164,7 @@ export async function listDeletedContentItems(): Promise<ContentItem[]> {
 }
 
 export async function createContentItem(opts: {
-  type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   parent_id?: string | null;
   collection_id?: string;
@@ -379,26 +300,6 @@ export async function restoreTableSnapshot(tableId: string, snapshotId: number):
   });
 }
 
-// ─── Boards (Excalidraw) ─────────────────────────
-export async function getBoard(boardId: string): Promise<{
-  id: string;
-  data: Record<string, unknown>;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: number;
-  updated_at: number;
-}> {
-  return gwFetch(`/boards/${boardId}`);
-}
-
-export async function saveBoard(boardId: string, data: Record<string, unknown>): Promise<{ saved: boolean; updated_at: number }> {
-  return gwFetch(`/boards/${boardId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data }),
-  });
-}
-
 // ─── Presentations (Fabric.js PPT) ─────────────────
 export async function getPresentation(presId: string): Promise<{
   id: string;
@@ -413,26 +314,6 @@ export async function getPresentation(presId: string): Promise<{
 
 export async function savePresentation(presId: string, data: { slides: any[] }): Promise<{ saved: boolean; updated_at: number }> {
   return gwFetch(`/presentations/${presId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data }),
-  });
-}
-
-// ─── Spreadsheets (Univer) ─────────────────────────
-export async function getSpreadsheet(sheetId: string): Promise<{
-  id: string;
-  data: any;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: number;
-  updated_at: number;
-}> {
-  return gwFetch(`/spreadsheets/${sheetId}`);
-}
-
-export async function saveSpreadsheet(sheetId: string, data: any): Promise<{ saved: boolean; updated_at: number }> {
-  return gwFetch(`/spreadsheets/${sheetId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data }),
