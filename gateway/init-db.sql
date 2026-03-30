@@ -13,10 +13,33 @@ CREATE TABLE IF NOT EXISTS agent_accounts (
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
   avatar_url  TEXT,
-  ol_token    TEXT,   -- per-agent Outline API token
-  plane_token TEXT,   -- per-agent Plane API token
   nc_password TEXT    -- per-agent NocoDB password (agent email = name@nc-agents.local)
 );
+
+-- Unified identity: humans + agents
+CREATE TABLE IF NOT EXISTS actors (
+  id          TEXT PRIMARY KEY,
+  type        TEXT NOT NULL CHECK(type IN ('human', 'agent')),
+  username    TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  avatar_url  TEXT,
+  -- human auth
+  password_hash TEXT,
+  role        TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+  -- agent auth
+  token_hash  TEXT,
+  capabilities TEXT,
+  webhook_url TEXT,
+  webhook_secret TEXT,
+  online      INTEGER DEFAULT 0,
+  last_seen_at INTEGER,
+  -- shared
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_actors_type ON actors(type);
+CREATE INDEX IF NOT EXISTS idx_actors_token_hash ON actors(token_hash);
 
 CREATE TABLE IF NOT EXISTS tickets (
   id          TEXT PRIMARY KEY,
@@ -114,16 +137,6 @@ CREATE TABLE IF NOT EXISTS content_items (
 
 CREATE INDEX IF NOT EXISTS idx_content_items_type ON content_items(type);
 CREATE INDEX IF NOT EXISTS idx_content_items_parent ON content_items(parent_id);
-
--- Boards (Excalidraw drawings stored as JSON)
-CREATE TABLE IF NOT EXISTS boards (
-  id          TEXT PRIMARY KEY,
-  data_json   TEXT NOT NULL DEFAULT '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}',
-  created_by  TEXT,
-  updated_by  TEXT,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
-);
 
 -- View column settings (field visibility/width per NocoDB view)
 CREATE TABLE IF NOT EXISTS view_column_settings (

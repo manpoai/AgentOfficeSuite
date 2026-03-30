@@ -1,10 +1,10 @@
 'use client';
-import { SessionProvider } from 'next-auth/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeProvider } from 'next-themes';
 import { I18nProvider } from '@/lib/i18n';
+import { AuthProvider } from '@/lib/auth';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
@@ -14,7 +14,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }));
 
   return (
-    <SessionProvider>
+    <AuthProvider>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
         <I18nProvider>
           <QueryClientProvider client={queryClient}>
@@ -24,6 +24,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
           </QueryClientProvider>
         </I18nProvider>
       </ThemeProvider>
-    </SessionProvider>
+    </AuthProvider>
   );
 }

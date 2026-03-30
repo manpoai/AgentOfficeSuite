@@ -12,6 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import multer from 'multer';
+import jwt from 'jsonwebtoken';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.GATEWAY_PORT || 4000;
@@ -22,6 +23,7 @@ const NC_EMAIL = process.env.NOCODB_EMAIL;
 const NC_PASSWORD = process.env.NOCODB_PASSWORD;
 const NC_BASE_ID = process.env.NOCODB_BASE_ID || 'pgw03v3ek2obunx';
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || crypto.randomBytes(32).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
 // ─── Database ────────────────────────────────────
 const DB_PATH = process.env.GATEWAY_DB_PATH || path.join(__dirname, 'gateway.db');
@@ -184,6 +186,18 @@ db.exec(`CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEG
   DELETE FROM documents_fts WHERE id = old.id;
 END`);
 
+// ─── Migrate: actors table (unified human + agent identity) ─────
+try {
+  const agents = db.prepare('SELECT * FROM agent_accounts').all();
+  const insert = db.prepare(`INSERT OR IGNORE INTO actors (id, type, username, display_name, avatar_url, token_hash, capabilities, webhook_url, webhook_secret, online, last_seen_at, created_at, updated_at) VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  let migrated = 0;
+  for (const a of agents) {
+    const result = insert.run(a.id, a.name, a.display_name, a.avatar_url || null, a.token_hash, a.capabilities || null, a.webhook_url || null, a.webhook_secret || null, a.online || 0, a.last_seen_at || null, a.created_at, a.updated_at);
+    if (result.changes > 0) migrated++;
+  }
+  if (migrated > 0) console.log(`[gateway] Migrated ${migrated} agents to actors table`);
+} catch (e) { /* actors table not yet created or already migrated */ }
+
 // ─── Helpers ─────────────────────────────────────
 function genId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -191,6 +205,30 @@ function genId(prefix) {
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = stored.split(':');
+  const result = crypto.scryptSync(password, salt, 64).toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(result, 'hex'));
+}
+
+// Create default admin user if none exists
+{
+  const adminExists = db.prepare("SELECT id FROM actors WHERE type = 'human' AND role = 'admin'").get();
+  if (!adminExists) {
+    const adminId = genId('act');
+    const defaultPassword = process.env.ADMIN_PASSWORD || 'admin';
+    db.prepare(`INSERT INTO actors (id, type, username, display_name, password_hash, role, created_at, updated_at) VALUES (?, 'human', 'admin', 'Administrator', ?, 'admin', ?, ?)`)
+      .run(adminId, hashPassword(defaultPassword), Date.now(), Date.now());
+    console.log(`[gateway] Created default admin user (username: admin, password: ${defaultPassword})`);
+  }
 }
 
 async function upstream(baseUrl, method, apiPath, body, token, extraHeaders = {}) {
@@ -209,7 +247,7 @@ async function upstream(baseUrl, method, apiPath, body, token, extraHeaders = {}
 }
 
 // ─── Auth middleware ─────────────────────────────
-function authenticateAgent(req, res, next) {
+function authenticateAny(req, res, next) {
   const auth = req.headers.authorization;
   const queryToken = req.query.token;
   let token;
@@ -218,31 +256,112 @@ function authenticateAgent(req, res, next) {
   } else if (queryToken) {
     token = queryToken;
   } else {
-    return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Missing Bearer token' });
+    return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Missing authorization' });
   }
+
+  // Try JWT first (human auth)
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const actor = db.prepare('SELECT * FROM actors WHERE id = ?').get(decoded.actor_id);
+    if (actor) {
+      req.actor = { id: actor.id, type: actor.type, username: actor.username, display_name: actor.display_name, role: actor.role, avatar_url: actor.avatar_url };
+      // Backward compat: set req.agent for existing code that uses req.agent
+      req.agent = { id: actor.id, name: actor.username, display_name: actor.display_name, capabilities: actor.capabilities };
+      return next();
+    }
+  } catch (e) { /* not a JWT, try agent token */ }
+
+  // Try agent token hash (actors table)
   const hash = hashToken(token);
-  const agent = db.prepare('SELECT * FROM agent_accounts WHERE token_hash = ?').get(hash);
-  if (!agent) {
-    return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid token' });
+  const agent = db.prepare('SELECT * FROM actors WHERE token_hash = ?').get(hash);
+  if (agent) {
+    db.prepare('UPDATE actors SET last_seen_at = ?, online = 1 WHERE id = ?').run(Date.now(), agent.id);
+    req.actor = { id: agent.id, type: 'agent', username: agent.username, display_name: agent.display_name, role: 'agent', avatar_url: agent.avatar_url };
+    req.agent = { id: agent.id, name: agent.username, display_name: agent.display_name, capabilities: agent.capabilities };
+    return next();
   }
-  // Update last_seen
-  db.prepare('UPDATE agent_accounts SET last_seen_at = ?, online = 1 WHERE id = ?')
-    .run(Date.now(), agent.id);
-  req.agent = agent;
-  next();
+
+  // Fallback: try legacy agent_accounts table
+  const legacyAgent = db.prepare('SELECT * FROM agent_accounts WHERE token_hash = ?').get(hash);
+  if (legacyAgent) {
+    db.prepare('UPDATE agent_accounts SET last_seen_at = ?, online = 1 WHERE id = ?').run(Date.now(), legacyAgent.id);
+    req.actor = { id: legacyAgent.id, type: 'agent', username: legacyAgent.name, display_name: legacyAgent.display_name, role: 'agent', avatar_url: legacyAgent.avatar_url };
+    req.agent = legacyAgent;
+    return next();
+  }
+
+  return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid token' });
 }
+
+// Keep backward-compat alias
+const authenticateAgent = authenticateAny;
 
 function authenticateAdmin(req, res, next) {
   const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ') || auth.slice(7) !== ADMIN_TOKEN) {
+  if (!auth?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid admin token' });
   }
-  next();
+  const token = auth.slice(7);
+
+  // Accept ADMIN_TOKEN
+  if (token === ADMIN_TOKEN) return next();
+
+  // Accept human JWT with admin role
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const actor = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'human' AND role = 'admin'").get(decoded.actor_id);
+    if (actor) {
+      req.actor = { id: actor.id, type: actor.type, username: actor.username, display_name: actor.display_name, role: actor.role };
+      req.agent = { id: actor.id, name: actor.username, display_name: actor.display_name };
+      return next();
+    }
+  } catch (e) { /* not a valid JWT */ }
+
+  return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid admin token' });
 }
 
 // ─── App ─────────────────────────────────────────
 const app = express();
 app.use(express.json({ limit: '50mb' }));
+
+// ─── Human Auth ──────────────────────────────────
+// POST /api/auth/login — human login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+
+  const actor = db.prepare("SELECT * FROM actors WHERE username = ? AND type = 'human'").get(username);
+  if (!actor || !actor.password_hash) return res.status(401).json({ error: 'Invalid credentials' });
+
+  if (!verifyPassword(password, actor.password_hash)) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  const token = jwt.sign({ actor_id: actor.id, type: 'human', username: actor.username, role: actor.role }, JWT_SECRET, { expiresIn: '7d' });
+  res.json({ token, actor: { id: actor.id, username: actor.username, display_name: actor.display_name, role: actor.role, avatar_url: actor.avatar_url } });
+});
+
+// GET /api/auth/me — get current user (works for both human JWT and agent Bearer)
+app.get('/api/auth/me', authenticateAny, (req, res) => {
+  const a = req.actor;
+  res.json({ id: a.id, type: a.type, username: a.username, display_name: a.display_name, role: a.role, avatar_url: a.avatar_url });
+});
+
+// PATCH /api/auth/password — change password (human only)
+app.patch('/api/auth/password', authenticateAny, (req, res) => {
+  if (req.actor.type !== 'human') return res.status(403).json({ error: 'Agents cannot change password' });
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.status(400).json({ error: 'current_password and new_password required' });
+
+  const actor = db.prepare('SELECT password_hash FROM actors WHERE id = ?').get(req.actor.id);
+  if (!verifyPassword(current_password, actor.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  db.prepare('UPDATE actors SET password_hash = ?, updated_at = ? WHERE id = ?')
+    .run(hashPassword(new_password), Date.now(), req.actor.id);
+  res.json({ ok: true });
+});
 
 // ─── Admin: Create ticket ────────────────────────
 app.post('/api/admin/tickets', authenticateAdmin, (req, res) => {
@@ -268,19 +387,26 @@ app.post('/api/auth/register', (req, res) => {
   if (Date.now() > tkt.expires_at) {
     return res.status(400).json({ error: 'TICKET_EXPIRED', message: 'Ticket has expired' });
   }
-  // Check name uniqueness
+  // Check name uniqueness (both tables)
   const existing = db.prepare('SELECT id FROM agent_accounts WHERE name = ?').get(name);
-  if (existing) {
+  const existingActor = db.prepare('SELECT id FROM actors WHERE username = ?').get(name);
+  if (existing || existingActor) {
     return res.status(409).json({ error: 'NAME_TAKEN', message: `Name "${name}" already registered` });
   }
   // Create agent
   const agentId = genId('agt');
   const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(token);
   const now = Date.now();
 
   db.prepare(`INSERT INTO agent_accounts (id, name, display_name, token_hash, capabilities, webhook_url, webhook_secret, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(agentId, name, display_name, hashToken(token), JSON.stringify(capabilities || []),
+    .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
+      webhook_url || null, webhook_secret || null, now, now);
+
+  // Also insert into actors table
+  db.prepare(`INSERT OR IGNORE INTO actors (id, type, username, display_name, token_hash, capabilities, webhook_url, webhook_secret, created_at, updated_at) VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
       webhook_url || null, webhook_secret || null, now, now);
 
   // Mark ticket used
@@ -297,12 +423,14 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // ─── Auth: Verify ────────────────────────────────
-app.get('/api/me', authenticateAgent, (req, res) => {
-  const a = req.agent;
+app.get('/api/me', authenticateAny, (req, res) => {
+  const a = req.actor;
+  // Return unified actor info + backward-compatible agent fields
   res.json({
-    agent_id: a.id, name: a.name, display_name: a.display_name,
-    capabilities: JSON.parse(a.capabilities || '[]'),
-    webhook_url: a.webhook_url, online: !!a.online, last_seen_at: a.last_seen_at,
+    id: a.id, type: a.type, username: a.username, display_name: a.display_name, role: a.role, avatar_url: a.avatar_url,
+    // Backward compat for agents
+    agent_id: a.id, name: a.username,
+    capabilities: JSON.parse(req.agent?.capabilities || '[]'),
   });
 });
 
@@ -2136,19 +2264,26 @@ app.post('/api/agents/self-register', async (req, res) => {
   if (!/^[a-z][a-z0-9-]{1,30}$/.test(name)) {
     return res.status(400).json({ error: 'INVALID_NAME', message: 'Name must be lowercase alphanumeric with hyphens, 2-31 chars' });
   }
-  // Check name uniqueness
+  // Check name uniqueness (both tables)
   const existing = db.prepare('SELECT id FROM agent_accounts WHERE name = ?').get(name);
-  if (existing) {
+  const existingActor = db.prepare('SELECT id FROM actors WHERE username = ?').get(name);
+  if (existing || existingActor) {
     return res.status(409).json({ error: 'NAME_TAKEN', message: `Name "${name}" already registered` });
   }
 
   const agentId = genId('agt');
   const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(token);
   const now = Date.now();
 
   db.prepare(`INSERT INTO agent_accounts (id, name, display_name, token_hash, capabilities, webhook_url, webhook_secret, created_at, updated_at, pending_approval)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`)
-    .run(agentId, name, display_name, hashToken(token), JSON.stringify(capabilities || []),
+    .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
+      webhook_url || null, webhook_secret || null, now, now);
+
+  // Also insert into actors table
+  db.prepare(`INSERT OR IGNORE INTO actors (id, type, username, display_name, token_hash, capabilities, webhook_url, webhook_secret, created_at, updated_at) VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
       webhook_url || null, webhook_secret || null, now, now);
 
   // Create NC user in advance (will only activate after approval)

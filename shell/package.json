@@ -55,9 +55,7 @@
     "mobx": "^6.15.0",
     "mobx-react": "^9.2.1",
     "next": "14.2.29",
-    "next-auth": "^4.24.7",
     "next-themes": "^0.4.6",
-    "openid-client": "^5.7.0",
     "pako": "^2.1.0",
     "playwright": "^1.58.2",
     "png-chunks-extract": "^1.0.0",
@@ -104,6 +102,6 @@
     "@types/react": "18.3.28",
     "@types/react-dom": "^18",
     "puppeteer": "^24.40.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.4.5"
   }
 }
