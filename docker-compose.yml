@@ -65,7 +65,7 @@ services:
       # GitLab OAuth via Dex (SSO)
       MM_GITLABSETTINGS_ENABLE: "true"
       MM_GITLABSETTINGS_ID: "mattermost"
-      MM_GITLABSETTINGS_SECRET: "mattermost-secret-change-me"
+      MM_GITLABSETTINGS_SECRET: ${MM_GITLAB_SECRET:-mattermost-secret-change-me}
       MM_GITLABSETTINGS_AUTHENDPOINT: "https://asuite.gridtabs.com/dex/auth"
       MM_GITLABSETTINGS_TOKENENDPOINT: "http://dex:5556/dex/token"
       MM_GITLABSETTINGS_USERAPIENDPOINT: "http://dex:5556/dex/userinfo"
@@ -162,7 +162,7 @@ services:
       AWS_S3_ACL: private
       # OIDC 认证 (Dex)
       OIDC_CLIENT_ID: outline
-      OIDC_CLIENT_SECRET: outline-secret-change-me
+      OIDC_CLIENT_SECRET: ${OUTLINE_OIDC_SECRET:-outline-secret-change-me}
       OIDC_AUTH_URI: "https://asuite.gridtabs.com/dex/auth"
       OIDC_TOKEN_URI: "http://dex:5556/dex/token"
       OIDC_USERINFO_URI: "http://dex:5556/dex/userinfo"
@@ -193,7 +193,7 @@ services:
     networks: [asuite]
     environment:
       RABBITMQ_DEFAULT_USER: plane
-      RABBITMQ_DEFAULT_PASS: plane123
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-plane123}
       RABBITMQ_DEFAULT_VHOST: plane
 
   plane-migrator:
@@ -205,7 +205,7 @@ services:
     environment: &plane-env
       DATABASE_URL: "postgresql://plane:${POSTGRES_PL_PASS}@postgres-pl:5432/plane"
       REDIS_URL: "redis://redis:6379"
-      AMQP_URL: "amqp://plane:plane123@rabbitmq:5672/plane"
+      AMQP_URL: "amqp://plane:${RABBITMQ_PASS:-plane123}@rabbitmq:5672/plane"
       SECRET_KEY: ${PLANE_SECRET_KEY}
       CORS_ALLOWED_ORIGINS: "https://plane.gridtabs.com,https://asuite.gridtabs.com"
       WEB_URL: "https://plane.gridtabs.com"
@@ -331,7 +331,7 @@ services:
       BASEROW_EMAIL: ${ADMIN_EMAIL:-admin@asuite.local}
       BASEROW_PASSWORD: ${ADMIN_PASSWORD:-Asuite2026!}
       BASEROW_DATABASE_ID: ${BASEROW_DATABASE_ID:-}
-      ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN:-asuite-admin-secret}
+      ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN}
     volumes:
       - gateway-data:/app/data
 
@@ -348,10 +348,10 @@ services:
     environment:
       NODE_ENV: production
       NEXTAUTH_URL: ${SHELL_URL:-http://localhost:3101}
-      NEXTAUTH_SECRET: ${SHELL_SECRET:-asuite-shell-secret-change-me}
+      NEXTAUTH_SECRET: ${SHELL_SECRET}
       DEX_ISSUER: "http://dex:5556/dex"
       DEX_CLIENT_ID: "asuite-shell"
-      DEX_CLIENT_SECRET: "shell-secret-change-me"
+      DEX_CLIENT_SECRET: ${SHELL_DEX_SECRET:-shell-secret-change-me}
       NEXT_PUBLIC_MM_URL: ${PUBLIC_MM_URL:-http://localhost:8065}
       NEXT_PUBLIC_OUTLINE_URL: ${PUBLIC_OUTLINE_URL:-http://localhost:3000}
       NEXT_PUBLIC_PLANE_URL: ${PUBLIC_PLANE_URL:-http://localhost:8000}

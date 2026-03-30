@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS agent_accounts (
   nc_password TEXT    -- per-agent NocoDB password (agent email = name@nc-agents.local)
 );
 
+CREATE INDEX IF NOT EXISTS idx_agent_accounts_token ON agent_accounts(token_hash);
+
 -- Unified identity: humans + agents
 CREATE TABLE IF NOT EXISTS actors (
   id          TEXT PRIMARY KEY,

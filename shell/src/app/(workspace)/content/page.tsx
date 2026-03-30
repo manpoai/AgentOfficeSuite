@@ -9,6 +9,7 @@ import { ContentTopBar } from '@/components/shared/ContentTopBar';
 import { ContentSidebar } from '@/components/ContentSidebar';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import dynamic from 'next/dynamic';
 import { Editor, SearchBar } from '@/components/editor';
@@ -2435,26 +2436,4 @@ function DocMenuToggle({ icon: Icon, label, checked, onChange }: {
   );
 }
 
-function formatDate(isoStr: string): string {
-  const d = new Date(isoStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
-}
-
-function formatRelativeTime(isoStr: string): string {
-  const d = new Date(isoStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} minutes ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} days ago`;
-}
+// formatDate and formatRelativeTime are now imported from @/lib/utils/time

@@ -29,6 +29,7 @@
     "@tanstack/react-query": "^5.91.3",
     "@types/dagre": "^0.7.54",
     "@types/diff-match-patch": "^1.0.36",
+    "@types/dompurify": "^3.0.5",
     "@types/lodash": "^4.17.24",
     "@types/markdown-it-container": "^4.0.0",
     "@types/uuid": "^10.0.0",
@@ -40,6 +41,7 @@
     "copy-to-clipboard": "^3.3.3",
     "dagre": "^0.8.5",
     "diff-match-patch": "^1.0.5",
+    "dompurify": "^3.3.3",
     "emoji-mart": "^5.6.0",
     "fabric": "^6.9.1",
     "i18next": "^25.10.4",
@@ -99,9 +101,9 @@
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.19.37",
-    "@types/react": "18.3.28",
+    "@types/react": "^18.3.28",
     "@types/react-dom": "^18",
     "puppeteer": "^24.40.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.9.3"
   }
 }

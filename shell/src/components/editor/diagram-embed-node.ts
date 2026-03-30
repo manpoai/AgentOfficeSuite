@@ -4,6 +4,7 @@
  */
 import type { Node as PMNode, NodeSpec } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
+import DOMPurify from 'dompurify';
 
 export const diagramEmbedNodeSpec: NodeSpec = {
   group: 'block',
@@ -193,7 +194,7 @@ export class DiagramEmbedView implements NodeView {
       if (!res.ok) throw new Error('Failed to load');
       const data = await res.json();
       const cells = data.data?.cells || data.data?.nodes || [];
-      container.innerHTML = renderCellsToSVG(cells);
+      container.innerHTML = DOMPurify.sanitize(renderCellsToSVG(cells), { USE_PROFILES: { svg: true, svgFilters: true } });
       // Scale SVG to fit container
       const svg = container.querySelector('svg');
       if (svg) {
