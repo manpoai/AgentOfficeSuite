@@ -178,80 +178,128 @@ export function ShapePreview({ activeTool, containerRef, graph, onDragCreate }: 
 function ShapeSvg({ shape, width: w, height: h }: { shape: string; width: number; height: number }) {
   const fill = DEFAULT_NODE_COLOR.bg;
   const stroke = DEFAULT_NODE_COLOR.border;
+  const s = 2; // stroke inset
+
+  const poly = (points: string) => (
+    <svg width={w} height={h}>
+      <polygon points={points} fill={fill} stroke={stroke} strokeWidth={2} />
+    </svg>
+  );
+
+  const pathEl = (d: string, useFill = true) => (
+    <svg width={w} height={h}>
+      <path d={d} fill={useFill ? fill : 'none'} stroke={stroke} strokeWidth={2} />
+    </svg>
+  );
 
   switch (shape) {
-    case 'diamond':
+    case 'rect':
       return (
         <svg width={w} height={h}>
-          <polygon
-            points={`${w / 2},1 ${w - 1},${h / 2} ${w / 2},${h - 1} 1,${h / 2}`}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
+          <rect x={1} y={1} width={w - 2} height={h - 2} fill={fill} stroke={stroke} strokeWidth={2} />
         </svg>
       );
+
+    case 'diamond':
+      return poly(`${w / 2},${s} ${w - s},${h / 2} ${w / 2},${h - s} ${s},${h / 2}`);
 
     case 'circle':
     case 'ellipse':
       return (
         <svg width={w} height={h}>
-          <ellipse
-            cx={w / 2} cy={h / 2} rx={w / 2 - 1} ry={h / 2 - 1}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
+          <ellipse cx={w / 2} cy={h / 2} rx={w / 2 - s} ry={h / 2 - s} fill={fill} stroke={stroke} strokeWidth={2} />
         </svg>
       );
 
-    case 'parallelogram': {
-      const skew = Math.min(20, w * 0.15);
-      return (
-        <svg width={w} height={h}>
-          <polygon
-            points={`${skew},1 ${w - 1},1 ${w - skew},${h - 1} 1,${h - 1}`}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
-        </svg>
-      );
-    }
+    case 'parallelogram':
+      return poly(`${w * 0.15},${h - s} ${s},${s} ${w * 0.85},${s} ${w - s},${h - s}`);
 
     case 'triangle':
-      return (
-        <svg width={w} height={h}>
-          <polygon
-            points={`${w / 2},1 ${w - 1},${h - 1} 1,${h - 1}`}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
-        </svg>
-      );
+      return poly(`${w / 2},${s} ${w - s},${h - s} ${s},${h - s}`);
 
     case 'stadium':
       return (
         <svg width={w} height={h}>
-          <rect
-            x={1} y={1} width={w - 2} height={h - 2}
-            rx={Math.min(h / 2, w / 4)} ry={Math.min(h / 2, w / 4)}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
+          <rect x={1} y={1} width={w - 2} height={h - 2} rx={Math.min(h / 2, w / 4)} ry={Math.min(h / 2, w / 4)} fill={fill} stroke={stroke} strokeWidth={2} />
         </svg>
       );
 
-    case 'rect':
+    case 'hexagon':
+      return poly(`${w * 0.25},${s} ${w * 0.75},${s} ${w - s},${h / 2} ${w * 0.75},${h - s} ${w * 0.25},${h - s} ${s},${h / 2}`);
+
+    case 'pentagon':
+      return poly(`${w / 2},${s} ${w - s},${h * 0.38} ${w * 0.82},${h - s} ${w * 0.18},${h - s} ${s},${h * 0.38}`);
+
+    case 'octagon': {
+      const o = Math.min(w, h) * 0.29;
+      return poly(`${o},${s} ${w - o},${s} ${w - s},${o} ${w - s},${h - o} ${w - o},${h - s} ${o},${h - s} ${s},${h - o} ${s},${o}`);
+    }
+
+    case 'star': {
+      const cx = w / 2, cy = h / 2;
+      const outerR = Math.min(w, h) / 2 - s;
+      const innerR = outerR * 0.38;
+      const pts: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        const ao = (Math.PI / 2) + (i * 2 * Math.PI / 5);
+        const ai = (Math.PI / 2) + ((i + 0.5) * 2 * Math.PI / 5);
+        pts.push(`${cx - outerR * Math.cos(ao)},${cy - outerR * Math.sin(ao)}`);
+        pts.push(`${cx - innerR * Math.cos(ai)},${cy - innerR * Math.sin(ai)}`);
+      }
+      return poly(pts.join(' '));
+    }
+
+    case 'cross':
+      return poly(`${w * 0.33},${s} ${w * 0.67},${s} ${w * 0.67},${h * 0.33} ${w - s},${h * 0.33} ${w - s},${h * 0.67} ${w * 0.67},${h * 0.67} ${w * 0.67},${h - s} ${w * 0.33},${h - s} ${w * 0.33},${h * 0.67} ${s},${h * 0.67} ${s},${h * 0.33} ${w * 0.33},${h * 0.33}`);
+
+    case 'cloud':
+      return pathEl(
+        `M${w * 0.25},${h * 0.75} ` +
+        `a${w * 0.15},${h * 0.2} 0 0,1 ${w * 0.05},-${h * 0.35} ` +
+        `a${w * 0.2},${h * 0.25} 0 0,1 ${w * 0.35},-${h * 0.15} ` +
+        `a${w * 0.2},${h * 0.2} 0 0,1 ${w * 0.25},${h * 0.1} ` +
+        `a${w * 0.15},${h * 0.2} 0 0,1 ${w * 0.05},${h * 0.3} z`,
+      );
+
+    case 'cylinder':
       return (
         <svg width={w} height={h}>
-          <rect
-            x={1} y={1} width={w - 2} height={h - 2}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
+          <ellipse cx={w / 2} cy={h * 0.15} rx={w / 2 - s} ry={h * 0.15 - s} fill={fill} stroke={stroke} strokeWidth={2} />
+          <path d={`M${s},${h * 0.15} v${h * 0.7} a${w / 2 - s},${h * 0.15 - s} 0 0,0 ${w - 2 * s},0 v-${h * 0.7}`} fill={fill} stroke={stroke} strokeWidth={2} />
         </svg>
       );
+
+    case 'arrow-right':
+      return poly(`${s},${h * 0.2} ${w * 0.65},${h * 0.2} ${w * 0.65},${s} ${w - s},${h / 2} ${w * 0.65},${h - s} ${w * 0.65},${h * 0.8} ${s},${h * 0.8}`);
+
+    case 'arrow-left':
+      return poly(`${w - s},${h * 0.2} ${w * 0.35},${h * 0.2} ${w * 0.35},${s} ${s},${h / 2} ${w * 0.35},${h - s} ${w * 0.35},${h * 0.8} ${w - s},${h * 0.8}`);
+
+    case 'arrow-double':
+      return poly(`${s},${h / 2} ${w * 0.2},${s} ${w * 0.2},${h * 0.25} ${w * 0.8},${h * 0.25} ${w * 0.8},${s} ${w - s},${h / 2} ${w * 0.8},${h - s} ${w * 0.8},${h * 0.75} ${w * 0.2},${h * 0.75} ${w * 0.2},${h - s}`);
+
+    case 'chevron-right':
+      return poly(`${s},${s} ${w * 0.75},${s} ${w - s},${h / 2} ${w * 0.75},${h - s} ${s},${h - s} ${w * 0.25},${h / 2}`);
+
+    case 'chevron-left':
+      return poly(`${w - s},${s} ${w * 0.25},${s} ${s},${h / 2} ${w * 0.25},${h - s} ${w - s},${h - s} ${w * 0.75},${h / 2}`);
+
+    case 'trapezoid':
+      return poly(`${w * 0.15},${s} ${w * 0.85},${s} ${w - s},${h - s} ${s},${h - s}`);
+
+    case 'callout':
+      return pathEl(`M${s},${s} h${w - 2 * s} v${h * 0.7} h-${w * 0.55} l-${w * 0.1},${h * 0.25} v-${h * 0.25} h-${w * 0.35 + s - 2 * s} z`);
+
+    case 'brace-left':
+      return pathEl(`M${w - s},${s} Q${w * 0.5},${s} ${w * 0.5},${h * 0.25} T${s},${h / 2} Q${w * 0.5},${h * 0.5} ${w * 0.5},${h * 0.75} T${w - s},${h - s}`, false);
+
+    case 'brace-right':
+      return pathEl(`M${s},${s} Q${w * 0.5},${s} ${w * 0.5},${h * 0.25} T${w - s},${h / 2} Q${w * 0.5},${h * 0.5} ${w * 0.5},${h * 0.75} T${s},${h - s}`, false);
 
     default: // rounded-rect
       return (
         <svg width={w} height={h}>
-          <rect
-            x={1} y={1} width={w - 2} height={h - 2}
-            rx={8} ry={8}
-            fill={fill} stroke={stroke} strokeWidth={2}
-          />
+          <rect x={1} y={1} width={w - 2} height={h - 2} rx={8} ry={8} fill={fill} stroke={stroke} strokeWidth={2} />
         </svg>
       );
   }
