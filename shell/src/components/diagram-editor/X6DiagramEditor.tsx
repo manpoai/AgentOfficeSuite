@@ -663,36 +663,39 @@ function X6DiagramEditorInner({
   useEffect(() => {
     if (!graph) return;
 
-    // ── Port hover: change to arrow + show preview ──
-    let previewNodeId: string | null = null;
-    let previewEdgeId: string | null = null;
+    // Fixed IDs to guarantee only one preview at a time
+    const PREVIEW_NODE_ID = '__port_preview_node__';
+    const PREVIEW_EDGE_ID = '__port_preview_edge__';
 
-    const portArrows: Record<string, string> = {
-      top: '↑', bottom: '↓', left: '←', right: '→',
-    };
     const portOffsets: Record<string, { dx: number; dy: number }> = {
       top: { dx: 0, dy: -1 }, bottom: { dx: 0, dy: 1 },
       left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 },
     };
-    const oppositePort: Record<string, string> = {
-      top: 'bottom', bottom: 'top', left: 'right', right: 'left',
-    };
 
     const clearPreview = () => {
-      if (previewNodeId && graph.hasCell(previewNodeId)) {
-        graph.removeCell(previewNodeId);
+      if (graph.hasCell(PREVIEW_EDGE_ID)) graph.removeCell(PREVIEW_EDGE_ID);
+      if (graph.hasCell(PREVIEW_NODE_ID)) graph.removeCell(PREVIEW_NODE_ID);
+    };
+
+    // Track which port is currently hovered for style restoration
+    let hoveredPortInfo: { nodeId: string; portId: string } | null = null;
+
+    const restorePortStyle = () => {
+      if (!hoveredPortInfo) return;
+      const node = graph.getCellById(hoveredPortInfo.nodeId);
+      if (node && node.isNode()) {
+        (node as Node).portProp(hoveredPortInfo.portId, 'attrs/circle/fill', '#fff');
+        (node as Node).portProp(hoveredPortInfo.portId, 'attrs/circle/stroke', '#5F95FF');
+        (node as Node).portProp(hoveredPortInfo.portId, 'attrs/circle/r', 5);
       }
-      if (previewEdgeId && graph.hasCell(previewEdgeId)) {
-        graph.removeCell(previewEdgeId);
-      }
-      previewNodeId = null;
-      previewEdgeId = null;
+      hoveredPortInfo = null;
     };
 
     const handlePortClick = ({ e, node, port }: { e: MouseEvent; node: Node; port: string }) => {
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
       clearPreview();
+      restorePortStyle();
       const newNode = quickCreateNode(graph, node, port);
       if (newNode) {
         graph.select(newNode);
@@ -703,12 +706,16 @@ function X6DiagramEditorInner({
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
 
-      // Change port to arrow text
+      // Restore previous port style if different
+      restorePortStyle();
+
+      // Highlight hovered port
       node.portProp(port, 'attrs/circle/fill', '#3b82f6');
       node.portProp(port, 'attrs/circle/stroke', '#3b82f6');
       node.portProp(port, 'attrs/circle/r', 8);
+      hoveredPortInfo = { nodeId: node.id, portId: port };
 
-      // Show preview node at creation position (matching source node style)
+      // Calculate preview node position (matching source node size)
       const dir = portOffsets[port];
       if (!dir) return;
       const pos = node.position();
@@ -724,48 +731,61 @@ function X6DiagramEditorInner({
       const previewBorder = srcData.borderColor || '#374151';
 
       clearPreview();
-      const pId = `_preview_node_${Date.now()}`;
-      const eId = `_preview_edge_${Date.now()}`;
       graph.addNode({
-        id: pId,
+        id: PREVIEW_NODE_ID,
         shape: 'rect',
         x: nx, y: ny,
         width: pw, height: ph,
         attrs: {
-          body: { fill: previewBg, stroke: previewBorder, strokeWidth: 1, strokeDasharray: '4 3', rx: 8, ry: 8, opacity: 0.6 },
+          body: { fill: previewBg, stroke: previewBorder, strokeWidth: 1, strokeDasharray: '4 3', rx: 8, ry: 8, opacity: 0.5 },
         },
         zIndex: -1,
+        data: { _isPreview: true },
       });
-      // Connect edge to center of preview node, use orthogonal routing
-      const targetCenter = { x: nx + pw / 2, y: ny + ph / 2 };
+
+      // Edge target = nearest edge center of preview node (not center)
+      let tx: number, ty: number;
+      if (dir.dx === 1)  { tx = nx;          ty = ny + ph / 2; } // right port → target left edge center
+      else if (dir.dx === -1) { tx = nx + pw; ty = ny + ph / 2; } // left port → target right edge center
+      else if (dir.dy === 1)  { tx = nx + pw / 2; ty = ny;      } // bottom port → target top edge center
+      else                    { tx = nx + pw / 2; ty = ny + ph;  } // top port → target bottom edge center
+
       graph.addEdge({
-        id: eId,
+        id: PREVIEW_EDGE_ID,
         source: { cell: node.id, port },
-        target: targetCenter,
-        attrs: { line: { stroke: previewBorder, strokeWidth: 1, strokeDasharray: '4 3', targetMarker: null, opacity: 0.6 } },
-        router: { name: 'er' },
-        connector: { name: 'rounded', args: { radius: 8 } },
+        target: { x: tx, y: ty },
+        attrs: { line: { stroke: previewBorder, strokeWidth: 1.5, strokeDasharray: '6 4', targetMarker: null, opacity: 0.5 } },
+        router: { name: 'normal' },
+        connector: { name: 'normal' },
         zIndex: -1,
+        data: { _isPreview: true },
       });
-      previewNodeId = pId;
-      previewEdgeId = eId;
     };
 
     const handlePortLeave = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
-      // Restore port style
-      node.portProp(port, 'attrs/circle/fill', '#fff');
-      node.portProp(port, 'attrs/circle/stroke', '#5F95FF');
-      node.portProp(port, 'attrs/circle/r', 5);
+      restorePortStyle();
+      clearPreview();
+    };
+
+    // Also clean up on blank click, selection change, and node click
+    const handleCleanup = () => {
+      restorePortStyle();
       clearPreview();
     };
 
     graph.on('node:port:click', handlePortClick);
     graph.on('node:port:mouseenter', handlePortEnter);
     graph.on('node:port:mouseleave', handlePortLeave);
+    graph.on('blank:click', handleCleanup);
+    graph.on('blank:mousedown', handleCleanup);
+    graph.on('node:click', handleCleanup);
     return () => {
       graph.off('node:port:click', handlePortClick);
       graph.off('node:port:mouseenter', handlePortEnter);
       graph.off('node:port:mouseleave', handlePortLeave);
+      graph.off('blank:click', handleCleanup);
+      graph.off('blank:mousedown', handleCleanup);
+      graph.off('node:click', handleCleanup);
       clearPreview();
     };
   }, [graph, activeTool]);

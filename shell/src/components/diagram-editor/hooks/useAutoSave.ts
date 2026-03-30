@@ -15,6 +15,10 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
     setSaving(true);
     try {
       const json = graph.toJSON();
+      // Filter out transient preview cells (port hover previews)
+      if (json.cells) {
+        json.cells = json.cells.filter((c: any) => !c.data?._isPreview);
+      }
       const { sx, sy } = graph.scale();
       const { tx, ty } = graph.translate();
       await gw.saveDiagram(diagramId, {

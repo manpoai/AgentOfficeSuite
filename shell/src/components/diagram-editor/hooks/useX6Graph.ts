@@ -143,16 +143,67 @@ export function useX6Graph(
         }
 
         // ── Port visibility on hover ──
-        const showPorts = (show: boolean) => (e: any) => {
-          const node = e.node || e.cell;
-          if (!node || !node.isNode()) return;
+        // Track which node currently has visible ports
+        let portsVisibleNode: string | null = null;
+        let hidePortsTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const hideAllPorts = () => {
+          if (hidePortsTimer) { clearTimeout(hidePortsTimer); hidePortsTimer = null; }
+          if (!portsVisibleNode) return;
+          const node = graph.getCellById(portsVisibleNode);
+          if (node && node.isNode()) {
+            (node as any).getPorts().forEach((port: any) => {
+              (node as any).portProp(port.id!, 'attrs/circle/style/visibility', 'hidden');
+            });
+          }
+          portsVisibleNode = null;
+        };
+
+        const showPortsOn = (node: any) => {
+          if (hidePortsTimer) { clearTimeout(hidePortsTimer); hidePortsTimer = null; }
+          if (portsVisibleNode && portsVisibleNode !== node.id) {
+            hideAllPorts();
+          }
           const ports = node.getPorts();
           ports.forEach((port: any) => {
-            node.portProp(port.id!, 'attrs/circle/style/visibility', show ? 'visible' : 'hidden');
+            node.portProp(port.id!, 'attrs/circle/style/visibility', 'visible');
           });
+          portsVisibleNode = node.id;
         };
-        graph.on('node:mouseenter', showPorts(true));
-        graph.on('node:mouseleave', showPorts(false));
+
+        const onNodeEnter = (e: any) => {
+          const node = e.node || e.cell;
+          if (!node || !node.isNode()) return;
+          showPortsOn(node);
+        };
+        const onNodeLeave = (e: any) => {
+          // Delay hiding so user can reach the port circles outside the node
+          if (hidePortsTimer) clearTimeout(hidePortsTimer);
+          hidePortsTimer = setTimeout(() => {
+            hideAllPorts();
+          }, 200);
+        };
+        const onPortEnter = (e: any) => {
+          // Cancel hide timer when hovering a port
+          if (hidePortsTimer) { clearTimeout(hidePortsTimer); hidePortsTimer = null; }
+        };
+        const onPortLeave = () => {
+          // Start hide timer again when leaving a port
+          if (hidePortsTimer) clearTimeout(hidePortsTimer);
+          hidePortsTimer = setTimeout(() => {
+            hideAllPorts();
+          }, 200);
+        };
+        // Hide ports on blank click or selection change
+        const onBlankClick = () => { hideAllPorts(); };
+        const onSelectionChanged = () => { hideAllPorts(); };
+
+        graph.on('node:mouseenter', onNodeEnter);
+        graph.on('node:mouseleave', onNodeLeave);
+        graph.on('node:port:mouseenter', onPortEnter);
+        graph.on('node:port:mouseleave', onPortLeave);
+        graph.on('blank:click', onBlankClick);
+        graph.on('selection:changed', onSelectionChanged);
 
         // ── Two-finger trackpad panning ──
         // Trackpad two-finger scroll sends wheel events with deltaX/deltaY.
