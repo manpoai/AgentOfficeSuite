@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, Component, type ErrorInfo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Graph, Node, Cell } from '@antv/x6';
+import type { Graph, Node, Edge, Cell } from '@antv/x6';
 import * as gw from '@/lib/api/gateway';
 import {
   ArrowLeft, ArrowLeftToLine, ArrowRightToLine,
@@ -16,6 +16,7 @@ import { useAutoSave } from './hooks/useAutoSave';
 import { LeftToolbar, type ActiveTool } from './components/LeftToolbar';
 import { FloatingToolbar } from './components/FloatingToolbar';
 import { ZoomBar } from './components/ZoomBar';
+import { ShapePreview } from './components/ShapePreview';
 import {
   SHAPE_META, DEFAULT_NODE_COLOR, DEFAULT_CONNECTOR,
   CONNECTOR_META,
@@ -120,6 +121,7 @@ function X6DiagramEditorInner({
   // Mindmap state
   const mindmapTreeRef = useRef<MindmapTreeNode | null>(null);
   const mindmapGroupIdRef = useRef<string>('');
+  const startEditRef = useRef<((node: Node, initialKey?: string) => void) | null>(null);
   const [selectedMindmapNode, setSelectedMindmapNode] = useState<string | null>(null);
 
   // Auto-save
@@ -171,14 +173,92 @@ function X6DiagramEditorInner({
     }
   }, [graph, ready, diagram]);
 
+  // ─── Mindmap keyboard handlers ──
+  // (must be declared before the keyboard useEffect that references them)
+  const handleMindmapTab = useCallback(() => {
+    if (!graph || !mindmapTreeRef.current) return;
+    const selected = graph.getSelectedCells();
+    if (selected.length !== 1 || !selected[0].isNode()) return;
+    const node = selected[0] as Node;
+    const data = node.getData();
+    if (!data?.mindmapGroupId) return;
+
+    const newId = addChild(mindmapTreeRef.current, node.id);
+    if (newId) {
+      const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
+      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode?.position().x || 0, rootNode?.position().y || 0, data.mindmapGroupId);
+
+      const newNode = graph.getCellById(newId);
+      if (newNode) graph.select(newNode);
+    }
+  }, [graph]);
+
+  const handleMindmapEnter = useCallback((e?: KeyboardEvent) => {
+    if (!graph || !mindmapTreeRef.current) return;
+    const selected = graph.getSelectedCells();
+    if (selected.length !== 1 || !selected[0].isNode()) return;
+    const node = selected[0] as Node;
+    const data = node.getData();
+    if (!data?.mindmapGroupId) return;
+    if (data?.isRoot) return;
+
+    e?.preventDefault();
+
+    const newId = addSibling(mindmapTreeRef.current, node.id);
+    if (newId) {
+      const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
+      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode?.position().x || 0, rootNode?.position().y || 0, data.mindmapGroupId);
+
+      const newNode = graph.getCellById(newId);
+      if (newNode) graph.select(newNode);
+    }
+  }, [graph]);
+
+  const handleMindmapToggleCollapse = useCallback(() => {
+    if (!graph || !mindmapTreeRef.current) return;
+    const selected = graph.getSelectedCells();
+    if (selected.length !== 1 || !selected[0].isNode()) return;
+    const node = selected[0] as Node;
+    const data = node.getData();
+    if (!data?.mindmapGroupId) return;
+
+    toggleCollapse(mindmapTreeRef.current, node.id);
+
+    const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
+    if (rootNode) {
+      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode.position().x, rootNode.position().y, data.mindmapGroupId);
+    }
+
+    const nodeCell = graph.getCellById(node.id);
+    if (nodeCell) graph.select(nodeCell);
+  }, [graph]);
+
   // ─── Keyboard shortcuts (DOM-level, not graph.bindKey) ──
   useEffect(() => {
     if (!graph || !ready) return;
 
     const isEditing = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
-      if ((e.target as HTMLElement)?.contentEditable === 'true') return true;
+      // Check e.target (element that originally dispatched the event)
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
+        if (target.contentEditable === 'true') return true;
+        // React nodes rendered inside X6's foreignObject use portals —
+        // events may not propagate stopPropagation correctly across the
+        // SVG/HTML boundary.  If the target is inside a foreignObject,
+        // it's a React node component — let it handle its own keys.
+        if (target.closest?.('foreignObject')) return true;
+      }
+      // Also check document.activeElement as a fallback — focus may have
+      // moved to an input via setTimeout after double-click, making
+      // activeElement more reliable than e.target in some edge cases.
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const aTag = active.tagName;
+        if (aTag === 'INPUT' || aTag === 'TEXTAREA') return true;
+        if (active.contentEditable === 'true') return true;
+      }
       return false;
     };
 
@@ -223,7 +303,6 @@ function X6DiagramEditorInner({
           case 't': setActiveTool('text'); return;
           case 'r': setActiveTool('rounded-rect'); return;
           case 'd': setActiveTool('diamond'); return;
-          case 'l': setActiveTool('connector'); return;
           case 'm': setActiveTool('mindmap'); return;
           case 'tab':
             e.preventDefault();
@@ -241,25 +320,247 @@ function X6DiagramEditorInner({
         // TODO: add parent node
         return;
       }
+
+      // Printable character with a single node selected → start editing.
+      // The character is passed through edit:start so the node component
+      // can insert it after gaining focus (replacing any existing text).
+      // Allow Shift (for uppercase/symbols) but not Ctrl/Meta/Alt.
+      if (!meta && !e.altKey && e.key.length === 1) {
+        const selected = graph.getSelectedCells();
+        if (selected.length === 1 && selected[0].isNode() && startEditRef.current) {
+          e.preventDefault();
+          startEditRef.current(selected[0] as Node, e.key);
+          return;
+        }
+      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [graph, ready, handleMindmapTab, handleMindmapEnter, handleMindmapToggleCollapse]);
 
+  // ─── Double-click node → enter edit mode ──
+  //
+  // Architecture:
+  //   Selection overlay (x6-widget-selection-box) is a plain <div> appended
+  //   to graph.container as a sibling of the SVG. When a node is selected,
+  //   this overlay covers the node and intercepts all mouse events —
+  //   X6's own node:dblclick (which listens on the SVG) never fires.
+  //
+  //   For unselected nodes, dblclick lands on the foreignObject content.
+  //   X6's node:dblclick fires in this case, but we DON'T use it because
+  //   our DOM handler already covers this path and we don't want duplicates.
+  //
+  //   Strategy:
+  //   1. Single DOM dblclick handler on graph.container (catches both cases)
+  //   2. Find which node was hit:
+  //      a. If a node is selected → edit that node (covers selection-box case)
+  //      b. Else find node via X6's findViewByElem (uses data-cell-id walk)
+  //      c. Fallback: coordinate-based hit detection
+  //   3. No onBlur commit — X6 steals focus unpredictably
+  //   4. Commit via: Enter key, or mousedown outside the node
+  //   5. Cancel via: Escape key
+  //
+  useEffect(() => {
+    if (!graph) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    let editingNode: Node | null = null;
+    let mousedownListenerActive = false;
+
+    const hideSelectionBox = () => {
+      const boxes = container.querySelectorAll('.x6-widget-selection-box');
+      boxes.forEach(b => (b as HTMLElement).style.display = 'none');
+    };
+    const showSelectionBox = () => {
+      const boxes = container.querySelectorAll('.x6-widget-selection-box');
+      boxes.forEach(b => (b as HTMLElement).style.display = '');
+    };
+
+    const finishEdit = () => {
+      const node = editingNode;
+      editingNode = null;
+      showSelectionBox();
+      if (mousedownListenerActive) {
+        document.removeEventListener('mousedown', onMouseDown, true);
+        mousedownListenerActive = false;
+      }
+      // Auto-delete empty text nodes (transparent bg + border, no label)
+      if (node && graph.hasCell(node.id)) {
+        const d = node.getData();
+        if (d && d.bgColor === 'transparent' && d.borderColor === 'transparent' && !d.label?.trim()) {
+          graph.removeNode(node.id);
+        }
+      }
+    };
+
+    // Click-outside commit: mousedown on capture phase.
+    // If the click is inside the editing node's foreignObject, ignore it.
+    // Otherwise, commit the edit.
+    const onMouseDown = (e: MouseEvent) => {
+      if (!editingNode) return;
+      const target = e.target as HTMLElement;
+      const fo = target.closest?.('foreignObject');
+      if (fo) {
+        // Check if this foreignObject belongs to our editing node by walking
+        // up to find the <g data-cell-id="..."> wrapper
+        const gWrapper = fo.closest('[data-cell-id]');
+        if (gWrapper && gWrapper.getAttribute('data-cell-id') === editingNode.id) {
+          return; // Click inside our editing node — don't commit
+        }
+      }
+      // Also ignore clicks on selection-box elements that belong to our node
+      const selBox = target.closest?.('.x6-widget-selection-box');
+      if (selBox && selBox.getAttribute('data-cell-id') === editingNode.id) {
+        return;
+      }
+      // Click was outside — commit
+      editingNode.trigger('edit:commit');
+    };
+
+    const startEdit = (nodeToEdit: Node, initialKey?: string) => {
+      // Stale editingNode recovery: if editingNode is set but no editor element
+      // is focused, the previous edit session ended without triggering edit:end
+      // (can happen when X6's event system drops custom events). Clear it.
+      if (editingNode) {
+        const activeEl = document.activeElement as HTMLElement | null;
+        const isEditorActive = activeEl?.contentEditable === 'true' ||
+                               activeEl?.tagName === 'INPUT' ||
+                               activeEl?.tagName === 'TEXTAREA';
+        if (!isEditorActive) {
+          finishEdit();
+        }
+      }
+
+      // If already editing this exact node, skip (dedup)
+      if (editingNode && editingNode.id === nodeToEdit.id) {
+        return;
+      }
+
+      // If editing a different node, commit it first
+      if (editingNode) {
+        const prev = editingNode;
+        finishEdit();
+        prev.trigger('edit:commit');
+      }
+
+      editingNode = nodeToEdit;
+
+      // Select the node if not already selected
+      const selected = graph.getSelectedCells();
+      if (selected.length !== 1 || selected[0].id !== nodeToEdit.id) {
+        graph.select(nodeToEdit);
+      }
+
+      hideSelectionBox();
+      nodeToEdit.trigger('edit:start', { initialKey });
+
+      // Listen for edit:end from the node component (fires on Enter/Escape/commit)
+      const onEditEnd = () => {
+        finishEdit();
+      };
+      nodeToEdit.once('edit:end', onEditEnd);
+
+      // Register click-outside on next tick so current dblclick's mousedown
+      // (which already happened) doesn't trigger it
+      setTimeout(() => {
+        if (editingNode === nodeToEdit) {
+          document.addEventListener('mousedown', onMouseDown, true);
+          mousedownListenerActive = true;
+        }
+      }, 0);
+    };
+
+    // Find the node that was double-clicked
+    const findNodeFromEvent = (e: MouseEvent): Node | null => {
+      // Strategy 1: If exactly one node is selected, use it.
+      // This handles the selection-box overlay case — the overlay covers
+      // the node so we can't identify it from e.target, but we know which
+      // node is selected.
+      const selected = graph.getSelectedCells();
+      if (selected.length === 1 && selected[0].isNode()) {
+        return selected[0] as Node;
+      }
+
+      // Strategy 2: Use X6's own findViewByElem — walks up from e.target
+      // looking for data-cell-id attribute. Works when clicking directly
+      // on foreignObject content. Note: don't use this for selection-box
+      // elements (they have data-cell-id but are not cell views).
+      const target = e.target as Element;
+      if (!target.closest?.('.x6-widget-selection')) {
+        const view = graph.findViewByElem(target);
+        if (view?.cell?.isNode()) {
+          return view.cell as Node;
+        }
+      }
+
+      // Strategy 3: Coordinate-based hit detection as last resort.
+      // clientToLocal takes browser viewport coords (clientX/clientY).
+      const localPt = graph.clientToLocal(e.clientX, e.clientY);
+      const nodes = graph.getNodes();
+      for (const n of nodes) {
+        const bbox = n.getBBox();
+        if (localPt.x >= bbox.x && localPt.x <= bbox.x + bbox.width &&
+            localPt.y >= bbox.y && localPt.y <= bbox.y + bbox.height) {
+          return n;
+        }
+      }
+
+      return null;
+    };
+
+    const handleDblClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+
+      // If dblclick lands on an active editor element (INPUT, TEXTAREA, or
+      // focused contentEditable), don't start a new edit — user is interacting
+      // with the existing editor (e.g., double-click to select a word).
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (target.contentEditable === 'true' && document.activeElement === target) {
+        return;
+      }
+
+      const node = findNodeFromEvent(e);
+      if (node) {
+        e.stopPropagation();
+        startEdit(node);
+      }
+    };
+
+    startEditRef.current = startEdit;
+
+    // Use capture phase so we fire before X6's internal handler
+    container.addEventListener('dblclick', handleDblClick, true);
+    return () => {
+      startEditRef.current = null;
+      container.removeEventListener('dblclick', handleDblClick, true);
+      if (mousedownListenerActive) {
+        document.removeEventListener('mousedown', onMouseDown, true);
+      }
+    };
+  }, [graph]);
+
   // ─── Canvas click: create shape or mindmap ──
   useEffect(() => {
     if (!graph) return;
 
     const handleBlankClick = ({ e, x, y }: { e: MouseEvent; x: number; y: number }) => {
-      const local = graph.graphToLocal(x, y);
+      // x, y from blank:click are already in local (canvas) coordinates
+      // — X6 calls snapToGrid(clientToLocal(clientX, clientY)) internally.
+      // When a shape tool is active, the preview appears at cursor + 12px screen offset.
+      // Convert that offset to local coords so the node appears where the preview is.
+      const zoom = graph.zoom();
+      const previewOffset = 12 / zoom;
 
       if (activeTool === 'text') {
-        graph.addNode({
+        const textNode = graph.addNode({
           id: newNodeId(),
           shape: 'flowchart-node',
-          x: local.x - 60,
-          y: local.y - 20,
+          x: x + previewOffset,
+          y: y + previewOffset,
           width: 120,
           height: 40,
           data: {
@@ -273,7 +574,12 @@ function X6DiagramEditorInner({
             fontStyle: 'normal',
           },
         });
+        graph.select(textNode);
         setActiveTool('select');
+        // Auto-enter edit mode for text nodes
+        setTimeout(() => {
+          if (startEditRef.current) startEditRef.current(textNode);
+        }, 50);
         return;
       }
 
@@ -282,18 +588,18 @@ function X6DiagramEditorInner({
         const groupId = `mmg_${Date.now().toString(36)}`;
         mindmapTreeRef.current = tree;
         mindmapGroupIdRef.current = groupId;
-        renderMindmapToGraph(graph, tree, local.x - 90, local.y - 23, groupId);
+        renderMindmapToGraph(graph, tree, x + previewOffset, y + previewOffset, groupId);
         setActiveTool('select');
         return;
       }
 
       const shapeMeta = SHAPE_META[activeTool as FlowchartShape];
       if (shapeMeta) {
-        graph.addNode({
+        const newNode = graph.addNode({
           id: newNodeId(),
           shape: 'flowchart-node',
-          x: local.x - shapeMeta.width / 2,
-          y: local.y - shapeMeta.height / 2,
+          x: x + previewOffset,
+          y: y + previewOffset,
           width: shapeMeta.width,
           height: shapeMeta.height,
           data: {
@@ -307,6 +613,7 @@ function X6DiagramEditorInner({
             fontStyle: 'normal',
           },
         });
+        graph.select(newNode);
         setActiveTool('select');
         return;
       }
@@ -316,25 +623,151 @@ function X6DiagramEditorInner({
     return () => { graph.off('blank:click', handleBlankClick); };
   }, [graph, activeTool]);
 
+  // ─── Disable rubberband selection when a creation tool is active ──
+  // (otherwise drag-to-create conflicts with rubberband)
+  useEffect(() => {
+    if (!graph) return;
+    const sel = graph.getPlugin('selection') as any;
+    if (!sel) return;
+    if (activeTool !== 'select') {
+      sel.disableRubberband();
+    } else {
+      sel.enableRubberband();
+    }
+  }, [graph, activeTool]);
+
+  // ─── Edge tools: show vertices handles on selected edge ──
+  useEffect(() => {
+    if (!graph) return;
+
+    const onSelectionChanged = () => {
+      graph.getEdges().forEach(e => {
+        if (e.hasTools()) e.removeTools();
+      });
+      const cells = graph.getSelectedCells();
+      if (cells.length === 1 && cells[0].isEdge()) {
+        const edge = cells[0] as Edge;
+        edge.addTools([
+          { name: 'vertices', args: { stopPropagation: false } },
+        ]);
+      }
+    };
+
+    graph.on('selection:changed', onSelectionChanged);
+    return () => {
+      graph.off('selection:changed', onSelectionChanged);
+    };
+  }, [graph]);
+
   // ─── Quick-create: click port → new node + edge ──
   useEffect(() => {
     if (!graph) return;
 
+    // ── Port hover: change to arrow + show preview ──
+    let previewNodeId: string | null = null;
+    let previewEdgeId: string | null = null;
+
+    const portArrows: Record<string, string> = {
+      top: '↑', bottom: '↓', left: '←', right: '→',
+    };
+    const portOffsets: Record<string, { dx: number; dy: number }> = {
+      top: { dx: 0, dy: -1 }, bottom: { dx: 0, dy: 1 },
+      left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 },
+    };
+    const oppositePort: Record<string, string> = {
+      top: 'bottom', bottom: 'top', left: 'right', right: 'left',
+    };
+
+    const clearPreview = () => {
+      if (previewNodeId && graph.hasCell(previewNodeId)) {
+        graph.removeCell(previewNodeId);
+      }
+      if (previewEdgeId && graph.hasCell(previewEdgeId)) {
+        graph.removeCell(previewEdgeId);
+      }
+      previewNodeId = null;
+      previewEdgeId = null;
+    };
+
     const handlePortClick = ({ e, node, port }: { e: MouseEvent; node: Node; port: string }) => {
-      // Only quick-create when in select mode and not already dragging
       if (activeTool !== 'select') return;
-
-      // Don't quick-create for mindmap nodes (they use Tab/Enter)
       if (node.getData()?.mindmapGroupId) return;
-
+      clearPreview();
       const newNode = quickCreateNode(graph, node, port);
       if (newNode) {
         graph.select(newNode);
       }
     };
 
+    const handlePortEnter = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
+      if (activeTool !== 'select') return;
+      if (node.getData()?.mindmapGroupId) return;
+
+      // Change port to arrow text
+      node.portProp(port, 'attrs/circle/fill', '#3b82f6');
+      node.portProp(port, 'attrs/circle/stroke', '#3b82f6');
+      node.portProp(port, 'attrs/circle/r', 8);
+
+      // Show preview node at creation position (matching source node style)
+      const dir = portOffsets[port];
+      if (!dir) return;
+      const pos = node.position();
+      const size = node.size();
+      const gap = 80;
+      const pw = size.width, ph = size.height;
+      const nx = pos.x + dir.dx * (size.width + gap) + (dir.dx === 0 ? (size.width - pw) / 2 : 0);
+      const ny = pos.y + dir.dy * (size.height + gap) + (dir.dy === 0 ? (size.height - ph) / 2 : 0);
+
+      // Read source node colors for preview
+      const srcData = node.getData() || {};
+      const previewBg = srcData.bgColor || '#ffffff';
+      const previewBorder = srcData.borderColor || '#374151';
+
+      clearPreview();
+      const pId = `_preview_node_${Date.now()}`;
+      const eId = `_preview_edge_${Date.now()}`;
+      graph.addNode({
+        id: pId,
+        shape: 'rect',
+        x: nx, y: ny,
+        width: pw, height: ph,
+        attrs: {
+          body: { fill: previewBg, stroke: previewBorder, strokeWidth: 1, strokeDasharray: '4 3', rx: 8, ry: 8, opacity: 0.6 },
+        },
+        zIndex: -1,
+      });
+      // Connect edge to center of preview node, use orthogonal routing
+      const targetCenter = { x: nx + pw / 2, y: ny + ph / 2 };
+      graph.addEdge({
+        id: eId,
+        source: { cell: node.id, port },
+        target: targetCenter,
+        attrs: { line: { stroke: previewBorder, strokeWidth: 1, strokeDasharray: '4 3', targetMarker: null, opacity: 0.6 } },
+        router: { name: 'er' },
+        connector: { name: 'rounded', args: { radius: 8 } },
+        zIndex: -1,
+      });
+      previewNodeId = pId;
+      previewEdgeId = eId;
+    };
+
+    const handlePortLeave = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
+      // Restore port style
+      node.portProp(port, 'attrs/circle/fill', '#fff');
+      node.portProp(port, 'attrs/circle/stroke', '#5F95FF');
+      node.portProp(port, 'attrs/circle/r', 5);
+      clearPreview();
+    };
+
     graph.on('node:port:click', handlePortClick);
-    return () => { graph.off('node:port:click', handlePortClick); };
+    graph.on('node:port:mouseenter', handlePortEnter);
+    graph.on('node:port:mouseleave', handlePortLeave);
+    return () => {
+      graph.off('node:port:click', handlePortClick);
+      graph.off('node:port:mouseenter', handlePortEnter);
+      graph.off('node:port:mouseleave', handlePortLeave);
+      clearPreview();
+    };
   }, [graph, activeTool]);
 
   // ─── Drag & Drop from toolbar ──
@@ -370,73 +803,6 @@ function X6DiagramEditorInner({
       container.removeEventListener('dragover', handleDragOver);
       container.removeEventListener('drop', handleDrop);
     };
-  }, [graph]);
-
-  // ─── Mindmap keyboard handlers ──
-  const handleMindmapTab = useCallback(() => {
-    if (!graph || !mindmapTreeRef.current) return;
-    const selected = graph.getSelectedCells();
-    if (selected.length !== 1 || !selected[0].isNode()) return;
-    const node = selected[0] as Node;
-    const data = node.getData();
-    if (!data?.mindmapGroupId) return;
-
-    const newId = addChild(mindmapTreeRef.current, node.id);
-    if (newId) {
-      // Store tree on root
-      const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
-      if (rootNode) rootNode.setData({ ...rootNode.getData(), mindmapTree: mindmapTreeRef.current });
-
-      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode?.position().x || 0, rootNode?.position().y || 0, data.mindmapGroupId);
-
-      // Select new node
-      const newNode = graph.getCellById(newId);
-      if (newNode) graph.select(newNode);
-    }
-  }, [graph]);
-
-  const handleMindmapEnter = useCallback((e?: KeyboardEvent) => {
-    if (!graph || !mindmapTreeRef.current) return;
-    const selected = graph.getSelectedCells();
-    if (selected.length !== 1 || !selected[0].isNode()) return;
-    const node = selected[0] as Node;
-    const data = node.getData();
-    if (!data?.mindmapGroupId) return;
-    if (data?.isRoot) return; // Can't add sibling to root
-
-    e?.preventDefault();
-
-    const newId = addSibling(mindmapTreeRef.current, node.id);
-    if (newId) {
-      const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
-      if (rootNode) rootNode.setData({ ...rootNode.getData(), mindmapTree: mindmapTreeRef.current });
-
-      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode?.position().x || 0, rootNode?.position().y || 0, data.mindmapGroupId);
-
-      const newNode = graph.getCellById(newId);
-      if (newNode) graph.select(newNode);
-    }
-  }, [graph]);
-
-  const handleMindmapToggleCollapse = useCallback(() => {
-    if (!graph || !mindmapTreeRef.current) return;
-    const selected = graph.getSelectedCells();
-    if (selected.length !== 1 || !selected[0].isNode()) return;
-    const node = selected[0] as Node;
-    const data = node.getData();
-    if (!data?.mindmapGroupId) return;
-
-    toggleCollapse(mindmapTreeRef.current, node.id);
-
-    const rootNode = graph.getNodes().find(n => n.getData()?.isRoot && n.getData()?.mindmapGroupId === data.mindmapGroupId);
-    if (rootNode) {
-      rootNode.setData({ ...rootNode.getData(), mindmapTree: mindmapTreeRef.current });
-      renderMindmapToGraph(graph, mindmapTreeRef.current, rootNode.position().x, rootNode.position().y, data.mindmapGroupId);
-    }
-
-    // Re-select
-    const nodeCell = graph.getCellById(node.id);
-    if (nodeCell) graph.select(nodeCell);
   }, [graph]);
 
   // ─── Mindmap node data change → update tree ──
@@ -486,6 +852,41 @@ function X6DiagramEditorInner({
     await save();
     setMigrationNeeded(false);
   }, [graph, save]);
+
+  // ─── Drag-to-create: user drags on canvas to create a custom-sized node ──
+  const handleDragCreate = useCallback((localX: number, localY: number, localW: number, localH: number) => {
+    if (!graph) return;
+
+    const shape = activeTool === 'text' ? 'rounded-rect' as FlowchartShape : activeTool as FlowchartShape;
+    const isText = activeTool === 'text';
+
+    const newNode = graph.addNode({
+      id: newNodeId(),
+      shape: 'flowchart-node',
+      x: localX,
+      y: localY,
+      width: localW,
+      height: localH,
+      data: {
+        label: '',
+        flowchartShape: shape,
+        bgColor: isText ? 'transparent' : DEFAULT_NODE_COLOR.bg,
+        borderColor: isText ? 'transparent' : DEFAULT_NODE_COLOR.border,
+        textColor: isText ? '#1f2937' : DEFAULT_NODE_COLOR.text,
+        fontSize: 14,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+      },
+    });
+    graph.select(newNode);
+    setActiveTool('select');
+    // Auto-enter edit mode for text nodes
+    if (isText) {
+      setTimeout(() => {
+        if (startEditRef.current) startEditRef.current(newNode);
+      }, 50);
+    }
+  }, [graph, activeTool]);
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -597,7 +998,10 @@ function X6DiagramEditorInner({
       {/* ── Canvas area ── */}
       <div className="flex-1 relative overflow-hidden">
         {/* X6 container */}
-        <div ref={containerRef} className="w-full h-full" />
+        <div
+          ref={containerRef}
+          className={cn('w-full h-full', activeTool !== 'select' && 'cursor-crosshair')}
+        />
 
         {/* Error fallback */}
         {graphError && (
@@ -623,6 +1027,9 @@ function X6DiagramEditorInner({
 
         {/* Zoom bar */}
         <ZoomBar graph={graph} />
+
+        {/* Shape preview following cursor */}
+        <ShapePreview activeTool={activeTool} containerRef={containerRef} graph={graph} onDragCreate={handleDragCreate} />
 
         {/* Minimap */}
         <div

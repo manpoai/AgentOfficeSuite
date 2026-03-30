@@ -8,6 +8,37 @@ html, body {
   overflow: hidden;
 }
 
+/* Force default cursor on all X6 node content inside foreignObject.
+   The browser sets cursor:auto on <body> inside foreignObject, which
+   resolves to text (I-beam) when hovering over text content. */
+.x6-graph foreignObject body {
+  cursor: default;
+}
+
+/* X6 selection box: single thin dark border, no yellow dashed outline */
+.x6-widget-selection-box {
+  border: 1px solid #374151 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.x6-widget-selection-inner {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* X6 transform (resize) box: tight to node, no gap */
+.x6-widget-transform {
+  padding: 0 !important;
+  margin: -1px 0 0 -1px !important;
+  border-radius: 0 !important;
+}
+
+/* Crosshair cursor when a creation tool is active */
+.cursor-crosshair,
+.cursor-crosshair * {
+  cursor: crosshair !important;
+}
+
 @layer base {
   :root {
     --background: 0 0% 93%;

@@ -39,6 +39,12 @@ export function quickCreateNode(
   const newX = sourcePos.x + dir.dx * (sourceSize.width + OFFSET) + (dir.dx === 0 ? (sourceSize.width - meta.width) / 2 : 0);
   const newY = sourcePos.y + dir.dy * (sourceSize.height + OFFSET) + (dir.dy === 0 ? (sourceSize.height - meta.height) / 2 : 0);
 
+  // Copy style from source node so the new node matches
+  const srcData = sourceNode.getData() || {};
+  const bgColor = srcData.bgColor || DEFAULT_NODE_COLOR.bg;
+  const borderColor = srcData.borderColor || DEFAULT_NODE_COLOR.border;
+  const textColor = srcData.textColor || DEFAULT_NODE_COLOR.text;
+
   const nodeId = newId('node');
   const newNode = graph.addNode({
     id: nodeId,
@@ -50,12 +56,12 @@ export function quickCreateNode(
     data: {
       label: '',
       flowchartShape: shape,
-      bgColor: DEFAULT_NODE_COLOR.bg,
-      borderColor: DEFAULT_NODE_COLOR.border,
-      textColor: DEFAULT_NODE_COLOR.text,
-      fontSize: 14,
-      fontWeight: 'normal',
-      fontStyle: 'normal',
+      bgColor,
+      borderColor,
+      textColor,
+      fontSize: srcData.fontSize || 14,
+      fontWeight: srcData.fontWeight || 'normal',
+      fontStyle: srcData.fontStyle || 'normal',
     },
   });
 

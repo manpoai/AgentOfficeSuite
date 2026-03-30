@@ -21,11 +21,43 @@ const portAttrs = {
   },
 };
 
+// Offset ports outward so they don't overlap resize handles.
+// We register custom port layout functions that place ports outside the node boundary.
+const PORT_OFFSET = 10;
+
+Graph.registerPortLayout('port-top', (portsPositionArgs, elemBBox) => {
+  return portsPositionArgs.map(() => ({
+    position: { x: elemBBox.width / 2, y: -PORT_OFFSET },
+    angle: 0,
+  }));
+}, true);
+
+Graph.registerPortLayout('port-bottom', (portsPositionArgs, elemBBox) => {
+  return portsPositionArgs.map(() => ({
+    position: { x: elemBBox.width / 2, y: elemBBox.height + PORT_OFFSET },
+    angle: 0,
+  }));
+}, true);
+
+Graph.registerPortLayout('port-left', (portsPositionArgs, elemBBox) => {
+  return portsPositionArgs.map(() => ({
+    position: { x: -PORT_OFFSET, y: elemBBox.height / 2 },
+    angle: 0,
+  }));
+}, true);
+
+Graph.registerPortLayout('port-right', (portsPositionArgs, elemBBox) => {
+  return portsPositionArgs.map(() => ({
+    position: { x: elemBBox.width + PORT_OFFSET, y: elemBBox.height / 2 },
+    angle: 0,
+  }));
+}, true);
+
 const portGroups = {
-  top:    { position: 'top',    attrs: portAttrs },
-  bottom: { position: 'bottom', attrs: portAttrs },
-  left:   { position: 'left',   attrs: portAttrs },
-  right:  { position: 'right',  attrs: portAttrs },
+  top:    { position: 'port-top',    attrs: portAttrs },
+  bottom: { position: 'port-bottom', attrs: portAttrs },
+  left:   { position: 'port-left',   attrs: portAttrs },
+  right:  { position: 'port-right',  attrs: portAttrs },
 };
 
 const flowchartPorts = {
