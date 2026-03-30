@@ -12,13 +12,31 @@ import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import dynamic from 'next/dynamic';
-import { Editor, SearchBar } from '@/components/editor';
+import { SearchBar } from '@/components/editor';
 import { Comments } from '@/components/comments/Comments';
 import RevisionHistory from '@/components/RevisionHistory';
 // DocRevision is imported above
-import { TableEditor } from '@/components/table-editor/TableEditor';
-import { PresentationEditor } from '@/components/presentation-editor/PresentationEditor';
-const DiagramEditor = dynamic(() => import('@/components/diagram-editor/X6DiagramEditor'), { ssr: false });
+import { EditorSkeleton, TableSkeleton } from '@/components/shared/Skeleton';
+
+const Editor = dynamic(
+  () => import('@/components/editor/Editor').then(m => ({ default: m.Editor })),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
+
+const TableEditor = dynamic(
+  () => import('@/components/table-editor/TableEditor').then(m => ({ default: m.TableEditor })),
+  { ssr: false, loading: () => <TableSkeleton /> }
+);
+
+const PresentationEditor = dynamic(
+  () => import('@/components/presentation-editor/PresentationEditor').then(m => ({ default: m.PresentationEditor })),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
+
+const DiagramEditor = dynamic(
+  () => import('@/components/diagram-editor/X6DiagramEditor'),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
 
 const RevisionPreview = dynamic(() => import('@/components/RevisionPreview'), { ssr: false });
 import * as gw from '@/lib/api/gateway';
