@@ -1057,7 +1057,7 @@ export default function ContentPage() {
 
       {/* Detail area */}
       <div className={cn(
-        'flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-card',
+        'flex-1 flex flex-col min-w-0 min-h-0 bg-card',
         mobileView === 'detail' ? 'flex' : 'hidden md:flex'
       )}>
         {selectedDoc && selection?.type === 'doc' ? (
@@ -1965,7 +1965,7 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
     <div className="flex flex-row h-full overflow-hidden">
     <div className="flex-1 min-w-0 flex flex-col">
       {/* Top bar — breadcrumb + actions, split when comments open */}
-      <div className="flex items-center border-b border-border bg-white dark:bg-card shrink-0">
+      <div className="flex items-center border-b border-border bg-card shrink-0">
         <div className="flex-1 min-w-0 flex items-center px-4 py-2">
         {onToggleDocList && (
           <button
