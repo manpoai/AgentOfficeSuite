@@ -7,8 +7,10 @@ import * as gw from '@/lib/api/gateway';
 import {
   ArrowLeft, ArrowLeftToLine, ArrowRightToLine,
   MoreHorizontal, Link2, Download, Trash2, ChevronRight,
-  Undo2, Redo2,
+  Undo2, Redo2, MessageSquare, Clock, X,
 } from 'lucide-react';
+import { Comments } from '@/components/comments/Comments';
+import ContentRevisionHistory from '@/components/ContentRevisionHistory';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
@@ -115,6 +117,8 @@ function X6DiagramEditorInner({
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
   const [activeConnector, setActiveConnector] = useState<ConnectorType>(DEFAULT_CONNECTOR);
   const [showMenu, setShowMenu] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   // Title editing now handled by ContentTopBar
   const [migrationNeeded, setMigrationNeeded] = useState(false);
 
@@ -1031,6 +1035,13 @@ function X6DiagramEditorInner({
             >
               <Redo2 size={16} />
             </button>
+            <button
+              onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
+              className={cn('p-1.5 rounded transition-colors', showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
+              title="Comments"
+            >
+              <MessageSquare size={16} />
+            </button>
             <div className="relative">
               <button
                 className="p-1.5 rounded hover:bg-muted text-muted-foreground"
@@ -1039,7 +1050,8 @@ function X6DiagramEditorInner({
                 <MoreHorizontal size={16} />
               </button>
               {showMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-card rounded-lg shadow-lg border border-border py-1 w-40 z-50">
+                <div className="absolute right-0 top-full mt-1 bg-card rounded-lg shadow-lg border border-border py-1 w-44 z-50">
+                  <MenuButton icon={<Clock size={14} />} label="版本历史" onClick={() => { setShowHistory(true); setShowComments(false); setShowMenu(false); }} />
                   {onCopyLink && (
                     <MenuButton icon={<Link2 size={14} />} label="复制链接" onClick={() => { onCopyLink(); setShowMenu(false); }} />
                   )}
@@ -1066,48 +1078,91 @@ function X6DiagramEditorInner({
         </div>
       )}
 
-      {/* ── Canvas area ── */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* X6 container */}
-        <div
-          ref={containerRef}
-          className={cn('w-full h-full', activeTool !== 'select' && 'cursor-crosshair')}
-        />
+      {/* ── Canvas + sidebar row ── */}
+      <div className="flex-1 flex min-h-0">
+        {/* ── Canvas area ── */}
+        <div className="flex-1 relative overflow-hidden">
+          {/* X6 container */}
+          <div
+            ref={containerRef}
+            className={cn('w-full h-full', activeTool !== 'select' && 'cursor-crosshair')}
+          />
 
-        {/* Error fallback */}
-        {graphError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-muted z-50">
-            <div className="text-center p-8">
-              <p className="text-muted-foreground text-sm mb-2">图表编辑器加载失败</p>
-              <p className="text-xs text-muted-foreground font-mono">{graphError}</p>
+          {/* Error fallback */}
+          {graphError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-muted z-50">
+              <div className="text-center p-8">
+                <p className="text-muted-foreground text-sm mb-2">图表编辑器加载失败</p>
+                <p className="text-xs text-muted-foreground font-mono">{graphError}</p>
+              </div>
             </div>
+          )}
+
+          {/* Left toolbar */}
+          <LeftToolbar
+            activeTool={activeTool}
+            onToolChange={setActiveTool}
+            activeConnector={activeConnector}
+            onConnectorChange={setActiveConnector}
+            graph={graph}
+          />
+
+          {/* Floating toolbar */}
+          <FloatingToolbar graph={graph} />
+
+          {/* Zoom bar */}
+          <ZoomBar graph={graph} />
+
+          {/* Shape preview following cursor */}
+          <ShapePreview activeTool={activeTool} containerRef={containerRef} graph={graph} onDragCreate={handleDragCreate} />
+
+          {/* Minimap */}
+          <div
+            ref={minimapRef}
+            className="absolute right-3 bottom-12 bg-card rounded-lg shadow-md border border-border overflow-hidden"
+            style={{ width: 180, height: 120 }}
+          />
+        </div>
+
+        {/* Comments sidebar */}
+        {showComments && !showHistory && (
+          <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">Comments</h3>
+              <button onClick={() => setShowComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+            <Comments
+              queryKey={['content-comments', `diagram:${diagramId}`]}
+              fetchComments={() => gw.listContentComments(`diagram:${diagramId}`)}
+              postComment={(text, parentId) => gw.createContentComment(`diagram:${diagramId}`, text, parentId)}
+              editComment={(commentId, text) => gw.editContentComment(commentId, text)}
+              deleteComment={(commentId) => gw.deleteContentComment(commentId)}
+              resolveComment={(commentId) => gw.resolveContentComment(commentId)}
+              unresolveComment={(commentId) => gw.unresolveContentComment(commentId)}
+            />
           </div>
         )}
 
-        {/* Left toolbar */}
-        <LeftToolbar
-          activeTool={activeTool}
-          onToolChange={setActiveTool}
-          activeConnector={activeConnector}
-          onConnectorChange={setActiveConnector}
-          graph={graph}
-        />
-
-        {/* Floating toolbar */}
-        <FloatingToolbar graph={graph} />
-
-        {/* Zoom bar */}
-        <ZoomBar graph={graph} />
-
-        {/* Shape preview following cursor */}
-        <ShapePreview activeTool={activeTool} containerRef={containerRef} graph={graph} onDragCreate={handleDragCreate} />
-
-        {/* Minimap */}
-        <div
-          ref={minimapRef}
-          className="absolute right-3 bottom-12 bg-card rounded-lg shadow-md border border-border overflow-hidden"
-          style={{ width: 180, height: 120 }}
-        />
+        {/* Version history sidebar */}
+        {showHistory && (
+          <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+            <ContentRevisionHistory
+              contentId={`diagram:${diagramId}`}
+              onClose={() => setShowHistory(false)}
+              onRestored={async (data) => {
+                if (graph && data) {
+                  // Save restored data to backend
+                  await gw.saveDiagram(diagramId, data);
+                  // Reload the graph from the restored data
+                  graph.fromJSON(data);
+                  queryClient.invalidateQueries({ queryKey: ['diagram', diagramId] });
+                }
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

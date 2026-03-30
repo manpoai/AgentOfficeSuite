@@ -220,6 +220,35 @@ try {
   console.log('[gateway] DB migrated: added pinned column to content_items');
 } catch { /* already exists */ }
 
+// Migrate: create content_comments table (generic comments for presentations, diagrams, etc.)
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS content_comments (
+    id TEXT PRIMARY KEY,
+    content_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    author TEXT,
+    actor_id TEXT,
+    parent_comment_id TEXT,
+    resolved_by TEXT,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_content_comments_content ON content_comments(content_id)');
+} catch { /* already exists */ }
+
+// Migrate: create content_revisions table (generic revisions for presentations, diagrams, etc.)
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS content_revisions (
+    id TEXT PRIMARY KEY,
+    content_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_content_revisions_content ON content_revisions(content_id, created_at DESC)');
+} catch { /* already exists */ }
+
 // ─── Helpers ─────────────────────────────────────
 function genId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -3742,6 +3771,142 @@ app.post('/api/notifications', authenticateAny, (req, res) => {
   db.prepare('INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, req.actor.id, target_actor_id, type, title, body || null, link || null, now);
   res.status(201).json({ id, created_at: now });
+});
+
+// ─── Content Comments (Generic — presentations, diagrams, etc.) ─────────
+// List comments for a content item
+app.get('/api/content-items/:id/comments', authenticateAgent, (req, res) => {
+  const contentId = decodeURIComponent(req.params.id);
+  const rows = db.prepare(
+    'SELECT * FROM content_comments WHERE content_id = ? ORDER BY created_at ASC'
+  ).all(contentId);
+  const comments = rows.map(r => ({
+    id: r.id,
+    text: r.text,
+    actor: r.author,
+    actor_id: r.actor_id,
+    parent_id: r.parent_comment_id || null,
+    resolved_by: r.resolved_by ? { id: r.resolved_by, name: r.resolved_by } : null,
+    resolved_at: r.resolved_at || null,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+  res.json({ comments });
+});
+
+// Create a content comment
+app.post('/api/content-items/:id/comments', authenticateAgent, (req, res) => {
+  const contentId = decodeURIComponent(req.params.id);
+  const { text, parent_comment_id } = req.body;
+  if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
+
+  const agent = req.agent;
+  const id = genId('ccmt');
+  const now = new Date().toISOString();
+
+  db.prepare(`INSERT INTO content_comments (id, content_id, text, author, actor_id, parent_comment_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, contentId, text, agent.display_name || agent.name, agent.id, parent_comment_id || null, now, now);
+
+  res.status(201).json({
+    id,
+    text,
+    actor: agent.display_name || agent.name,
+    actor_id: agent.id,
+    parent_id: parent_comment_id || null,
+    resolved_by: null,
+    resolved_at: null,
+    created_at: now,
+    updated_at: now,
+  });
+});
+
+// Edit a content comment
+app.patch('/api/content-comments/:commentId', authenticateAgent, (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
+
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE content_comments SET text = ?, updated_at = ? WHERE id = ?'
+  ).run(text, now, req.params.commentId);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ updated: true });
+});
+
+// Delete a content comment
+app.delete('/api/content-comments/:commentId', authenticateAgent, (req, res) => {
+  const result = db.prepare('DELETE FROM content_comments WHERE id = ?').run(req.params.commentId);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ deleted: true });
+});
+
+// Resolve a content comment
+app.post('/api/content-comments/:commentId/resolve', authenticateAgent, (req, res) => {
+  const agent = req.agent;
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE content_comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?'
+  ).run(agent.display_name || agent.name, now, now, req.params.commentId);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ resolved: true });
+});
+
+// Unresolve a content comment
+app.post('/api/content-comments/:commentId/unresolve', authenticateAgent, (req, res) => {
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE content_comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?'
+  ).run(now, req.params.commentId);
+  if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
+  res.json({ unresolved: true });
+});
+
+// ─── Content Revisions (Generic — presentations, diagrams, etc.) ─────────
+// List revisions for a content item
+app.get('/api/content-items/:id/revisions', authenticateAgent, (req, res) => {
+  const contentId = decodeURIComponent(req.params.id);
+  const rows = db.prepare(
+    'SELECT * FROM content_revisions WHERE content_id = ? ORDER BY created_at DESC'
+  ).all(contentId);
+  const revisions = rows.map(r => ({
+    id: r.id,
+    content_id: r.content_id,
+    data: (() => { try { return JSON.parse(r.data); } catch { return null; } })(),
+    created_at: r.created_at,
+    created_by: r.created_by,
+  }));
+  res.json({ revisions });
+});
+
+// Create a revision (snapshot)
+app.post('/api/content-items/:id/revisions', authenticateAgent, (req, res) => {
+  const contentId = decodeURIComponent(req.params.id);
+  const { data } = req.body;
+  if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data required' });
+
+  const agent = req.agent;
+  const id = genId('crev');
+  const now = new Date().toISOString();
+
+  db.prepare(`INSERT INTO content_revisions (id, content_id, data, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?)`)
+    .run(id, contentId, JSON.stringify(data), now, agent.display_name || agent.name);
+
+  res.status(201).json({ id, content_id: contentId, created_at: now, created_by: agent.display_name || agent.name });
+});
+
+// Restore a revision — returns the revision data for the client to apply
+app.post('/api/content-items/:id/revisions/:revId/restore', authenticateAgent, (req, res) => {
+  const contentId = decodeURIComponent(req.params.id);
+  const revision = db.prepare(
+    'SELECT * FROM content_revisions WHERE id = ? AND content_id = ?'
+  ).get(req.params.revId, contentId);
+  if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
+
+  let data;
+  try { data = JSON.parse(revision.data); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
+  res.json({ data, revision_id: revision.id, created_at: revision.created_at });
 });
 
 // ─── Start ───────────────────────────────────────

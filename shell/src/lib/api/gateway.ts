@@ -395,3 +395,68 @@ export async function markNotificationRead(id: string): Promise<void> {
 export async function markAllNotificationsRead(): Promise<void> {
   await gwFetch('/notifications/read-all', { method: 'POST' });
 }
+
+// ─── Content Comments (Generic — presentations, diagrams, etc.) ─────────
+
+export async function listContentComments(contentId: string): Promise<Comment[]> {
+  const data = await gwFetch<{ comments: Comment[] }>(`/content-items/${encodeURIComponent(contentId)}/comments`);
+  return data.comments;
+}
+
+export async function createContentComment(contentId: string, text: string, parentId?: string): Promise<Comment> {
+  return gwFetch<Comment>(`/content-items/${encodeURIComponent(contentId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, parent_comment_id: parentId }),
+  });
+}
+
+export async function editContentComment(commentId: string, text: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function deleteContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}`, { method: 'DELETE' });
+}
+
+export async function resolveContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}/resolve`, { method: 'POST' });
+}
+
+export async function unresolveContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}/unresolve`, { method: 'POST' });
+}
+
+// ─── Content Revisions (Generic — presentations, diagrams, etc.) ─────────
+
+export interface ContentRevision {
+  id: string;
+  content_id: string;
+  data: any;
+  created_at: string;
+  created_by: string | null;
+}
+
+export async function listContentRevisions(contentId: string): Promise<ContentRevision[]> {
+  const data = await gwFetch<{ revisions: ContentRevision[] }>(`/content-items/${encodeURIComponent(contentId)}/revisions`);
+  return data.revisions;
+}
+
+export async function createContentRevision(contentId: string, data: any): Promise<ContentRevision> {
+  return gwFetch<ContentRevision>(`/content-items/${encodeURIComponent(contentId)}/revisions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+export async function restoreContentRevision(contentId: string, revisionId: string): Promise<{ data: any }> {
+  return gwFetch<{ data: any }>(`/content-items/${encodeURIComponent(contentId)}/revisions/${revisionId}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+}

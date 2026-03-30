@@ -7,6 +7,8 @@ import { AUTOSAVE_DEBOUNCE_MS } from '../constants';
 
 export function useAutoSave(graph: Graph | null, diagramId: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRevisionRef = useRef<number>(0);
+  const REVISION_INTERVAL = 5 * 60 * 1000; // 5 minutes
   const [lastSaved, setLastSaved] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -21,12 +23,19 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
       }
       const { sx, sy } = graph.scale();
       const { tx, ty } = graph.translate();
-      await gw.saveDiagram(diagramId, {
+      const diagramData = {
         nodes: [], edges: [], // Legacy compat — gateway ignores these if cells present
         ...json,
         viewport: { x: tx, y: ty, zoom: sx },
-      } as any);
+      } as any;
+      await gw.saveDiagram(diagramId, diagramData);
       setLastSaved(Date.now());
+      // Auto-create revision every 5 minutes
+      const now = Date.now();
+      if (now - lastRevisionRef.current > REVISION_INTERVAL) {
+        lastRevisionRef.current = now;
+        gw.createContentRevision(`diagram:${diagramId}`, diagramData).catch(() => {});
+      }
     } catch (e) {
       console.error('Auto-save failed:', e);
     } finally {

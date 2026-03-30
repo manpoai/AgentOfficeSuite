@@ -14,12 +14,14 @@ import {
   ArrowUpToLine, ArrowDownToLine, MoveUp, MoveDown,
   FlipHorizontal2, FlipVertical2, RotateCcw,
   Replace, PanelRightClose, PanelRight, X,
-  Table2, Trash,
+  Table2, Trash, MessageSquare, Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
 import { ColorPicker } from '@/components/shared/ColorPicker';
+import { Comments } from '@/components/comments/Comments';
+import ContentRevisionHistory from '@/components/ContentRevisionHistory';
 
 // ─── Types ──────────────────────────────────────────
 interface SlideData {
@@ -163,6 +165,12 @@ export function PresentationEditor({
   // Counter to force property panel re-render when object properties change
   const [propVersion, setPropVersion] = useState(0);
   const [showPropertyPanel, setShowPropertyPanel] = useState(true);
+  const [showComments, setShowComments] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Auto-save revision tracking
+  const lastRevisionRef = useRef<number>(0);
+  const REVISION_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
   // Refs
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -210,6 +218,12 @@ export function PresentationEditor({
       gw.savePresentation(presentationId, { slides: updatedSlides }).catch((err) => {
         console.error('Presentation auto-save failed:', err);
       });
+      // Auto-create revision every 5 minutes
+      const now = Date.now();
+      if (now - lastRevisionRef.current > REVISION_INTERVAL) {
+        lastRevisionRef.current = now;
+        gw.createContentRevision(`presentation:${presentationId}`, { slides: updatedSlides }).catch(() => {});
+      }
     }, 800);
   }, [presentationId]);
 
@@ -974,6 +988,13 @@ export function PresentationEditor({
               <Play className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Present</span>
             </button>
+            <button
+              onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
+              className={cn('p-1.5 rounded transition-colors', showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
+              title={t('content.comments') || 'Comments'}
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
             <div className="relative">
               <button
                 onClick={() => setShowMenu(v => !v)}
@@ -986,6 +1007,11 @@ export function PresentationEditor({
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                   <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-52">
+                    <MenuBtn icon={Clock} label={t('content.versionHistory') || 'Version History'} onClick={() => {
+                      setShowMenu(false);
+                      setShowHistory(true);
+                      setShowComments(false);
+                    }} />
                     <MenuBtn icon={Link2} label={t('content.copyLink') || 'Copy Link'} onClick={() => {
                       setShowMenu(false);
                       onCopyLink?.();
@@ -1122,6 +1148,45 @@ export function PresentationEditor({
             propVersion={propVersion}
             onClose={() => setShowPropertyPanel(false)}
           />
+        )}
+
+        {/* Comments sidebar */}
+        {showComments && !showHistory && (
+          <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground">{t('content.comments') || 'Comments'}</h3>
+              <button onClick={() => setShowComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('common.close') || 'Close'}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <Comments
+              queryKey={['content-comments', `presentation:${presentationId}`]}
+              fetchComments={() => gw.listContentComments(`presentation:${presentationId}`)}
+              postComment={(text, parentId) => gw.createContentComment(`presentation:${presentationId}`, text, parentId)}
+              editComment={(commentId, text) => gw.editContentComment(commentId, text)}
+              deleteComment={(commentId) => gw.deleteContentComment(commentId)}
+              resolveComment={(commentId) => gw.resolveContentComment(commentId)}
+              unresolveComment={(commentId) => gw.unresolveContentComment(commentId)}
+            />
+          </div>
+        )}
+
+        {/* Version history sidebar */}
+        {showHistory && (
+          <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
+            <ContentRevisionHistory
+              contentId={`presentation:${presentationId}`}
+              onClose={() => setShowHistory(false)}
+              onRestored={async (data) => {
+                if (data?.slides) {
+                  setSlides(data.slides);
+                  setCurrentSlideIndex(0);
+                  await gw.savePresentation(presentationId, { slides: data.slides });
+                  queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
+                }
+              }}
+            />
+          </div>
         )}
       </div>
     </div>
