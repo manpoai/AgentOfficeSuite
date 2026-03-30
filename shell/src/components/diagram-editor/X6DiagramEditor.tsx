@@ -673,18 +673,23 @@ function X6DiagramEditorInner({
     };
 
     const clearPreview = () => {
+      // Aggressively remove by fixed ID AND scan for any _isPreview cells
       try {
         if (graph.hasCell(PREVIEW_EDGE_ID)) graph.removeCell(PREVIEW_EDGE_ID);
-      } catch { /* ignore */ }
+      } catch (e) { console.warn('[preview] removeEdge error:', e); }
       try {
         if (graph.hasCell(PREVIEW_NODE_ID)) graph.removeCell(PREVIEW_NODE_ID);
-      } catch { /* ignore */ }
+      } catch (e) { console.warn('[preview] removeNode error:', e); }
+      // Fallback: remove ANY cell marked as preview (handles orphans from re-renders)
+      const orphans = graph.getCells().filter(c => c.getData()?._isPreview);
+      if (orphans.length > 0) {
+        console.warn('[preview] Found orphaned preview cells:', orphans.length);
+        graph.removeCells(orphans);
+      }
     };
 
     // Track which port is currently hovered for style restoration
     let hoveredPortInfo: { nodeId: string; portId: string } | null = null;
-    // Suppress preview re-creation briefly after port click
-    let suppressPreview = false;
 
     const restorePortStyle = () => {
       if (!hoveredPortInfo) return;
@@ -697,28 +702,30 @@ function X6DiagramEditorInner({
       hoveredPortInfo = null;
     };
 
+    // After a port click creates a node, block preview until mouse truly re-enters a port
+    let createdViaPortClick = false;
+
     const handlePortClick = ({ e, node, port }: { e: MouseEvent; node: Node; port: string }) => {
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
-      // Suppress preview for a short period to prevent re-creation from mouseenter
-      suppressPreview = true;
-      setTimeout(() => { suppressPreview = false; }, 500);
+      createdViaPortClick = true;
       clearPreview();
       restorePortStyle();
       const newNode = quickCreateNode(graph, node, port);
       if (newNode) {
         graph.select(newNode);
       }
-      // Double-clear after node creation in case events re-triggered
+      // Clear again after creation — events during addNode may have recreated preview
       clearPreview();
     };
 
     const handlePortEnter = ({ node, port }: { e: MouseEvent; node: Node; port: string }) => {
       if (activeTool !== 'select') return;
       if (node.getData()?.mindmapGroupId) return;
-      if (suppressPreview) return;
       // Don't show preview on preview nodes
       if (node.getData()?._isPreview) return;
+      // After port click, ignore enter events until a mouseleave resets the flag
+      if (createdViaPortClick) return;
 
       // Restore previous port style if different
       restorePortStyle();
@@ -777,12 +784,14 @@ function X6DiagramEditorInner({
     };
 
     const handlePortLeave = () => {
+      createdViaPortClick = false;
       restorePortStyle();
       clearPreview();
     };
 
     // Also clean up on blank click, selection change, and node click
     const handleCleanup = () => {
+      createdViaPortClick = false;
       restorePortStyle();
       clearPreview();
     };
