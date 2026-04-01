@@ -3,6 +3,8 @@ import {
   Heading1, Heading2, Heading3, ListTodo, ListOrdered, List,
   Link, MessageSquare, Type, Palette,
   AlignLeft, AlignCenter, AlignRight,
+  Paintbrush, Square, Copy, Trash2, Layers, ImageIcon,
+  Minus, ArrowRight,
 } from 'lucide-react';
 import type { ToolbarItem } from './types';
 import { createElement } from 'react';
@@ -82,4 +84,119 @@ export const PPT_TEXT_ITEMS: ToolbarItem[] = [
       { value: 'right', label: 'Right', icon: icon(AlignRight) },
     ]},
   { key: 'textColor', type: 'color', icon: icon(Palette), label: 'Text color', group: 'color', colors: TEXT_COLORS },
+];
+
+// ── Diagram Toolbar ──
+
+const DIAGRAM_FILL_COLORS = [
+  { name: 'White', value: '#ffffff' },
+  { name: 'Blue', value: '#dbeafe' },
+  { name: 'Green', value: '#dcfce7' },
+  { name: 'Yellow', value: '#fef9c3' },
+  { name: 'Red', value: '#fee2e2' },
+  { name: 'Purple', value: '#f3e8ff' },
+  { name: 'Orange', value: '#ffedd5' },
+  { name: 'Indigo', value: '#e0e7ff' },
+  { name: 'Gray', value: '#f1f5f9' },
+  { name: 'Pink', value: '#fce7f3' },
+  { name: 'Transparent', value: 'transparent' },
+];
+
+const DIAGRAM_BORDER_COLORS = [
+  { name: 'Dark', value: '#374151' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Indigo', value: '#6366f1' },
+  { name: 'Gray', value: '#94a3b8' },
+  { name: 'Transparent', value: 'transparent' },
+];
+
+const DIAGRAM_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32].map(
+  s => ({ value: String(s), label: String(s) }),
+);
+
+const EDGE_COLORS = [
+  { name: 'Gray', value: '#94a3b8' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Dark', value: '#374151' },
+];
+
+const EDGE_WIDTH_OPTIONS = [1, 1.5, 2, 3, 4, 6].map(
+  w => ({ value: String(w), label: String(w) }),
+);
+
+const LINE_STYLE_OPTIONS = [
+  { value: 'solid', label: '实线' },
+  { value: 'dashed', label: '虚线' },
+  { value: 'dotted', label: '点线' },
+];
+
+const CONNECTOR_TYPE_OPTIONS = [
+  { value: 'straight', label: '直线' },
+  { value: 'manhattan', label: '正交' },
+  { value: 'rounded', label: '折线' },
+  { value: 'smooth', label: '曲线' },
+];
+
+const ZORDER_OPTIONS = [
+  { value: 'front', label: '置顶' },
+  { value: 'back', label: '置底' },
+];
+
+/**
+ * Diagram Node toolbar.
+ * 'shapeSelect' item uses 'custom' type — the renderCustom is set by the diagram editor
+ * at integration time since it depends on ShapePicker component.
+ */
+export const DIAGRAM_NODE_ITEMS: ToolbarItem[] = [
+  { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: '形状', group: 'shape' },
+  { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: '填充色', group: 'color', colors: DIAGRAM_FILL_COLORS, colorClearable: true },
+  { key: 'borderColor', type: 'color', icon: icon(Square), label: '边框色', group: 'color', colors: DIAGRAM_BORDER_COLORS, colorClearable: true },
+  { key: 'fontSize', type: 'dropdown', icon: null, label: '字号', group: 'font', options: DIAGRAM_FONT_SIZES },
+  { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+  { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+  { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+  { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+  { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: '对齐', group: 'align',
+    options: [
+      { value: 'left', label: 'Left', icon: icon(AlignLeft) },
+      { value: 'center', label: 'Center', icon: icon(AlignCenter) },
+      { value: 'right', label: 'Right', icon: icon(AlignRight) },
+    ]},
+  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
+  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
+  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
+];
+
+export const DIAGRAM_EDGE_ITEMS: ToolbarItem[] = [
+  { key: 'lineColor', type: 'color', icon: icon(Palette), label: '线条颜色', group: 'line', colors: EDGE_COLORS },
+  { key: 'lineWidth', type: 'dropdown', icon: icon(Minus), label: '线宽', group: 'line', options: EDGE_WIDTH_OPTIONS },
+  { key: 'lineStyle', type: 'dropdown', icon: null, label: '线型', group: 'line', options: LINE_STYLE_OPTIONS },
+  { key: 'connectorType', type: 'dropdown', icon: null, label: '连接类型', group: 'connector', options: CONNECTOR_TYPE_OPTIONS },
+  { key: 'arrowStyle', type: 'dropdown', icon: icon(ArrowRight), label: '箭头样式', group: 'connector',
+    options: [
+      { value: 'classic', label: '实心箭头' },
+      { value: 'open', label: '空心箭头' },
+      { value: 'none', label: '无箭头' },
+    ]},
+  { key: 'label', type: 'action', icon: icon(Type), label: '标签文本', group: 'label' },
+  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
+  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
+  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
+];
+
+export const DIAGRAM_IMAGE_ITEMS: ToolbarItem[] = [
+  { key: 'replace', type: 'action', icon: icon(ImageIcon), label: '替换', group: 'action' },
+  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
+  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
+  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
 ];

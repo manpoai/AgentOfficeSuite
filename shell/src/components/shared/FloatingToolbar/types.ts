@@ -5,7 +5,7 @@ export interface ToolbarItem {
   /** Unique identifier: 'bold', 'italic', 'fillColor', etc. */
   key: string;
   /** Rendering type */
-  type: 'toggle' | 'color' | 'dropdown' | 'action';
+  type: 'toggle' | 'color' | 'dropdown' | 'action' | 'custom';
   /** Lucide icon element */
   icon: ReactNode;
   /** Tooltip text */
@@ -18,6 +18,8 @@ export interface ToolbarItem {
   colors?: { name: string; value: string }[];
   /** Whether to show a "clear/remove" button in the color picker */
   colorClearable?: boolean;
+  /** For 'custom' type: render function receiving current value and onSelect callback */
+  renderCustom?: (value: string | undefined, onSelect: (value: string) => void) => ReactNode;
 }
 
 /** Current state of toolbar buttons (active flags, selected values) */

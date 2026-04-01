@@ -118,6 +118,19 @@ export function FloatingToolbar({ items, handler, anchor, visible, onHover, clas
           </ToolbarButton>
         );
         break;
+
+      case 'custom':
+        if (item.renderCustom) {
+          rendered.push(
+            <span key={item.key}>
+              {item.renderCustom(
+                typeof state[item.key] === 'string' ? state[item.key] as string : undefined,
+                (val) => handleExecute(item.key, val),
+              )}
+            </span>
+          );
+        }
+        break;
     }
   }
 

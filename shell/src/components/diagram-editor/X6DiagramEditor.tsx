@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, Component, type ErrorInfo, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, Component, type ErrorInfo, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Graph, Node, Edge, Cell } from '@antv/x6';
 import * as gw from '@/lib/api/gateway';
@@ -8,16 +8,26 @@ import {
   ArrowLeft, ArrowLeftToLine, ArrowRightToLine,
   MoreHorizontal, Link2, Download, Trash2, ChevronRight,
   Undo2, Redo2, MessageSquare, Clock, X,
+  Plus, GitBranch, Type, Trash,
 } from 'lucide-react';
-import { Comments } from '@/components/comments/Comments';
-import ContentRevisionHistory from '@/components/ContentRevisionHistory';
+import { CommentPanel } from '@/components/shared/CommentPanel';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+import { RevisionHistory } from '@/components/shared/RevisionHistory';
+import { EditFAB } from '@/components/shared/EditFAB';
+import { MobileToolbar } from '@/components/shared/MobileToolbar';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
 import { useX6Graph } from './hooks/useX6Graph';
 import { useAutoSave } from './hooks/useAutoSave';
+import { usePinchZoom } from '@/lib/hooks/use-pinch-zoom';
 import { LeftToolbar, type ActiveTool } from './components/LeftToolbar';
-import { FloatingToolbar } from './components/FloatingToolbar';
+import { FloatingToolbar } from '@/components/shared/FloatingToolbar';
+import { DIAGRAM_NODE_ITEMS, DIAGRAM_EDGE_ITEMS, DIAGRAM_IMAGE_ITEMS } from '@/components/shared/FloatingToolbar/presets';
+import { createDiagramNodeHandler, createDiagramEdgeHandler, createDiagramImageHandler } from './diagram-toolbar-handler';
+import { ShapePicker } from '@/components/shared/ShapeSet';
+import { SHAPE_MAP } from '@/components/shared/ShapeSet/shapes';
+import type { ToolbarItem } from '@/components/shared/FloatingToolbar/types';
 import { ZoomBar } from './components/ZoomBar';
 import { ShapePreview } from './components/ShapePreview';
 import {
@@ -32,6 +42,11 @@ import {
   type MindmapTreeNode,
 } from './utils/mindmap-tree';
 import { isReactFlowData, migrateToX6 } from './utils/migration';
+import {
+  getNodeContextMenuItems,
+  getEdgeContextMenuItems,
+  getCanvasContextMenuItems,
+} from './diagram-context-menu';
 
 // ─── Types ──────────────────────────────────────────
 interface X6DiagramEditorProps {
@@ -92,6 +107,49 @@ class DiagramErrorBoundary extends Component<
   }
 }
 
+/** Inline shape selector for diagram node toolbar — wraps ShapePicker in a dropdown */
+function DiagramShapeSelector({ current, onSelect }: { current: string; onSelect: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) setOpen(false);
+    };
+    const id = setTimeout(() => document.addEventListener('mousedown', handler, true), 0);
+    return () => { clearTimeout(id); document.removeEventListener('mousedown', handler, true); };
+  }, [open]);
+
+  const shapeDef = SHAPE_MAP.get(current as any);
+  const iconPath = shapeDef?.iconPath ?? '';
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        className="h-[26px] px-1.5 flex items-center gap-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground text-xs"
+        onClick={() => setOpen(!open)}
+        onMouseDown={(e) => e.preventDefault()}
+        title="形状"
+      >
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d={iconPath} fill="none" />
+        </svg>
+        <span className="text-[10px]">▾</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 bottom-full mb-1 z-40" onMouseDown={(e) => e.preventDefault()}>
+          <ShapePicker
+            onSelect={(shapeType) => { onSelect(shapeType); setOpen(false); }}
+            selectedShape={current}
+            columns={6}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function X6DiagramEditor(props: X6DiagramEditorProps) {
   return (
     <DiagramErrorBoundary>
@@ -113,6 +171,10 @@ function X6DiagramEditorInner({
   // X6 graph
   const { graph, ready, error: graphError } = useX6Graph(containerRef, minimapRef);
 
+  // Mobile detection & editing state
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+  const [mobileEditing, setMobileEditing] = useState(false);
+
   // State
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
   const [activeConnector, setActiveConnector] = useState<ConnectorType>(DEFAULT_CONNECTOR);
@@ -122,6 +184,10 @@ function X6DiagramEditorInner({
   // Title editing now handled by ContentTopBar
   const [migrationNeeded, setMigrationNeeded] = useState(false);
 
+  // Floating toolbar selection tracking
+  const [diagramToolbarCell, setDiagramToolbarCell] = useState<Cell | null>(null);
+  const [diagramToolbarAnchor, setDiagramToolbarAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
+
   // Mindmap state
   const mindmapTreeRef = useRef<MindmapTreeNode | null>(null);
   const mindmapGroupIdRef = useRef<string>('');
@@ -130,6 +196,202 @@ function X6DiagramEditorInner({
 
   // Auto-save
   const { save, lastSaved, saving } = useAutoSave(graph, diagramId);
+
+  // ─── Pinch-to-zoom via shared hook ──
+  usePinchZoom(containerRef, {
+    onZoom: useCallback((scale: number) => {
+      if (graph) graph.zoomTo(scale);
+    }, [graph]),
+    minScale: 0.2,
+    maxScale: 3,
+    getCurrentScale: useCallback(() => graph?.zoom() ?? 1, [graph]),
+  });
+
+  // ─── Mobile: toggle interacting on graph based on mobileEditing ──
+  useEffect(() => {
+    if (!graph || !isMobile) return;
+    if (mobileEditing) {
+      (graph as any).options.interacting = {
+        nodeMovable: true,
+        edgeMovable: true,
+        edgeLabelMovable: true,
+      };
+    } else {
+      // Preview mode: disable all editing interactions
+      (graph as any).options.interacting = false;
+      // Panning remains enabled so user can scroll the canvas in preview
+    }
+  }, [graph, isMobile, mobileEditing]);
+
+  // ─── Diagram floating toolbar: track selection & position ──
+  useEffect(() => {
+    if (!graph) return;
+
+    const computeAnchor = (cell: Cell): { top: number; left: number; width: number } | null => {
+      const container = graph.container?.parentElement;
+      if (!container) return null;
+      const containerRect = container.getBoundingClientRect();
+
+      if (cell.isNode()) {
+        const node = cell as Node;
+        const pos = node.position();
+        const size = node.size();
+        const graphPt = graph.localToGraph(pos.x + size.width / 2, pos.y);
+        return {
+          top: containerRect.top + graphPt.y - 10,
+          left: containerRect.left + graphPt.x - size.width / 2,
+          width: size.width,
+        };
+      }
+      if (cell.isEdge()) {
+        const edge = cell as Edge;
+        const sourceCell = edge.getSourceCell();
+        const targetCell = edge.getTargetCell();
+        if (sourceCell?.isNode() && targetCell?.isNode()) {
+          const sp = (sourceCell as Node).position();
+          const ss = (sourceCell as Node).size();
+          const tp = (targetCell as Node).position();
+          const ts = (targetCell as Node).size();
+          const sx = sp.x + ss.width / 2, sy = sp.y + ss.height / 2;
+          const tx = tp.x + ts.width / 2, ty = tp.y + ts.height / 2;
+          const midPt = graph.localToGraph((sx + tx) / 2, Math.min(sy, ty));
+          return {
+            top: containerRect.top + midPt.y - 10,
+            left: containerRect.left + midPt.x - 50,
+            width: 100,
+          };
+        }
+        const vertices = edge.getVertices();
+        if (vertices.length > 0) {
+          const v = vertices[Math.floor(vertices.length / 2)];
+          const gp = graph.localToGraph(v.x, v.y);
+          return {
+            top: containerRect.top + gp.y - 10,
+            left: containerRect.left + gp.x - 50,
+            width: 100,
+          };
+        }
+        return null;
+      }
+      return null;
+    };
+
+    const updateSelection = () => {
+      const cells = graph.getSelectedCells();
+      if (cells.length === 1) {
+        const cell = cells[0];
+        setDiagramToolbarCell(cell);
+        setDiagramToolbarAnchor(computeAnchor(cell));
+      } else {
+        setDiagramToolbarCell(null);
+        setDiagramToolbarAnchor(null);
+      }
+    };
+
+    const onNodeMoved = () => {
+      const cells = graph.getSelectedCells();
+      if (cells.length === 1 && cells[0].isNode()) {
+        setDiagramToolbarAnchor(computeAnchor(cells[0]));
+      }
+    };
+
+    graph.on('selection:changed', updateSelection);
+    graph.on('node:moved', onNodeMoved);
+    graph.on('node:resized', onNodeMoved);
+
+    return () => {
+      graph.off('selection:changed', updateSelection);
+      graph.off('node:moved', onNodeMoved);
+      graph.off('node:resized', onNodeMoved);
+    };
+  }, [graph]);
+
+  // ─── Mobile toolbar items ──
+  const mobileToolbarItems = useMemo(() => {
+    if (!graph) return [];
+    return [
+      {
+        icon: <Plus className="w-5 h-5" />,
+        label: 'Add Node',
+        onClick: () => {
+          const { tx, ty } = graph.translate();
+          const zoom = graph.zoom();
+          const cx = (window.innerWidth / 2 - tx) / zoom;
+          const cy = (window.innerHeight / 2 - ty) / zoom;
+          const newNode = graph.addNode({
+            id: newNodeId(),
+            shape: 'flowchart-node',
+            x: cx - 60,
+            y: cy - 30,
+            width: 120,
+            height: 60,
+            data: {
+              label: '',
+              flowchartShape: 'rounded-rect' as FlowchartShape,
+              bgColor: DEFAULT_NODE_COLOR.bg,
+              borderColor: DEFAULT_NODE_COLOR.border,
+              textColor: DEFAULT_NODE_COLOR.text,
+              fontSize: 14,
+              fontWeight: 'normal',
+              fontStyle: 'normal',
+            },
+          });
+          graph.select(newNode);
+        },
+      },
+      {
+        icon: <GitBranch className="w-5 h-5" />,
+        label: 'Add Edge',
+        onClick: () => {
+          setActiveTool('select');
+          // Enable edge drawing mode — user taps a port to connect
+          // For mobile, we just ensure we're in select mode so port clicks work
+        },
+        active: activeTool === 'select',
+      },
+      {
+        icon: <Type className="w-5 h-5" />,
+        label: 'Add Text',
+        onClick: () => {
+          const { tx, ty } = graph.translate();
+          const zoom = graph.zoom();
+          const cx = (window.innerWidth / 2 - tx) / zoom;
+          const cy = (window.innerHeight / 2 - ty) / zoom;
+          const textNode = graph.addNode({
+            id: newNodeId(),
+            shape: 'flowchart-node',
+            x: cx - 60,
+            y: cy - 20,
+            width: 120,
+            height: 40,
+            data: {
+              label: '',
+              flowchartShape: 'rounded-rect' as FlowchartShape,
+              bgColor: 'transparent',
+              borderColor: 'transparent',
+              textColor: '#1f2937',
+              fontSize: 14,
+              fontWeight: 'normal',
+              fontStyle: 'normal',
+            },
+          });
+          graph.select(textNode);
+          setTimeout(() => {
+            if (startEditRef.current) startEditRef.current(textNode);
+          }, 50);
+        },
+      },
+      {
+        icon: <Trash className="w-5 h-5" />,
+        label: 'Delete',
+        onClick: () => {
+          const cells = graph.getSelectedCells();
+          if (cells.length) graph.removeCells(cells);
+        },
+        disabled: !graph.getSelectedCells().length,
+      },
+    ];
+  }, [graph, activeTool]);
 
   // ─── Load diagram data ──
   const { data: diagram } = useQuery({
@@ -710,6 +972,83 @@ function X6DiagramEditorInner({
     };
   }, [graph]);
 
+  // ─── Long-press context menu for touch devices ──
+  useEffect(() => {
+    if (!graph) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let touchStartPos: { x: number; y: number } | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      // Only single-finger long-press triggers context menu
+      if (e.touches.length !== 1) {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        return;
+      }
+      const touch = e.touches[0];
+      touchStartPos = { x: touch.clientX, y: touch.clientY };
+
+      longPressTimer = setTimeout(() => {
+        if (!touchStartPos) return;
+        const { x, y } = touchStartPos;
+
+        // Determine what's under the touch point
+        const selected = graph.getSelectedCells();
+        let items: import('@/lib/hooks/use-context-menu').ContextMenuItem[];
+
+        if (selected.length === 1 && selected[0].isNode()) {
+          items = getNodeContextMenuItems(selected[0].id);
+        } else if (selected.length === 1 && selected[0].isEdge()) {
+          items = getEdgeContextMenuItems(selected[0].id);
+        } else {
+          items = getCanvasContextMenuItems();
+        }
+
+        if (items.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent('show-context-menu', {
+              detail: { items, x, y },
+            })
+          );
+        }
+      }, 500);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (longPressTimer && touchStartPos) {
+        const touch = e.touches[0];
+        if (touch) {
+          const dx = touch.clientX - touchStartPos.x;
+          const dy = touch.clientY - touchStartPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      touchStartPos = null;
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: true });
+    container.addEventListener('touchend', onTouchEnd);
+    container.addEventListener('touchcancel', onTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+      if (longPressTimer) clearTimeout(longPressTimer);
+    };
+  }, [graph]);
+
   // ─── Quick-create: click port → new node + edge ──
   // Preview uses pure DOM overlay (not X6 cells) to avoid ghost node bugs.
   useEffect(() => {
@@ -1006,7 +1345,9 @@ function X6DiagramEditorInner({
   }, [graph, activeTool]);
 
   return (
-    <div className="flex flex-col h-full bg-muted">
+    <div className="flex flex-row h-full bg-muted">
+      {/* Left column: Header + canvas + toolbar */}
+      <div className="flex-1 flex flex-col h-full min-w-0">
       {/* ── Header ── */}
       <div className="flex items-center h-12 bg-card border-b border-border shrink-0">
         <ContentTopBar
@@ -1019,6 +1360,7 @@ function X6DiagramEditorInner({
           onTitleChange={async (newTitle) => {
             // TODO: update diagram title via gateway API if supported
           }}
+          mode={isMobile && mobileEditing ? 'edit' : undefined}
           statusText={saving ? 'Saving...' : lastSaved ? `Saved ${formatRelativeTime(lastSaved)}` : ''}
           actions={<>
             <button
@@ -1037,7 +1379,7 @@ function X6DiagramEditorInner({
             </button>
             <button
               onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
-              className={cn('p-1.5 rounded transition-colors', showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
+              className={cn('p-1.5 rounded transition-colors', showComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
               title="Comments"
             >
               <MessageSquare size={16} />
@@ -1098,72 +1440,153 @@ function X6DiagramEditorInner({
             </div>
           )}
 
-          {/* Left toolbar */}
-          <LeftToolbar
-            activeTool={activeTool}
-            onToolChange={setActiveTool}
-            activeConnector={activeConnector}
-            onConnectorChange={setActiveConnector}
-            graph={graph}
-          />
+          {/* Left toolbar — hidden on mobile in preview mode */}
+          {(!isMobile || mobileEditing) && (
+            <LeftToolbar
+              activeTool={activeTool}
+              onToolChange={setActiveTool}
+              activeConnector={activeConnector}
+              onConnectorChange={setActiveConnector}
+              graph={graph}
+            />
+          )}
 
-          {/* Floating toolbar */}
-          <FloatingToolbar graph={graph} />
+          {/* Floating toolbar — hidden on mobile in preview mode */}
+          {(!isMobile || mobileEditing) && graph && diagramToolbarCell && diagramToolbarAnchor && (() => {
+            const data = diagramToolbarCell.getData() || {};
+            const isNode = diagramToolbarCell.isNode();
+            const isEdge = diagramToolbarCell.isEdge();
+            const isImage = isNode && diagramToolbarCell.shape === 'image-node';
+            const isMindmapNode = !!data.mindmapGroupId;
 
-          {/* Zoom bar */}
-          <ZoomBar graph={graph} />
+            // Skip mindmap nodes for now (they have limited toolbar)
+            if (isMindmapNode) return null;
 
-          {/* Shape preview following cursor */}
-          <ShapePreview activeTool={activeTool} containerRef={containerRef} graph={graph} onDragCreate={handleDragCreate} />
+            let items, handler;
+            if (isImage) {
+              items = DIAGRAM_IMAGE_ITEMS;
+              handler = createDiagramImageHandler({ graph, cell: diagramToolbarCell });
+            } else if (isEdge) {
+              items = DIAGRAM_EDGE_ITEMS;
+              handler = createDiagramEdgeHandler({ graph, cell: diagramToolbarCell });
+            } else if (isNode && data.flowchartShape !== undefined) {
+              // Inject ShapePicker renderCustom for the shapeSelect item
+              items = DIAGRAM_NODE_ITEMS.map(item =>
+                item.key === 'shapeSelect'
+                  ? { ...item, renderCustom: (val: string | undefined, onSelect: (v: string) => void) => (
+                      <DiagramShapeSelector current={val || 'rounded-rect'} onSelect={onSelect} />
+                    )} as ToolbarItem
+                  : item
+              );
+              handler = createDiagramNodeHandler({ graph, cell: diagramToolbarCell });
+            } else {
+              return null;
+            }
 
-          {/* Minimap */}
+            return (
+              <FloatingToolbar
+                items={items}
+                handler={handler}
+                anchor={diagramToolbarAnchor}
+                visible={true}
+              />
+            );
+          })()}
+
+          {/* Zoom bar — hidden on mobile */}
+          {!isMobile && <ZoomBar graph={graph} />}
+
+          {/* Shape preview following cursor — desktop only */}
+          {!isMobile && (
+            <ShapePreview activeTool={activeTool} containerRef={containerRef} graph={graph} onDragCreate={handleDragCreate} />
+          )}
+
+          {/* Minimap — hidden on mobile */}
           <div
             ref={minimapRef}
-            className="absolute right-3 bottom-12 bg-card rounded-lg shadow-md border border-border overflow-hidden"
+            className={cn(
+              'absolute right-3 bottom-12 bg-card rounded-lg shadow-md border border-border overflow-hidden',
+              isMobile && 'hidden',
+            )}
             style={{ width: 180, height: 120 }}
           />
+
+          {/* Mobile: EditFAB (preview mode) + MobileToolbar (edit mode) */}
+          {isMobile && (
+            <>
+              <EditFAB
+                isEditing={mobileEditing}
+                onEdit={() => setMobileEditing(true)}
+                onSave={() => { save(); setMobileEditing(false); }}
+                onCancel={() => setMobileEditing(false)}
+                onUndo={() => graph?.undo()}
+                onRedo={() => graph?.redo()}
+                canUndo={!!graph?.canUndo()}
+                canRedo={!!graph?.canRedo()}
+              />
+              <MobileToolbar
+                items={mobileToolbarItems}
+                visible={mobileEditing}
+              />
+            </>
+          )}
         </div>
 
-        {/* Comments sidebar */}
-        {showComments && !showHistory && (
-          <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-              <h3 className="text-sm font-semibold text-foreground">Comments</h3>
-              <button onClick={() => setShowComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                <X size={14} />
-              </button>
-            </div>
-            <Comments
-              queryKey={['content-comments', `diagram:${diagramId}`]}
-              fetchComments={() => gw.listContentComments(`diagram:${diagramId}`)}
-              postComment={(text, parentId) => gw.createContentComment(`diagram:${diagramId}`, text, parentId)}
-              editComment={(commentId, text) => gw.editContentComment(commentId, text)}
-              deleteComment={(commentId) => gw.deleteContentComment(commentId)}
-              resolveComment={(commentId) => gw.resolveContentComment(commentId)}
-              unresolveComment={(commentId) => gw.unresolveContentComment(commentId)}
+      </div>
+      </div>{/* end left column */}
+
+      {/* Sidebar — full height on desktop, BottomSheet on mobile */}
+      {showComments && !showHistory && (
+        <>
+          <div className="hidden md:flex w-80 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
+            <CommentPanel
+              targetType="diagram"
+              targetId={`diagram:${diagramId}`}
+              onClose={() => setShowComments(false)}
             />
           </div>
-        )}
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title="Comments" initialHeight="full">
+            <CommentPanel
+              targetType="diagram"
+              targetId={`diagram:${diagramId}`}
+              onClose={() => setShowComments(false)}
+            />
+          </BottomSheet>
+        </>
+      )}
 
-        {/* Version history sidebar */}
-        {showHistory && (
-          <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-            <ContentRevisionHistory
-              contentId={`diagram:${diagramId}`}
+      {showHistory && (
+        <>
+          <div className="hidden md:flex w-72 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
+            <RevisionHistory
+              contentType="diagram"
+              contentId={diagramId}
               onClose={() => setShowHistory(false)}
-              onRestored={async (data) => {
+              onRestore={async (data) => {
                 if (graph && data) {
-                  // Save restored data to backend
                   await gw.saveDiagram(diagramId, data);
-                  // Reload the graph from the restored data
                   graph.fromJSON(data);
                   queryClient.invalidateQueries({ queryKey: ['diagram', diagramId] });
                 }
               }}
             />
           </div>
-        )}
-      </div>
+          <div className="md:hidden">
+            <RevisionHistory
+              contentType="diagram"
+              contentId={diagramId}
+              onClose={() => setShowHistory(false)}
+              onRestore={async (data) => {
+                if (graph && data) {
+                  await gw.saveDiagram(diagramId, data);
+                  graph.fromJSON(data);
+                  queryClient.invalidateQueries({ queryKey: ['diagram', diagramId] });
+                }
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
