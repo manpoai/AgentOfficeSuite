@@ -58,6 +58,8 @@ interface X6DiagramEditorProps {
   onCopyLink?: () => void;
   docListVisible?: boolean;
   onToggleDocList?: () => void;
+  /** When true, hides TopBar, CommentPanel, RevisionHistory — used inside DiagramEditorDialog */
+  embedded?: boolean;
 }
 
 let nodeIdCounter = 0;
@@ -284,7 +286,7 @@ export default function X6DiagramEditor(props: X6DiagramEditorProps) {
 }
 
 function X6DiagramEditorInner({
-  diagramId, breadcrumb, onBack, onDeleted, onCopyLink, docListVisible, onToggleDocList,
+  diagramId, breadcrumb, onBack, onDeleted, onCopyLink, docListVisible, onToggleDocList, embedded,
 }: X6DiagramEditorProps) {
   const { t } = useT();
   const queryClient = useQueryClient();
@@ -1444,6 +1446,7 @@ function X6DiagramEditorInner({
       {/* Left column: Header + canvas + toolbar */}
       <div className="flex-1 flex flex-col h-full min-w-0">
       {/* ── Header ── */}
+      {!embedded && (
       <div className="flex items-center h-12 bg-card border-b border-border shrink-0">
         <ContentTopBar
           breadcrumb={breadcrumb}
@@ -1501,6 +1504,7 @@ function X6DiagramEditorInner({
           </>}
         />
       </div>
+      )}
 
       {/* ── Migration banner ── */}
       {migrationNeeded && (
@@ -1636,7 +1640,7 @@ function X6DiagramEditorInner({
       </div>{/* end left column */}
 
       {/* Sidebar — full height on desktop, BottomSheet on mobile */}
-      {showComments && !showHistory && (
+      {showComments && !showHistory && !embedded && (
         <>
           <div className="hidden md:flex w-80 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
             <CommentPanel
@@ -1655,7 +1659,7 @@ function X6DiagramEditorInner({
         </>
       )}
 
-      {showHistory && (
+      {showHistory && !embedded && (
         <>
           <div className="hidden md:flex w-72 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
             <RevisionHistory
