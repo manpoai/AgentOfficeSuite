@@ -5,7 +5,7 @@
  * (table views, content links, search results, etc.).
  */
 
-// ── Column types (matching NocoDB UIDataType values) ──
+// ── Column types (matching Baserow field type values) ──
 
 export type ColumnType =
   | 'SingleLineText'

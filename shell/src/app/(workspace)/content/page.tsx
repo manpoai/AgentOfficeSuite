@@ -2131,7 +2131,7 @@ function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onN
     const isUrl = selectedEmoji && (selectedEmoji.startsWith('/api/') || selectedEmoji.startsWith('http'));
 
     if (isUrl) {
-      // Image-based icon: save to NocoDB (Outline doesn't support URL icons)
+      // Image-based icon: save to Baserow (custom editor doesn't support URL icons)
       // Clear Outline's native icon
       scheduleTitleSave(title, null);
       try {

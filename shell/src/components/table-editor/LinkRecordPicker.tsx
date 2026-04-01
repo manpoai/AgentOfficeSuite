@@ -3,14 +3,14 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Search, Link2, Check, ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
-import * as nc from '@/lib/api/nocodb';
+import * as br from '@/lib/api/baserow';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface LinkRecordPickerProps {
   tableId: string;
   rowId: number;
-  column: nc.NCColumn;
+  column: br.BRColumn;
   onClose: () => void;
   onRefresh: () => void;
 }
@@ -44,14 +44,14 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   // Fetch linked records for this row+column
   const { data: linkedData, refetch: refetchLinked } = useQuery({
     queryKey: ['nc-linked-records', tableId, rowId, column.column_id],
-    queryFn: () => nc.listLinkedRecords(tableId, rowId, column.column_id, { limit: 200 }),
+    queryFn: () => br.listLinkedRecords(tableId, rowId, column.column_id, { limit: 200 }),
     enabled: !!relatedTableId,
   });
 
   // Fetch related table meta
   const { data: relatedMeta } = useQuery({
     queryKey: ['nc-table-meta', relatedTableId],
-    queryFn: () => nc.describeTable(relatedTableId),
+    queryFn: () => br.describeTable(relatedTableId),
     enabled: !!relatedTableId,
   });
 
@@ -87,7 +87,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   // Fetch records with server-side search and pagination
   const { data: allRecords, isLoading } = useQuery({
     queryKey: ['nc-rows', relatedTableId, 'link-picker', debouncedSearch, page],
-    queryFn: () => nc.queryRows(relatedTableId, {
+    queryFn: () => br.queryRows(relatedTableId, {
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
       ...(debouncedSearch ? { where: `(${displayColTitle},like,%${debouncedSearch}%)` } : {}),
@@ -105,9 +105,9 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
     setLinking(prev => new Set(prev).add(targetRowId));
     try {
       if (isLinked) {
-        await nc.unlinkRecords(tableId, rowId, column.column_id, [targetRowId]);
+        await br.unlinkRecords(tableId, rowId, column.column_id, [targetRowId]);
       } else {
-        await nc.linkRecords(tableId, rowId, column.column_id, [targetRowId]);
+        await br.linkRecords(tableId, rowId, column.column_id, [targetRowId]);
       }
       refetchLinked();
       onRefresh();

@@ -9,9 +9,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import * as nc from '@/lib/api/nocodb';
+import * as br from '@/lib/api/baserow';
 import * as gw from '@/lib/api/gateway';
-import { Comments } from '@/components/comments/Comments';
+import { CommentPanel } from '@/components/shared/CommentPanel';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { restrictToParentElement } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -57,7 +57,7 @@ function getColIcon(uidt: string) {
 
 interface RowDetailPanelProps {
   row: Record<string, unknown>;
-  columns: nc.NCColumn[];
+  columns: br.BRColumn[];
   tableId: string;
   rowIndex: number;
   totalRows: number;
@@ -163,14 +163,11 @@ export function RowDetailPanel({
           {/* Comments sidebar */}
           {showComments && (
             <div className="w-80 border-l border-border flex flex-col shrink-0 overflow-hidden">
-              <Comments
-                queryKey={['row-comments', tableId, rowIdStr]}
-                fetchComments={() => gw.listTableComments(tableId, rowIdStr)}
-                postComment={(text, parentId) => gw.commentOnTable(tableId, text, parentId, rowIdStr).then(() => { onCommentChange?.(); })}
-                editComment={(id, text) => gw.editTableComment(id, text)}
-                deleteComment={(id) => gw.deleteTableComment(id).then(() => { onCommentChange?.(); })}
-                resolveComment={(id) => gw.resolveTableComment(id)}
-                unresolveComment={(id) => gw.unresolveTableComment(id)}
+              <CommentPanel
+                targetType="table"
+                targetId={tableId}
+                rowId={rowIdStr}
+                onClose={() => setShowComments(false)}
               />
             </div>
           )}
@@ -183,7 +180,7 @@ export function RowDetailPanel({
 // ── Individual field row ──
 
 function FieldRow({ col, value, rowId, tableId, onSaved }: {
-  col: nc.NCColumn;
+  col: br.BRColumn;
   value: unknown;
   rowId: number;
   tableId: string;
@@ -214,7 +211,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       if (col.type === 'Number' || col.type === 'Decimal' || col.type === 'Currency' || col.type === 'Percent' || col.type === 'Year') {
         saveVal = editVal === '' ? null : Number(editVal);
       }
-      await nc.updateRow(tableId, rowId, { [col.title]: saveVal });
+      await br.updateRow(tableId, rowId, { [col.title]: saveVal });
       onSaved();
     } catch (e) {
       console.error('Save failed:', e);
@@ -228,7 +225,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
     try {
       const newVal = !value;
       // NocoDB/PostgreSQL requires boolean values, not integers
-      await nc.updateRow(tableId, rowId, { [col.title]: newVal });
+      await br.updateRow(tableId, rowId, { [col.title]: newVal });
       onSaved();
     } catch (e) {
       console.error('Toggle failed:', e);
@@ -237,7 +234,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
 
   const setRating = async (v: number) => {
     try {
-      await nc.updateRow(tableId, rowId, { [col.title]: v });
+      await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
       console.error('Set rating failed:', e);
@@ -246,7 +243,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
 
   const setSelectVal = async (v: string) => {
     try {
-      await nc.updateRow(tableId, rowId, { [col.title]: v });
+      await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
       console.error('Set select failed:', e);
@@ -258,7 +255,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
     const items = currentStr ? currentStr.split(',').map(s => s.trim()) : [];
     const newItems = items.includes(option) ? items.filter(i => i !== option) : [...items, option];
     try {
-      await nc.updateRow(tableId, rowId, { [col.title]: newItems.join(',') });
+      await br.updateRow(tableId, rowId, { [col.title]: newItems.join(',') });
       onSaved();
     } catch (e) {
       console.error('Toggle multi failed:', e);
@@ -387,7 +384,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
 
 // ── Field display — aligned with grid CellDisplay ──
 
-function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
+function FieldDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
   const { t } = useT();
   if (value == null || value === '') {
     return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
@@ -502,7 +499,7 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
     const handleDeleteAttachment = async (idx: number) => {
       const updated = attachments.filter((_: any, i: number) => i !== idx);
       try {
-        await nc.updateRow(tableId, rowId, { [col.title]: updated });
+        await br.updateRow(tableId, rowId, { [col.title]: updated });
         onSaved();
       } catch (e) { console.error('Delete attachment failed:', e); }
     };
@@ -565,7 +562,7 @@ function FieldDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
 // ── Date field (calendar picker) ──
 
 function DateField({ value, col, rowId, tableId, onSaved }: {
-  value: unknown; col: nc.NCColumn; rowId: number; tableId: string; onSaved: () => void;
+  value: unknown; col: br.BRColumn; rowId: number; tableId: string; onSaved: () => void;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -586,7 +583,7 @@ function DateField({ value, col, rowId, tableId, onSaved }: {
   const handleSelect = async (dateStr: string) => {
     setOpen(false);
     try {
-      await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null });
+      await br.updateRow(tableId, rowId, { [col.title]: dateStr || null });
       onSaved();
     } catch (e) { console.error('Date update failed:', e); }
   };
@@ -701,7 +698,7 @@ function SortableThumb({ id, children }: { id: number; children: React.ReactNode
 // ── Attachment field (upload + thumbnails + delete) ──
 
 function AttachmentField({ value, col, rowId, tableId, onSaved }: {
-  value: unknown; col: nc.NCColumn; rowId: number; tableId: string; onSaved: () => void;
+  value: unknown; col: br.BRColumn; rowId: number; tableId: string; onSaved: () => void;
 }) {
   const { t } = useT();
   const [uploading, setUploading] = useState(false);
@@ -733,7 +730,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       const uploaded = await res.json();
       const merged = [...attachments, ...uploaded];
-      await nc.updateRow(tableId, rowId, { [col.title]: merged });
+      await br.updateRow(tableId, rowId, { [col.title]: merged });
       onSaved();
     } catch (e) { console.error('Attachment upload failed:', e); }
     finally { setUploading(false); }
@@ -742,7 +739,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
   const handleDelete = async (idx: number) => {
     const updated = attachments.filter((_: any, i: number) => i !== idx);
     try {
-      await nc.updateRow(tableId, rowId, { [col.title]: updated });
+      await br.updateRow(tableId, rowId, { [col.title]: updated });
       onSaved();
     } catch (e) { console.error('Delete attachment failed:', e); }
   };
@@ -771,7 +768,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
             const reordered = arrayMove([...attachments], Number(active.id), Number(over.id));
             setLocalAttachments(reordered);
             try {
-              await nc.updateRow(tableId, rowId, { [col.title]: reordered });
+              await br.updateRow(tableId, rowId, { [col.title]: reordered });
               onSaved();
             } catch (e) { console.error('Reorder failed:', e); onSaved(); }
           }}
@@ -833,7 +830,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
 
 // ── Select field (inline dropdown) ──
 
-function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColumn; onSelect: (v: string) => void }) {
+function SelectField({ value, col, onSelect }: { value: unknown; col: br.BRColumn; onSelect: (v: string) => void }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const str = value == null ? '' : String(value);
@@ -883,7 +880,7 @@ function SelectField({ value, col, onSelect }: { value: unknown; col: nc.NCColum
 
 // ── MultiSelect field ──
 
-function MultiSelectField({ value, col, onToggle }: { value: unknown; col: nc.NCColumn; onToggle: (option: string) => void }) {
+function MultiSelectField({ value, col, onToggle }: { value: unknown; col: br.BRColumn; onToggle: (option: string) => void }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const currentStr = value ? String(value) : '';

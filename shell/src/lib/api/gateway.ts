@@ -84,7 +84,7 @@ export async function commentOnDoc(docId: string, text: string, parentId?: strin
   });
 }
 
-// ── Table Comments (SQLite-backed, for NocoDB tables) ──
+// ── Table Comments (SQLite-backed, for Baserow tables) ──
 
 export interface TableComment extends Comment {
   row_id?: string | null;
@@ -138,8 +138,8 @@ export async function listCommentedRows(tableId: string): Promise<{ row_id: stri
 
 export interface ContentItem {
   id: string;          // 'doc:<uuid>' or 'table:<uuid>'
-  raw_id: string;      // original Outline doc ID or NocoDB table ID
-  type: 'doc' | 'table';
+  raw_id: string;      // original Outline doc ID or Baserow table ID
+  type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   icon: string | null;
   parent_id: string | null;
@@ -271,7 +271,7 @@ export async function setPreference<T = unknown>(key: string, value: T): Promise
 // ── Table Snapshots (History Versioning) ──
 
 export interface TableSnapshot {
-  id: number;
+  id: string;
   version: number;
   table_id: string;
   trigger_type: 'auto' | 'manual' | 'pre_bulk' | 'pre_restore';
@@ -287,7 +287,7 @@ export async function listTableSnapshots(tableId: string): Promise<TableSnapshot
   return data.snapshots;
 }
 
-export async function getTableSnapshot(tableId: string, snapshotId: number): Promise<TableSnapshot> {
+export async function getTableSnapshot(tableId: string, snapshotId: string): Promise<TableSnapshot> {
   return gwFetch(`/data/${tableId}/snapshots/${snapshotId}`);
 }
 
@@ -299,7 +299,7 @@ export async function createTableSnapshot(tableId: string): Promise<TableSnapsho
   });
 }
 
-export async function restoreTableSnapshot(tableId: string, snapshotId: number): Promise<{ success: boolean; restored_rows: number; pre_restore_snapshot_id: number }> {
+export async function restoreTableSnapshot(tableId: string, snapshotId: string): Promise<{ success: boolean; restored_rows: number; pre_restore_snapshot_id: string }> {
   return gwFetch(`/data/${tableId}/snapshots/${snapshotId}/restore`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
