@@ -30,10 +30,10 @@ import { ShapePicker } from '@/components/shared/ShapeSet';
 import type { ShapeType } from '@/components/shared/ShapeSet/shapes';
 import { createFabricShape } from '@/components/shared/ShapeSet/adapters/FabricShape';
 import { RichTable } from '@/components/shared/RichTable';
-import type { RichTableData } from '@/components/shared/RichTable/types';
 import { FloatingToolbar } from '@/components/shared/FloatingToolbar';
-import { PPT_TEXT_ITEMS, PPT_IMAGE_ITEMS, PPT_SHAPE_ITEMS } from '@/components/shared/FloatingToolbar/presets';
+import { PPT_TEXT_ITEMS, PPT_IMAGE_ITEMS, PPT_SHAPE_ITEMS, DOCS_TABLE_ITEMS } from '@/components/shared/FloatingToolbar/presets';
 import { createPPTTextHandler, createPPTImageHandler, createPPTShapeHandler } from './ppt-toolbar-handler';
+import { createDocsTableHandler } from '@/components/editor/docs-toolbar-handler';
 
 // ─── Types ──────────────────────────────────────────
 interface SlideData {
@@ -585,21 +585,15 @@ export function PresentationEditor({
       } else if (el.type === 'table') {
         // Recreate table placeholder rect
         const { Rect: RectCls } = fabricModule;
-        const cellW = 120;
-        const cellH = 36;
-        const tRows = el.tableRows || 3;
-        const tCols = el.tableCols || 3;
         obj = new RectCls({
           ...common,
-          width: cellW * tCols,
-          height: cellH * tRows,
+          width: el.width || 360,
+          height: el.height || 108,
           fill: 'transparent',
           stroke: 'transparent',
           strokeWidth: 0,
         });
-        (obj as any).__tableData = el.tableData || Array.from({ length: tRows }, () => Array(tCols).fill(''));
-        (obj as any).__tableRows = tRows;
-        (obj as any).__tableCols = tCols;
+        (obj as any).__tableJSON = el.tableJSON || null;
         (obj as any).__isTable = true;
       }
 
@@ -720,9 +714,7 @@ export function PresentationEditor({
         elements.push({
           ...base,
           type: 'table',
-          tableData: obj.__tableData || [],
-          tableRows: obj.__tableRows || 3,
-          tableCols: obj.__tableCols || 3,
+          tableJSON: obj.__tableJSON || null,
         });
       }
     }
@@ -911,11 +903,28 @@ export function PresentationEditor({
       strokeWidth: 0,
     });
 
-    // Store table data in the object's custom property
-    const tableData: string[][] = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ''));
-    (tableBg as any).__tableData = tableData;
-    (tableBg as any).__tableRows = rows;
-    (tableBg as any).__tableCols = cols;
+    // Store table data as ProseMirror JSON
+    const headerCells = Array.from({ length: cols }, () => ({
+      type: 'table_header',
+      attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+      content: [{ type: 'paragraph' }],
+    }));
+    const bodyRow = () => ({
+      type: 'table_row',
+      content: Array.from({ length: cols }, () => ({
+        type: 'table_cell',
+        attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+        content: [{ type: 'paragraph' }],
+      })),
+    });
+    const tableJSON = {
+      type: 'doc',
+      content: [{ type: 'table', content: [
+        { type: 'table_row', content: headerCells },
+        ...Array.from({ length: rows - 1 }, bodyRow),
+      ]}],
+    };
+    (tableBg as any).__tableJSON = tableJSON;
     (tableBg as any).__isTable = true;
 
     canvas.add(tableBg);
@@ -2170,8 +2179,10 @@ function TablePropertiesSection({ obj, canvas, propVersion }: {
   canvas: any;
   propVersion: number;
 }) {
-  const rows = obj.__tableRows || 3;
-  const cols = obj.__tableCols || 3;
+  const tJSON = obj.__tableJSON;
+  const tableContent = tJSON?.content?.[0]?.content || [];
+  const rows = tableContent.length || 3;
+  const cols = tableContent[0]?.content?.length || 3;
   return (
     <>
       <SectionLabel label="Table" />
@@ -2275,18 +2286,6 @@ function ToolBtn({ icon: Icon, onClick, active, title }: {
 }
 
 // ─── PPT Table Overlay — RichTable positioned over Fabric.js table rect ────
-function stringArrayToRichTableData(data: string[][]): RichTableData {
-  if (!data || data.length === 0) return { hasHeader: false, rows: [{ cells: [{ content: '' }] }] };
-  return {
-    hasHeader: false,
-    rows: data.map(row => ({ cells: row.map(cell => ({ content: cell || '' })) })),
-  };
-}
-
-function richTableDataToStringArray(data: RichTableData): string[][] {
-  return data.rows.map(row => row.cells.map(cell => cell.content || ''));
-}
-
 function PPTTableOverlay({ obj, canvas, containerRef, propVersion, isSelected }: {
   obj: any;
   canvas: any;
@@ -2295,12 +2294,59 @@ function PPTTableOverlay({ obj, canvas, containerRef, propVersion, isSelected }:
   isSelected?: boolean;
 }) {
   const [pos, setPos] = useState({ left: 0, top: 0, width: 200, height: 100 });
-  const [data, setData] = useState<RichTableData>(() => stringArrayToRichTableData(obj.__tableData || []));
+  const [editing, setEditing] = useState(false);
+  const [tableToolbarInfo, setTableToolbarInfo] = useState<{
+    anchor: { top: number; left: number; width: number };
+    view: any;
+  } | null>(null);
 
-  // Sync data when object data changes externally
+  // Get or create default table JSON
+  const getTableJSON = useCallback(() => {
+    if (obj.__tableJSON) return obj.__tableJSON;
+    // Migrate from old string[][] format if present
+    const oldData: string[][] = obj.__tableData;
+    if (oldData && Array.isArray(oldData) && oldData.length > 0) {
+      const rows = oldData.map((row, rowIdx) => ({
+        type: 'table_row',
+        content: row.map((cell) => ({
+          type: rowIdx === 0 ? 'table_header' : 'table_cell',
+          attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+          content: [{ type: 'paragraph', content: cell ? [{ type: 'text', text: cell }] : undefined }],
+        })),
+      }));
+      return { type: 'doc', content: [{ type: 'table', content: rows }] };
+    }
+    // Default 3x3 table
+    const cols = 3, rowCount = 3;
+    const headerCells = Array.from({ length: cols }, () => ({
+      type: 'table_header',
+      attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+      content: [{ type: 'paragraph' }],
+    }));
+    const bodyRow = () => ({
+      type: 'table_row',
+      content: Array.from({ length: cols }, () => ({
+        type: 'table_cell',
+        attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+        content: [{ type: 'paragraph' }],
+      })),
+    });
+    return {
+      type: 'doc',
+      content: [{ type: 'table', content: [
+        { type: 'table_row', content: headerCells },
+        bodyRow(),
+        bodyRow(),
+      ]}],
+    };
+  }, [obj]);
+
+  const [tableJSON, setTableJSON] = useState<Record<string, unknown>>(() => getTableJSON());
+
+  // Sync when object changes externally
   useEffect(() => {
-    setData(stringArrayToRichTableData(obj.__tableData || []));
-  }, [obj, propVersion]);
+    setTableJSON(getTableJSON());
+  }, [obj, propVersion, getTableJSON]);
 
   // Compute position relative to canvas container
   const updatePos = useCallback(() => {
@@ -2328,15 +2374,13 @@ function PPTTableOverlay({ obj, canvas, containerRef, propVersion, isSelected }:
     return () => { canvas.off('after:render', handler); };
   }, [canvas, updatePos]);
 
-  const handleChange = useCallback((newData: RichTableData) => {
-    setData(newData);
-    const arr = richTableDataToStringArray(newData);
-    obj.__tableData = arr;
-    obj.__tableRows = arr.length;
-    obj.__tableCols = arr[0]?.length || 0;
-    obj.set('width', (arr[0]?.length || 1) * 120);
-    obj.set('height', arr.length * 36);
-    canvas?.renderAll();
+  const handleProsemirrorChange = useCallback((json: Record<string, unknown>) => {
+    setTableJSON(json);
+    obj.__tableJSON = json;
+    // Clean up old format
+    delete obj.__tableData;
+    delete obj.__tableRows;
+    delete obj.__tableCols;
     canvas?.fire('object:modified', { target: obj });
   }, [obj, canvas]);
 
@@ -2349,30 +2393,80 @@ function PPTTableOverlay({ obj, canvas, containerRef, propVersion, isSelected }:
     }
   }, [isSelected, canvas, obj]);
 
+  // Double-click to enter edit mode
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSelected) {
+      setEditing(true);
+    }
+  }, [isSelected]);
+
+  // Exit edit mode on click outside
+  useEffect(() => {
+    if (!editing) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const overlay = (e.target as HTMLElement).closest('.ppt-table-overlay');
+      if (!overlay) {
+        setEditing(false);
+        setTableToolbarInfo(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editing]);
+
+  // Escape to exit edit mode
+  useEffect(() => {
+    if (!editing) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditing(false);
+        setTableToolbarInfo(null);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [editing]);
+
   return (
-    <div
-      className="absolute overflow-visible"
-      style={{
-        left: pos.left,
-        top: pos.top,
-        width: pos.width,
-        minHeight: pos.height,
-        zIndex: isSelected ? 30 : 10,
-      }}
-      onMouseDown={handleMouseDown}
-    >
-      <RichTable
-        data={data}
-        onChange={isSelected ? handleChange : undefined}
-        config={{
-          cellMinWidth: 60,
-          showToolbar: false,
-          showContextMenu: isSelected,
-          readonly: !isSelected,
+    <>
+      <div
+        className="ppt-table-overlay absolute overflow-visible"
+        style={{
+          left: pos.left,
+          top: pos.top,
+          width: pos.width,
+          minHeight: pos.height,
+          zIndex: editing ? 50 : isSelected ? 30 : 10,
         }}
-        width="100%"
-      />
-    </div>
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+      >
+        <RichTable
+          prosemirrorJSON={tableJSON}
+          onProsemirrorChange={editing ? handleProsemirrorChange : undefined}
+          onCellToolbar={editing ? (info) => setTableToolbarInfo(info) : undefined}
+          config={{
+            cellMinWidth: 60,
+            showToolbar: false,
+            showContextMenu: editing,
+            readonly: !editing,
+          }}
+          width="100%"
+        />
+        {!editing && isSelected && (
+          <div className="absolute inset-0 border-2 border-sidebar-primary/50 rounded pointer-events-none" />
+        )}
+      </div>
+      {tableToolbarInfo && editing && (
+        <FloatingToolbar
+          items={DOCS_TABLE_ITEMS}
+          handler={createDocsTableHandler(tableToolbarInfo.view)}
+          anchor={tableToolbarInfo.anchor}
+          visible={true}
+        />
+      )}
+    </>
   );
 }
 
@@ -2512,9 +2606,10 @@ function PresenterMode({
       if (!ctx) return;
       for (const o of canvas.getObjects()) {
         if (!(o as any).__isTable) continue;
-        const tData: string[][] = (o as any).__tableData || [];
-        const tRows: number = (o as any).__tableRows || 3;
-        const tCols: number = (o as any).__tableCols || 3;
+        const tJSON = (o as any).__tableJSON;
+        const tableContent = tJSON?.content?.[0]?.content || [];
+        const tRows: number = tableContent.length || 3;
+        const tCols: number = tableContent[0]?.content?.length || 3;
         const z = canvas.getZoom() || 1;
         const ox = (o.left || 0) * z;
         const oy = (o.top || 0) * z;
@@ -2533,8 +2628,10 @@ function PresenterMode({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         for (let r = 0; r < tRows; r++) {
+          const rowCells = tableContent[r]?.content || [];
           for (let c = 0; c < tCols; c++) {
-            const text = tData[r]?.[c] || '';
+            const cell = rowCells[c];
+            const text = cell?.content?.[0]?.content?.[0]?.text || '';
             if (text) ctx.fillText(text, ox + c * cw + cw / 2, oy + r * ch + ch / 2, cw - 8);
           }
         }
@@ -2613,21 +2710,19 @@ function PresenterMode({
       } else if (el.type === 'table') {
         // Render table as rect in presenter mode — grid drawn via after:render
         const { Rect: RectPres } = fabricModule;
-        const cellW = 120;
-        const cellH = 36;
-        const tRows = el.tableRows || 3;
-        const tCols = el.tableCols || 3;
+        const tJSON = el.tableJSON;
+        const tc = tJSON?.content?.[0]?.content || [];
+        const tRows = tc.length || 3;
+        const tCols = tc[0]?.content?.length || 3;
         obj = new RectPres({
           ...common,
-          width: cellW * tCols,
-          height: cellH * tRows,
+          width: el.width || 120 * tCols,
+          height: el.height || 36 * tRows,
           fill: '#ffffff',
           stroke: '#d1d5db',
           strokeWidth: 1,
         });
-        (obj as any).__tableData = el.tableData || [];
-        (obj as any).__tableRows = tRows;
-        (obj as any).__tableCols = tCols;
+        (obj as any).__tableJSON = el.tableJSON || null;
         (obj as any).__isTable = true;
       }
       if (obj) canvas.add(obj);
