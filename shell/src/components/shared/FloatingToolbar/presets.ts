@@ -147,6 +147,75 @@ export const PPT_TEXT_ITEMS: ToolbarItem[] = [
   { key: 'textColor', type: 'color', icon: icon(Palette), label: 'Text color', group: 'color', colors: TEXT_COLORS },
 ];
 
+// ── PPT Image Toolbar ──
+
+export const PPT_IMAGE_ITEMS: ToolbarItem[] = [
+  { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
+  { key: 'copy', type: 'action', icon: icon(Copy), label: 'Copy', group: 'action' },
+  { key: 'delete', type: 'action', icon: icon(Trash2), label: 'Delete', group: 'action' },
+  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action',
+    options: [
+      { value: 'front', label: '置顶' },
+      { value: 'back', label: '置底' },
+    ]},
+];
+
+// ── PPT Shape Toolbar ──
+
+const PPT_FILL_COLORS = [
+  { name: 'White', value: '#ffffff' },
+  { name: 'Blue', value: '#dbeafe' },
+  { name: 'Green', value: '#dcfce7' },
+  { name: 'Yellow', value: '#fef9c3' },
+  { name: 'Red', value: '#fee2e2' },
+  { name: 'Purple', value: '#f3e8ff' },
+  { name: 'Orange', value: '#ffedd5' },
+  { name: 'Gray', value: '#f3f4f6' },
+  { name: 'Transparent', value: 'transparent' },
+];
+
+const PPT_BORDER_COLORS = [
+  { name: 'Dark', value: '#374151' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Gray', value: '#94a3b8' },
+  { name: 'Transparent', value: 'transparent' },
+];
+
+const BORDER_WIDTH_OPTIONS = [0, 1, 2, 3, 4, 6].map(
+  w => ({ value: String(w), label: w === 0 ? 'None' : String(w) }),
+);
+
+const BORDER_STYLE_OPTIONS = [
+  { value: 'solid', label: '实线' },
+  { value: 'dashed', label: '虚线' },
+  { value: 'dotted', label: '点线' },
+];
+
+const CORNER_RADIUS_OPTIONS = [0, 4, 8, 12, 16, 24].map(
+  r => ({ value: String(r), label: r === 0 ? 'None' : `${r}px` }),
+);
+
+export const PPT_SHAPE_ITEMS: ToolbarItem[] = [
+  { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: '形状', group: 'shape' },
+  { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: '填充色', group: 'color', colors: PPT_FILL_COLORS, colorClearable: true },
+  { key: 'borderColor', type: 'color', icon: icon(Square), label: '边框色', group: 'border', colors: PPT_BORDER_COLORS, colorClearable: true },
+  { key: 'borderWidth', type: 'dropdown', icon: icon(Minus), label: '边框宽度', group: 'border', options: BORDER_WIDTH_OPTIONS },
+  { key: 'borderStyle', type: 'dropdown', icon: null, label: '边框样式', group: 'border', options: BORDER_STYLE_OPTIONS },
+  { key: 'textColor', type: 'color', icon: icon(Palette), label: '文字颜色', group: 'color', colors: TEXT_COLORS },
+  { key: 'cornerRadius', type: 'dropdown', icon: null, label: '圆角', group: 'style', options: CORNER_RADIUS_OPTIONS },
+  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
+  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
+  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action',
+    options: [
+      { value: 'front', label: '置顶' },
+      { value: 'back', label: '置底' },
+    ]},
+];
+
 // ── Diagram Toolbar ──
 
 const DIAGRAM_FILL_COLORS = [

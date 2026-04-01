@@ -32,8 +32,8 @@ import { createFabricShape } from '@/components/shared/ShapeSet/adapters/FabricS
 import { RichTable } from '@/components/shared/RichTable';
 import type { RichTableData } from '@/components/shared/RichTable/types';
 import { FloatingToolbar } from '@/components/shared/FloatingToolbar';
-import { PPT_TEXT_ITEMS } from '@/components/shared/FloatingToolbar/presets';
-import { createPPTTextHandler } from './ppt-toolbar-handler';
+import { PPT_TEXT_ITEMS, PPT_IMAGE_ITEMS, PPT_SHAPE_ITEMS } from '@/components/shared/FloatingToolbar/presets';
+import { createPPTTextHandler, createPPTImageHandler, createPPTShapeHandler } from './ppt-toolbar-handler';
 
 // ─── Types ──────────────────────────────────────────
 interface SlideData {
@@ -1314,8 +1314,11 @@ export function PresentationEditor({
           <div className="canvas-wrapper absolute">
             <div ref={canvasHostRef} className="shadow-xl rounded-sm" />
           </div>
-          {/* Floating text toolbar */}
-          {selectedObj && getObjType(selectedObj) === 'textbox' && canvasRef.current && canvasContainerRef.current && (() => {
+          {/* Floating toolbar — adapts to object type */}
+          {selectedObj && canvasRef.current && canvasContainerRef.current && (() => {
+            const objType = getObjType(selectedObj);
+            if (objType === 'table') return null; // table handled by PPTTableOverlay
+
             const canvas = canvasRef.current!;
             const container = canvasContainerRef.current!;
             const zoom = canvas.getZoom() || 1;
@@ -1326,15 +1329,31 @@ export function PresentationEditor({
             const objLeft = (selectedObj.left || 0) * zoom + wrapperLeft;
             const objTop = (selectedObj.top || 0) * zoom + wrapperTop;
             const objWidth = (selectedObj.width || 0) * (selectedObj.scaleX || 1) * zoom;
+            const anchor = {
+              top: containerRect.top + objTop,
+              left: containerRect.left + objLeft,
+              width: objWidth,
+            };
+
+            let items, handler;
+            if (objType === 'textbox') {
+              items = PPT_TEXT_ITEMS;
+              handler = createPPTTextHandler({ obj: selectedObj, canvas });
+            } else if (objType === 'image') {
+              items = PPT_IMAGE_ITEMS;
+              handler = createPPTImageHandler({ obj: selectedObj, canvas });
+            } else if (objType === 'rect' || objType === 'circle' || objType === 'triangle') {
+              items = PPT_SHAPE_ITEMS;
+              handler = createPPTShapeHandler({ obj: selectedObj, canvas });
+            } else {
+              return null;
+            }
+
             return (
               <FloatingToolbar
-                items={PPT_TEXT_ITEMS}
-                handler={createPPTTextHandler({ obj: selectedObj, canvas })}
-                anchor={{
-                  top: containerRect.top + objTop,
-                  left: containerRect.left + objLeft,
-                  width: objWidth,
-                }}
+                items={items}
+                handler={handler}
+                anchor={anchor}
                 visible={true}
               />
             );
