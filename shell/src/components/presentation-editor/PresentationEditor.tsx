@@ -29,6 +29,8 @@ import { EditFAB } from '@/components/shared/EditFAB';
 import { ShapePicker } from '@/components/shared/ShapeSet';
 import type { ShapeType } from '@/components/shared/ShapeSet/shapes';
 import { renderCellsToSVG } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
+import { DiagramPicker } from '@/components/shared/EmbeddedDiagram/DiagramPicker';
+import { DiagramEditorDialog } from '@/components/shared/EmbeddedDiagram/DiagramEditorDialog';
 import { createFabricShape } from '@/components/shared/ShapeSet/adapters/FabricShape';
 import { RichTable } from '@/components/shared/RichTable';
 import { FloatingToolbar } from '@/components/shared/FloatingToolbar';
@@ -184,6 +186,8 @@ export function PresentationEditor({
   const [isMobileView, setIsMobileView] = useState(false);
   // All table objects on the current slide (for DOM RichTable overlays)
   const [tableObjects, setTableObjects] = useState<any[]>([]);
+  const [diagramPicker, setDiagramPicker] = useState(false);
+  const [editingDiagramId, setEditingDiagramId] = useState<string | null>(null);
 
   // Track screen width for mobile vertical preview
   useEffect(() => {
@@ -337,7 +341,8 @@ export function PresentationEditor({
     canvas.on('mouse:dblclick', (e: any) => {
       const obj = e.target;
       if (obj && (obj as any).__diagramId) {
-        window.location.href = `/content?id=diagram:${encodeURIComponent((obj as any).__diagramId)}`;
+        setEditingDiagramId((obj as any).__diagramId);
+        return;
       }
     });
 
@@ -852,11 +857,14 @@ export function PresentationEditor({
   }, []);
 
   // ─── Diagram insertion ─────────────────────────────
-  const insertDiagram = useCallback(async () => {
+  const insertDiagram = useCallback(() => {
+    setDiagramPicker(true);
+  }, []);
+
+  const handleDiagramPickerSelect = useCallback(async (diagramId: string, item: any) => {
+    setDiagramPicker(false);
     const canvas = canvasRef.current;
     if (!canvas || !fabricModule) return;
-    const diagramId = prompt('Enter diagram ID:');
-    if (!diagramId) return;
 
     try {
       const res = await fetch(`/api/gateway/diagrams/${diagramId}`);
@@ -879,7 +887,6 @@ export function PresentationEditor({
           scaleY: scale,
         });
         (fabricImg as any).__diagramId = diagramId;
-
         canvas.add(fabricImg);
         canvas.setActiveObject(fabricImg);
         canvas.renderAll();
@@ -893,7 +900,51 @@ export function PresentationEditor({
     } catch (err) {
       console.error('Failed to insert diagram:', err);
     }
-  }, []);
+  }, [fabricModule]);
+
+  const handleDiagramEditorClose = useCallback(async () => {
+    const closingId = editingDiagramId;
+    setEditingDiagramId(null);
+
+    const canvas = canvasRef.current;
+    if (!canvas || !closingId || !fabricModule) return;
+
+    try {
+      const res = await fetch(`/api/gateway/diagrams/${closingId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const cells = data.data?.cells || data.data?.nodes || [];
+      const svgStr = renderCellsToSVG(cells);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+
+      const objects = canvas.getObjects();
+      const target = objects.find((o: any) => (o as any).__diagramId === closingId);
+      if (target) {
+        const imgEl = new window.Image();
+        imgEl.onload = () => {
+          const { FabricImage } = fabricModule;
+          const newImg = new FabricImage(imgEl, {
+            left: (target as any).left,
+            top: (target as any).top,
+            scaleX: (target as any).scaleX,
+            scaleY: (target as any).scaleY,
+            angle: (target as any).angle,
+          });
+          (newImg as any).__diagramId = closingId;
+          canvas.remove(target);
+          canvas.add(newImg);
+          canvas.renderAll();
+          URL.revokeObjectURL(url);
+        };
+        imgEl.src = url;
+      } else {
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error('Failed to refresh diagram preview:', err);
+    }
+  }, [editingDiagramId, fabricModule]);
 
   const deleteSelected = useCallback(() => {
     const canvas = canvasRef.current;
@@ -1369,6 +1420,20 @@ export function PresentationEditor({
             />
           </div>
         </>
+      )}
+      {diagramPicker && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/20">
+          <DiagramPicker
+            onSelect={handleDiagramPickerSelect}
+            onCancel={() => setDiagramPicker(false)}
+          />
+        </div>
+      )}
+      {editingDiagramId && (
+        <DiagramEditorDialog
+          diagramId={editingDiagramId}
+          onClose={handleDiagramEditorClose}
+        />
       )}
     </div>
   );
