@@ -2,42 +2,38 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  X, ChevronLeft, ChevronRight, Trash2, Plus, Star, CheckSquare,
+  X, ChevronLeft, ChevronRight, Trash2, Plus, Star, CheckSquare, MoreHorizontal,
   Type, Hash, Calendar, Mail, AlignLeft, Link, Phone, Clock, DollarSign,
   Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
   MessageSquare, Upload, Download, Loader2, X as XIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import * as br from '@/lib/api/baserow';
 import * as gw from '@/lib/api/gateway';
 import { CommentPanel } from '@/components/shared/CommentPanel';
+import { MobileCommentBar } from '@/components/shared/MobileCommentBar';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { LinkRecordPicker } from './LinkRecordPicker';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { restrictToParentElement } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// ── Shared constants (kept in sync with TableEditor) ──
+import { SELECT_COLORS, getOptionColor } from './types';
 
-const SELECT_COLORS = [
-  '#d4e5ff', '#d1f0e0', '#fde2cc', '#fdd8d8', '#e8d5f5',
-  '#d5e8f5', '#fff3bf', '#f0d5e8', '#d5f5e8', '#e8e8d5',
-];
+// ── Shared constants from types.ts ──
 
-function getOptionColor(color?: string, idx?: number) {
-  if (color) return color;
-  return SELECT_COLORS[(idx || 0) % SELECT_COLORS.length];
-}
+const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count']);
 
-const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
-
-/** Resolve NocoDB attachment path to a proxied URL */
-function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
+/** Resolve attachment path to a proxied URL */
+function attachmentUrl(a: { signedPath?: string; path?: string }): string {
   const p = a.signedPath || a.path || '';
   if (!p) return '';
-  if (p.startsWith('http://') || p.startsWith('https://')) return p;
   if (p.startsWith('/api/')) return p;
-  // Use query-param route to avoid Next.js file-extension routing issues
+  // Proxy all URLs (including http://localhost Baserow URLs) through gateway
   return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
 }
 
@@ -81,6 +77,8 @@ export function RowDetailPanel({
   const titleCol = displayCols.find(c => c.primary_key);
   const titleValue = titleCol ? String(row[titleCol.title] || '') : `#${rowId}`;
   const [showComments, setShowComments] = useState(initialShowComments ?? false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const isMobile = useIsMobile();
 
   // Keyboard navigation
   useEffect(() => {
@@ -94,6 +92,76 @@ export function RowDetailPanel({
     return () => window.removeEventListener('keydown', handler);
   }, [onClose, onNavigate]);
 
+  // ─── Mobile: Full-screen detail page (rendered inline, replaces table grid) ───
+  if (isMobile) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 bg-card">
+        {/* Header: < back | title | ... more — matches design spec */}
+        <div className="flex items-center gap-2 px-3 h-12 border-b border-border shrink-0 bg-card">
+          <button onClick={onClose} className="p-1.5 -ml-1 text-foreground/70">
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <h3 className="flex-1 text-sm font-semibold text-foreground truncate">{titleValue}</h3>
+          <div className="relative">
+            <button onClick={() => setShowMobileMenu(v => !v)} className="p-1.5 text-foreground/70">
+              {showMobileMenu
+                ? <X className="h-5 w-5" />
+                : <MoreHorizontal className="h-5 w-5" />
+              }
+            </button>
+            {showMobileMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMobileMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-44">
+                  <button
+                    onClick={() => { onDeleteRow(rowId); onClose(); setShowMobileMenu(false); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t('rowDetail.deleteRow') || 'Delete'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Fields — scrollable, white background */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-0.5 min-w-0 bg-card">
+          {displayCols.map(col => (
+            <FieldRow
+              key={col.column_id}
+              col={col}
+              value={row[col.title]}
+              rowId={rowId}
+              tableId={tableId}
+              onSaved={onRefresh}
+            />
+          ))}
+        </div>
+
+        {/* Bottom comment bar */}
+        <MobileCommentBar
+          targetType="table"
+          targetId={tableId}
+        />
+
+        {/* Comments BottomSheet */}
+        {showComments && (
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
+            <CommentPanel
+              targetType="table"
+              targetId={tableId}
+              rowId={rowIdStr}
+              onClose={() => setShowComments(false)}
+            />
+          </BottomSheet>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Desktop: Centered modal ───
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
@@ -214,7 +282,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: saveVal });
       onSaved();
     } catch (e) {
-      console.error('Save failed:', e);
+      showError('Save failed', e);
     } finally {
       setSaving(false);
       setEditing(false);
@@ -224,11 +292,11 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
   const toggleCheckbox = async () => {
     try {
       const newVal = !value;
-      // NocoDB/PostgreSQL requires boolean values, not integers
+      // PostgreSQL requires boolean values, not integers
       await br.updateRow(tableId, rowId, { [col.title]: newVal });
       onSaved();
     } catch (e) {
-      console.error('Toggle failed:', e);
+      showError('Toggle failed', e);
     }
   };
 
@@ -237,7 +305,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
-      console.error('Set rating failed:', e);
+      showError('Set rating failed', e);
     }
   };
 
@@ -246,7 +314,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
-      console.error('Set select failed:', e);
+      showError('Set select failed', e);
     }
   };
 
@@ -258,7 +326,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: newItems.join(',') });
       onSaved();
     } catch (e) {
-      console.error('Toggle multi failed:', e);
+      showError('Toggle multi failed', e);
     }
   };
 
@@ -329,6 +397,9 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
         ) : /* Date/DateTime — calendar picker */
         (col.type === 'Date' || col.type === 'DateTime') && !isReadonly ? (
           <DateField value={value} col={col} rowId={rowId} tableId={tableId} onSaved={onSaved} />
+        ) : /* Links — open LinkRecordPicker */
+        (col.type === 'Links' || col.type === 'LinkToAnotherRecord') ? (
+          <LinksField value={value} col={col} rowId={rowId} tableId={tableId} onSaved={onSaved} />
         ) : /* Attachment — inline upload + display with delete */
         col.type === 'Attachment' && !isReadonly ? (
           <AttachmentField value={value} col={col} rowId={rowId} tableId={tableId} onSaved={onSaved} />
@@ -501,14 +572,14 @@ function FieldDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
       try {
         await br.updateRow(tableId, rowId, { [col.title]: updated });
         onSaved();
-      } catch (e) { console.error('Delete attachment failed:', e); }
+      } catch (e) { showError('Delete attachment failed', e); }
     };
     return (
       <div className="flex flex-wrap gap-2 py-1">
         {attachments.map((a: any, i: number) => (
           <div key={i} className="relative group">
             {isImage(a) ? (
-              <img src={ncAttachmentUrl(a)} className="h-16 w-16 rounded object-cover border border-border" alt={a.title} title={a.title || a.path} />
+              <img src={attachmentUrl(a)} className="h-16 w-16 rounded object-cover border border-border" alt={a.title} title={a.title || a.path} />
             ) : (
               <div className="h-16 w-16 rounded border border-border flex flex-col items-center justify-center bg-muted/30" title={a.title || a.path}>
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
@@ -545,10 +616,13 @@ function FieldDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
       </span>
     );
   }
-  // Links — show count or empty, not "0"
+  // Links — show count or empty
   if (type === 'Links' || type === 'LinkToAnotherRecord') {
-    const num = parseInt(str);
-    if (!num || num === 0) return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
+    let num = 0;
+    if (typeof value === 'number') num = value;
+    else if (Array.isArray(value)) num = value.length;
+    else num = parseInt(str) || 0;
+    if (!num) return <span className="text-muted-foreground/30">{t('dataTable.empty')}</span>;
     return <span className="text-sidebar-primary">{t('dataTable.nLinkedRecords', { n: num })}</span>;
   }
   // Formula / Rollup / Lookup / Count
@@ -557,6 +631,43 @@ function FieldDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
   }
 
   return <span className="break-words">{str}</span>;
+}
+
+// ── Links field (with LinkRecordPicker) ──
+
+function LinksField({ value, col, rowId, tableId, onSaved }: {
+  value: unknown; col: br.BRColumn; rowId: number; tableId: string; onSaved: () => void;
+}) {
+  const { t } = useT();
+  const [showPicker, setShowPicker] = useState(false);
+
+  // value is typically a number (count) or an array
+  const count = typeof value === 'number' ? value : (Array.isArray(value) ? value.length : (parseInt(String(value || '0')) || 0));
+
+  return (
+    <div>
+      <button
+        onClick={() => setShowPicker(true)}
+        className="text-sm py-0.5 min-h-[28px] flex items-center cursor-pointer rounded-md hover:bg-muted/50 px-2 -mx-2 gap-1"
+      >
+        <Link2 className="h-3 w-3 text-sidebar-primary" />
+        {count > 0 ? (
+          <span className="text-sidebar-primary">{t('dataTable.nLinkedRecords', { n: count })}</span>
+        ) : (
+          <span className="text-muted-foreground/40">{t('dataTable.empty')}</span>
+        )}
+      </button>
+      {showPicker && (
+        <LinkRecordPicker
+          tableId={tableId}
+          rowId={rowId}
+          column={col}
+          onClose={() => setShowPicker(false)}
+          onRefresh={onSaved}
+        />
+      )}
+    </div>
+  );
 }
 
 // ── Date field (calendar picker) ──
@@ -585,7 +696,7 @@ function DateField({ value, col, rowId, tableId, onSaved }: {
     try {
       await br.updateRow(tableId, rowId, { [col.title]: dateStr || null });
       onSaved();
-    } catch (e) { console.error('Date update failed:', e); }
+    } catch (e) { showError('Date update failed', e); }
   };
 
   return (
@@ -628,7 +739,16 @@ function DatePickerInline({ value, showTime, onSelect, onClose }: {
 
   const handleDay = (day: number) => {
     const [hh, mm] = timeStr.split(':').map(Number);
-    onSelect(new Date(viewYear, viewMonth, day, showTime ? (hh || 0) : 0, showTime ? (mm || 0) : 0).toISOString());
+    const yy = String(viewYear);
+    const mo = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(day).padStart(2, '0');
+    if (showTime) {
+      const h = String(hh || 0).padStart(2, '0');
+      const m = String(mm || 0).padStart(2, '0');
+      onSelect(`${yy}-${mo}-${dd}T${h}:${m}:00`);
+    } else {
+      onSelect(`${yy}-${mo}-${dd}`);
+    }
   };
   const prevMonth = () => { if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); } else setViewMonth(m => m - 1); };
   const nextMonth = () => { if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); } else setViewMonth(m => m + 1); };
@@ -726,13 +846,13 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
     try {
       const formData = new FormData();
       Array.from(files).forEach(f => formData.append('files', f));
-      const res = await fetch('/api/gateway/data/upload', { method: 'POST', body: formData });
+      const res = await fetch('/api/gateway/data/upload', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       const uploaded = await res.json();
       const merged = [...attachments, ...uploaded];
       await br.updateRow(tableId, rowId, { [col.title]: merged });
       onSaved();
-    } catch (e) { console.error('Attachment upload failed:', e); }
+    } catch (e) { showError('Attachment upload failed', e); }
     finally { setUploading(false); }
   };
 
@@ -741,7 +861,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
     try {
       await br.updateRow(tableId, rowId, { [col.title]: updated });
       onSaved();
-    } catch (e) { console.error('Delete attachment failed:', e); }
+    } catch (e) { showError('Delete attachment failed', e); }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -770,7 +890,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
             try {
               await br.updateRow(tableId, rowId, { [col.title]: reordered });
               onSaved();
-            } catch (e) { console.error('Reorder failed:', e); onSaved(); }
+            } catch (e) { showError('Reorder failed', e); onSaved(); }
           }}
         >
         <SortableContext items={attachments.map((_: any, i: number) => i)} strategy={rectSortingStrategy}>
@@ -779,7 +899,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
             <SortableThumb key={i} id={i}>
             <div className="relative group cursor-grab">
               {isImage(a) ? (
-                <img src={ncAttachmentUrl(a)} className="h-16 w-16 rounded object-cover border border-border" alt={a.title} />
+                <img src={attachmentUrl(a)} className="h-16 w-16 rounded object-cover border border-border" alt={a.title} />
               ) : (
                 <div className="h-16 w-16 rounded border border-border flex flex-col items-center justify-center bg-muted/30" title={a.title || a.path}>
                   <Paperclip className="h-4 w-4 text-muted-foreground" />
@@ -787,7 +907,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
                 </div>
               )}
               <a
-                href={ncAttachmentUrl(a)}
+                href={attachmentUrl(a)}
                 download={a.title || a.path?.split('/').pop() || 'file'}
                 onClick={e => e.stopPropagation()}
                 className="absolute -top-1.5 -left-1.5 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-sidebar-primary text-white text-[10px] shadow-sm"

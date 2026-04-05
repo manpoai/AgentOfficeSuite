@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import { Pencil, Undo2, Redo2, X } from 'lucide-react';
+import { Pencil, X } from 'lucide-react';
 
 interface EditFABProps {
   onEdit: () => void;
@@ -14,37 +14,31 @@ interface EditFABProps {
   className?: string;
 }
 
-export function EditFAB({ onEdit, onSave, onUndo, onRedo, onCancel, isEditing, canUndo = false, canRedo = false }: EditFABProps) {
+export function EditFAB({ onEdit, onSave, onCancel, isEditing }: EditFABProps) {
   if (isEditing) {
-    // Top edit toolbar
+    // Top edit toolbar — Figma: X on left, Save button on right (no Undo/Redo)
     return (
-      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-3 py-2 bg-card border-b border-border safe-area-top md:hidden">
+      <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-2 bg-card border-b border-border safe-area-top md:hidden">
         <button onClick={onCancel} className="p-2 rounded-lg hover:bg-muted">
           <X className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-1">
-          <button onClick={onUndo} disabled={!canUndo} className="p-2 rounded-lg hover:bg-muted disabled:opacity-30">
-            <Undo2 className="w-5 h-5" />
-          </button>
-          <button onClick={onRedo} disabled={!canRedo} className="p-2 rounded-lg hover:bg-muted disabled:opacity-30">
-            <Redo2 className="w-5 h-5" />
-          </button>
-        </div>
-        <button onClick={onSave} className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium">
+        <button
+          onClick={onSave}
+          className="px-6 py-2 rounded-full bg-card text-foreground text-[18px] font-medium shadow-[0px_0px_10px_0px_rgba(0,0,0,0.08)] border border-border"
+        >
           Save
         </button>
       </div>
     );
   }
 
-  // FAB button
+  // FAB button — Figma: 64x64 white circle with pen icon + shadow
   return (
     <button
       onClick={onEdit}
-      className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg active:scale-95 transition-transform md:hidden"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', right: '16px' }}
+      className="flex items-center justify-center w-16 h-16 rounded-full bg-card text-foreground shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] border border-border active:scale-95 transition-transform md:hidden"
     >
-      <Pencil className="w-6 h-6" />
+      <Pencil className="w-5 h-5" />
     </button>
   );
 }

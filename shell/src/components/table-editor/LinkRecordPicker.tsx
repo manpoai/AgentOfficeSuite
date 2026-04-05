@@ -6,6 +6,8 @@ import { X, Search, Link2, Check, ChevronLeft, ChevronRight, Paperclip } from 'l
 import * as br from '@/lib/api/baserow';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
+import { formatDate } from '@/lib/utils/time';
 
 interface LinkRecordPickerProps {
   tableId: string;
@@ -18,7 +20,6 @@ interface LinkRecordPickerProps {
 const HIDDEN_TYPES = new Set(['Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 const PAGE_SIZE = 25;
 
-const SELECT_COLORS: Record<string, string> = {};
 
 export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }: LinkRecordPickerProps) {
   const { t } = useT();
@@ -58,7 +59,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   // Columns to display: display column first, then all non-hidden columns (horizontal scroll)
   const visibleCols = useMemo(() => {
     if (!relatedMeta?.columns) return [];
-    // Find display column (primary_key which is actually pv in NocoDB)
+    // Find display column (primary_key / pv)
     const displayCol = relatedMeta.columns.find(c => c.primary_key);
     const others = relatedMeta.columns.filter(c =>
       c !== displayCol && !HIDDEN_TYPES.has(c.type) && c.title !== 'created_by' && c.type !== 'ID'
@@ -112,7 +113,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
       refetchLinked();
       onRefresh();
     } catch (e) {
-      console.error('Link toggle failed:', e);
+      showError('Link toggle failed', e);
     } finally {
       setLinking(prev => { const s = new Set(prev); s.delete(targetRowId); return s; });
     }
@@ -319,7 +320,7 @@ function CellValue({ value, colType, colTitle, colorMap }: {
 
   // Date/DateTime
   if (colType === 'Date' || colType === 'DateTime' || colType === 'CreatedTime' || colType === 'LastModifiedTime') {
-    try { return <span>{new Date(String(value)).toLocaleDateString()}</span>; } catch { return <span>{String(value)}</span>; }
+    try { return <span>{formatDate(String(value))}</span>; } catch { return <span>{String(value)}</span>; }
   }
 
   // Attachment

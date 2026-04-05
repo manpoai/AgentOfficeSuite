@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import type { ContextMenuItem } from '@/lib/hooks/use-context-menu';
+import { BottomSheet } from './BottomSheet';
 
 interface ContextMenuState {
   items: ContextMenuItem[];
@@ -11,12 +12,12 @@ interface ContextMenuState {
   visible: boolean;
 }
 
-const MENU_MIN_WIDTH = 180;
+const MENU_MIN_WIDTH = 172;
 const VIEWPORT_PADDING = 8;
 
 function isMobile() {
   if (typeof window === 'undefined') return false;
-  return window.matchMedia('(max-width: 768px)').matches || 'ontouchstart' in window;
+  return window.matchMedia('(max-width: 640px)').matches || 'ontouchstart' in window;
 }
 
 // ─── Desktop floating context menu ────────────────────────────────────
@@ -75,13 +76,13 @@ function FloatingMenu({
       <div className="fixed inset-0 z-[9998]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div
         ref={menuRef}
-        className="fixed z-[9999] min-w-[180px] bg-popover border border-border rounded-lg shadow-xl py-1 overflow-y-auto transition-opacity duration-75"
+        className="fixed z-[9999] w-[172px] bg-popover border border-black/10 dark:border-white/10 rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 overflow-y-auto transition-opacity duration-75"
         style={style}
         role="menu"
       >
         {items.map((item) => (
           <div key={item.id}>
-            {item.separator && <div className="border-t border-border my-0.5" />}
+            {item.separator && <div className="border-t border-black/10 dark:border-white/10 my-0.5" />}
             <button
               role="menuitem"
               disabled={item.disabled}
@@ -91,10 +92,10 @@ function FloatingMenu({
                 item.onClick();
               }}
               className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-1.5 text-sm transition-colors',
+                'w-full flex items-center gap-3 px-4 h-10 text-sm font-medium transition-colors',
                 item.danger
-                  ? 'text-destructive hover:bg-destructive/10'
-                  : 'text-popover-foreground hover:bg-accent',
+                  ? 'text-destructive hover:bg-black/[0.04] dark:hover:bg-destructive/10'
+                  : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04] dark:hover:bg-accent',
                 item.disabled && 'opacity-40 cursor-not-allowed'
               )}
             >
@@ -111,117 +112,50 @@ function FloatingMenu({
   );
 }
 
-// ─── Mobile bottom sheet ──────────────────────────────────────────────
+// ─── Mobile context menu items (rendered inside shared BottomSheet) ──
 
-function BottomSheet({
+function MobileMenuItems({
   items,
   onClose,
 }: {
   items: ContextMenuItem[];
   onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const dragStartY = useRef<number | null>(null);
-  const currentTranslateY = useRef(0);
-
-  // Animate in on mount
-  useEffect(() => {
-    requestAnimationFrame(() => setOpen(true));
-  }, []);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setTimeout(onClose, 200); // wait for animation
-  }, [onClose]);
-
-  const handleDragStart = (e: React.TouchEvent) => {
-    dragStartY.current = e.touches[0].clientY;
-  };
-
-  const handleDragMove = (e: React.TouchEvent) => {
-    if (dragStartY.current === null || !sheetRef.current) return;
-    const dy = e.touches[0].clientY - dragStartY.current;
-    if (dy > 0) {
-      currentTranslateY.current = dy;
-      sheetRef.current.style.transform = `translateY(${dy}px)`;
-    }
-  };
-
-  const handleDragEnd = () => {
-    if (currentTranslateY.current > 80) {
-      close();
-    } else if (sheetRef.current) {
-      sheetRef.current.style.transform = 'translateY(0)';
-    }
-    dragStartY.current = null;
-    currentTranslateY.current = 0;
-  };
-
   return (
-    <>
-      {/* Dimmed backdrop */}
-      <div
-        className={cn(
-          'fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm transition-opacity duration-200',
-          open ? 'opacity-100' : 'opacity-0'
-        )}
-        onClick={close}
-      />
-      {/* Sheet */}
-      <div
-        ref={sheetRef}
-        className={cn(
-          'fixed bottom-0 left-0 right-0 z-[9999] bg-popover rounded-t-2xl shadow-2xl transition-transform duration-200 ease-out',
-          open ? 'translate-y-0' : 'translate-y-full'
-        )}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}
-        onTouchStart={handleDragStart}
-        onTouchMove={handleDragMove}
-        onTouchEnd={handleDragEnd}
-      >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+    <div className="px-2 pb-2">
+      {items.map((item) => (
+        <div key={item.id}>
+          {item.separator && <div className="border-t border-border my-1 mx-2" />}
+          <button
+            disabled={item.disabled}
+            onClick={() => {
+              onClose();
+              item.onClick();
+            }}
+            className={cn(
+              'w-full flex items-center gap-3 px-4 py-3 text-base rounded-lg transition-colors min-h-[44px]',
+              item.danger
+                ? 'text-destructive active:bg-destructive/10'
+                : 'text-popover-foreground active:bg-accent',
+              item.disabled && 'opacity-40 cursor-not-allowed'
+            )}
+          >
+            {item.icon && <span className="shrink-0 w-5 h-5 flex items-center justify-center">{item.icon}</span>}
+            <span className="flex-1 text-left">{item.label}</span>
+          </button>
         </div>
+      ))}
 
-        {/* Menu items */}
-        <div className="px-2 pb-2">
-          {items.map((item) => (
-            <div key={item.id}>
-              {item.separator && <div className="border-t border-border my-1 mx-2" />}
-              <button
-                disabled={item.disabled}
-                onClick={() => {
-                  close();
-                  item.onClick();
-                }}
-                className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3 text-base rounded-lg transition-colors min-h-[44px]',
-                  item.danger
-                    ? 'text-destructive active:bg-destructive/10'
-                    : 'text-popover-foreground active:bg-accent',
-                  item.disabled && 'opacity-40 cursor-not-allowed'
-                )}
-              >
-                {item.icon && <span className="shrink-0 w-5 h-5 flex items-center justify-center">{item.icon}</span>}
-                <span className="flex-1 text-left">{item.label}</span>
-              </button>
-            </div>
-          ))}
-
-          {/* Cancel button */}
-          <div className="border-t border-border mt-1 pt-1">
-            <button
-              onClick={close}
-              className="w-full flex items-center justify-center px-4 py-3 text-base font-medium text-muted-foreground rounded-lg active:bg-accent min-h-[44px]"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+      {/* Cancel button */}
+      <div className="border-t border-border mt-1 pt-1">
+        <button
+          onClick={onClose}
+          className="w-full flex items-center justify-center px-4 py-3 text-base font-medium text-muted-foreground rounded-lg active:bg-accent min-h-[44px]"
+        >
+          Cancel
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -268,11 +202,16 @@ export function ContextMenuProvider() {
 
   if (!mounted || !state.visible || state.items.length === 0) return null;
 
-  const content = isMobile() ? (
-    <BottomSheet items={state.items} onClose={handleClose} />
-  ) : (
-    <FloatingMenu items={state.items} position={state.position} onClose={handleClose} />
-  );
+  if (isMobile()) {
+    return (
+      <BottomSheet open={state.visible} onClose={handleClose} showHandle>
+        <MobileMenuItems items={state.items} onClose={handleClose} />
+      </BottomSheet>
+    );
+  }
 
-  return createPortal(content, document.body);
+  return createPortal(
+    <FloatingMenu items={state.items} position={state.position} onClose={handleClose} />,
+    document.body,
+  );
 }

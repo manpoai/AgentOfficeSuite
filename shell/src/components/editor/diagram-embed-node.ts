@@ -6,6 +6,7 @@ import type { Node as PMNode, NodeSpec } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
 import DOMPurify from 'dompurify';
 import { renderCellsToSVG, escapeXml } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
+import { gwAuthHeaders } from '@/lib/api/gateway';
 
 export const diagramEmbedNodeSpec: NodeSpec = {
   group: 'block',
@@ -52,17 +53,6 @@ export class DiagramEmbedView implements NodeView {
       transition: border-color 0.15s, box-shadow 0.15s;
     `;
 
-    // Title bar
-    const titleBar = document.createElement('div');
-    titleBar.style.cssText = `
-      padding: 8px 12px; font-size: 13px; font-weight: 500;
-      color: hsl(var(--muted-foreground, 0 0% 45%));
-      border-bottom: 1px solid hsl(var(--border, 0 0% 90%));
-      display: flex; align-items: center; gap: 6px;
-    `;
-    titleBar.innerHTML = `<span style="font-size: 14px">\u{1F500}</span><span>${escapeXml(node.attrs.title || 'Diagram')}</span>`;
-    this.dom.appendChild(titleBar);
-
     // SVG container
     const svgContainer = document.createElement('div');
     svgContainer.className = 'diagram-embed-preview';
@@ -94,9 +84,10 @@ export class DiagramEmbedView implements NodeView {
       e.preventDefault();
       e.stopPropagation();
       if (node.attrs.diagramId) {
-        const editorEl = this.dom.closest('.outline-editor');
-        if (editorEl) {
-          editorEl.dispatchEvent(new CustomEvent('open-diagram-editor', {
+        // Listener is on .outline-editor-mount (editorRef), not .outline-editor wrapper
+        const mountEl = this.dom.closest('.outline-editor-mount');
+        if (mountEl) {
+          mountEl.dispatchEvent(new CustomEvent('open-diagram-editor', {
             detail: { diagramId: node.attrs.diagramId },
           }));
         }
@@ -127,7 +118,8 @@ export class DiagramEmbedView implements NodeView {
     if (this.loading || !this.node.attrs.diagramId) return;
     this.loading = true;
     try {
-      const res = await fetch(`/api/gateway/diagrams/${this.node.attrs.diagramId}`);
+      const rawId = (this.node.attrs.diagramId as string).replace(/^diagram:/, '');
+      const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gwAuthHeaders() });
       if (!res.ok) throw new Error('Failed to load');
       const data = await res.json();
       const cells = data.data?.cells || data.data?.nodes || [];

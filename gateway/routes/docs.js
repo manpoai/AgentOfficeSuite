@@ -2,6 +2,11 @@
  * Document routes: /api/docs/*, /api/documents/*, /api/comments, document comments/revisions
  */
 
+// Get display name for the authenticated actor (human or agent)
+function actorName(req) {
+  return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
+}
+
 export default function docsRoutes(app, { db, authenticateAgent, genId, contentItemsUpsert, pushEvent, deliverWebhook }) {
 
   // ─── Helper ─────────────────────────────────────
@@ -20,7 +25,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     try { pmData = JSON.parse(r.data_json); } catch { /* ignore */ }
     return {
       id: r.id,
-      documentId: r.document_id,
+      documentId: r.target_id,
       parentCommentId: r.parent_id || null,
       data: pmData,
       createdById: r.actor_id || '',
@@ -40,7 +45,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
     }
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     const docId = genId('doc');
 
     db.prepare(`INSERT INTO documents (id, title, text, created_by, updated_by, created_at, updated_at)
@@ -63,7 +68,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
   app.patch('/api/docs/:doc_id', authenticateAgent, (req, res) => {
     const { title, content_markdown } = req.body;
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
 
     const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL').get(req.params.doc_id);
     if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -97,7 +102,8 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     const doc = db.prepare('SELECT id FROM documents WHERE id = ? AND deleted_at IS NULL').get(doc_id);
     if (!doc) return res.status(404).json({ error: 'DOC_NOT_FOUND' });
 
-    const agent = req.agent;
+    const displayName = actorName(req);
+    const actId = req.actor?.id || req.agent?.id;
     const commentId = genId('cmt');
     const now = new Date().toISOString();
 
@@ -107,25 +113,25 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
     };
 
-    db.prepare(`INSERT INTO document_comments (id, document_id, parent_id, data_json, actor, actor_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    db.prepare(`INSERT INTO comments (id, target_type, target_id, parent_id, data_json, actor, actor_id, created_at, updated_at)
+      VALUES (?, 'doc', ?, ?, ?, ?, ?, ?, ?)`)
       .run(commentId, doc_id, parent_comment_id || null, JSON.stringify(pmData),
-        agent.display_name || agent.name, agent.id, now, now);
+        displayName, actId, now, now);
 
     // @mention detection
     try {
-      const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+      const allAgents = db.prepare("SELECT * FROM actors WHERE type = 'agent'").all();
       const nowMs = Date.now();
       for (const target of allAgents) {
-        if (target.id === agent.id) continue;
-        const mentionName = new RegExp(`@${target.name}(?![\\w-])`, 'i');
+        if (target.id === actId) continue;
+        const mentionName = new RegExp(`@${target.username}(?![\\w-])`, 'i');
         const mentionDisplay = target.display_name ? new RegExp(`@${target.display_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i') : null;
         if (!mentionName.test(text) && !(mentionDisplay && mentionDisplay.test(text))) continue;
 
-        const cleanText = text.replace(new RegExp(`@${target.name}(?![\\w-])\\s*`, 'gi'), '').trim();
+        const cleanText = text.replace(new RegExp(`@${target.username}(?![\\w-])\\s*`, 'gi'), '').trim();
         const evt = {
           event: 'doc.commented',
-          source: 'document_comments',
+          source: 'comments',
           event_id: genId('evt'),
           timestamp: nowMs,
           data: {
@@ -134,14 +140,14 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
             parent_id: parent_comment_id || null,
             text: cleanText,
             raw_text: text,
-            sender: { name: agent.display_name || agent.name, type: agent.type || 'agent' },
+            sender: { name: displayName, type: req.actor?.type || 'agent' },
           },
         };
         db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
           .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), nowMs);
         pushEvent(target.id, evt);
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
-        console.log(`[gateway] Event ${evt.event} → ${target.name} (doc: ${doc_id})`);
+        console.log(`[gateway] Event ${evt.event} → ${target.username} (doc: ${doc_id})`);
       }
     } catch (e) {
       console.error(`[gateway] Doc comment notification error: ${e.message}`);
@@ -151,8 +157,8 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       comment_id: commentId,
       doc_id,
       parent_comment_id: parent_comment_id || null,
-      actor: agent.display_name || agent.name,
-      actor_id: agent.id,
+      actor: displayName,
+      actor_id: actId,
       created_at: new Date(now).getTime(),
     });
   });
@@ -160,7 +166,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
   // GET /api/docs/:doc_id/comments — list comments for a document (agent-facing, simplified)
   app.get('/api/docs/:doc_id/comments', authenticateAgent, (req, res) => {
     const rows = db.prepare(
-      'SELECT * FROM document_comments WHERE document_id = ? ORDER BY created_at ASC'
+      "SELECT * FROM comments WHERE target_type = 'doc' AND target_id = ? ORDER BY created_at ASC"
     ).all(req.params.doc_id);
 
     const comments = rows.map(r => {
@@ -281,7 +287,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
   app.post('/api/documents', authenticateAgent, (req, res) => {
     const { title = '', text = '', data_json, icon, full_width = 0, parent_id, collection_id } = req.body;
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     const docId = genId('doc');
 
     db.prepare(`INSERT INTO documents (id, title, text, data_json, icon, full_width, created_by, updated_by, created_at, updated_at)
@@ -305,7 +311,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
 
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     const { title, text, data_json, icon, full_width } = req.body;
 
     const updates = ['updated_at = ?', 'updated_by = ?'];
@@ -319,9 +325,9 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     // Save revision snapshot before updating (only if text content changed)
     if (text !== undefined && text !== doc.text) {
-      const revId = genId('rev');
-      db.prepare(`INSERT INTO document_revisions (id, document_id, title, data_json, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`).run(
+      const revId = genId('snap');
+      db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
+        VALUES (?, 'doc', ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?)`).run(
         revId, req.params.id, doc.title,
         JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text }] }] }),
         doc.updated_by || doc.created_by, doc.updated_at
@@ -377,16 +383,16 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
 
     const revisions = db.prepare(
-      'SELECT * FROM document_revisions WHERE document_id = ? ORDER BY created_at DESC'
+      "SELECT * FROM content_snapshots WHERE content_type = 'doc' AND content_id = ? ORDER BY created_at DESC"
     ).all(req.params.id);
 
     const data = revisions.map(r => ({
       id: r.id,
-      documentId: r.document_id,
+      documentId: r.content_id,
       title: r.title,
       data: (() => { try { return JSON.parse(r.data_json); } catch { return null; } })(),
       createdAt: r.created_at,
-      createdBy: { id: r.created_by || '', name: r.created_by || '' }
+      createdBy: { id: r.actor_id || '', name: r.actor_id || '' }
     }));
 
     res.json({ data });
@@ -398,17 +404,17 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
 
     const revision = db.prepare(
-      'SELECT * FROM document_revisions WHERE id = ? AND document_id = ?'
+      "SELECT * FROM content_snapshots WHERE id = ? AND content_type = 'doc' AND content_id = ?"
     ).get(req.params.revisionId, req.params.id);
     if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
 
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
 
     // Save current state as a new revision (so user can undo the restore)
-    const snapId = genId('rev');
-    db.prepare(`INSERT INTO document_revisions (id, document_id, title, data_json, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)`).run(
+    const snapId = genId('snap');
+    db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
+      VALUES (?, 'doc', ?, NULL, ?, ?, NULL, 'pre_restore', NULL, ?, ?)`).run(
       snapId, req.params.id, doc.title,
       JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text }] }] }),
       doc.updated_by || doc.created_by, doc.updated_at
@@ -439,7 +445,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
 
     const rows = db.prepare(
-      'SELECT * FROM document_comments WHERE document_id = ? ORDER BY created_at ASC'
+      "SELECT * FROM comments WHERE target_type = 'doc' AND target_id = ? ORDER BY created_at ASC"
     ).all(req.params.id);
 
     res.json({ data: rows.map(formatDocComment) });
@@ -453,32 +459,33 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     const { data, parent_comment_id } = req.body;
     if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data (ProseMirror JSON) required' });
 
-    const agent = req.agent;
+    const displayName = actorName(req);
+    const actId = req.actor?.id || req.agent?.id;
     const commentId = genId('cmt');
     const now = new Date().toISOString();
     const nowMs = Date.now();
 
-    db.prepare(`INSERT INTO document_comments (id, document_id, parent_id, data_json, actor, actor_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    db.prepare(`INSERT INTO comments (id, target_type, target_id, parent_id, data_json, actor, actor_id, created_at, updated_at)
+      VALUES (?, 'doc', ?, ?, ?, ?, ?, ?, ?)`)
       .run(commentId, req.params.id, parent_comment_id || null, JSON.stringify(data),
-        agent.display_name || agent.name, agent.id, now, now);
+        displayName, actId, now, now);
 
     // @mention detection
     try {
       const commentText = extractTextFromProseMirror(data);
-      const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+      const allAgents = db.prepare("SELECT * FROM actors WHERE type = 'agent'").all();
       for (const target of allAgents) {
-        if (target.id === agent.id) continue;
-        const mentionName = new RegExp(`@${target.name}(?![\\w-])`, 'i');
+        if (target.id === actId) continue;
+        const mentionName = new RegExp(`@${target.username}(?![\\w-])`, 'i');
         const mentionDisplay = target.display_name
           ? new RegExp(`@${target.display_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i')
           : null;
         if (!mentionName.test(commentText) && !(mentionDisplay && mentionDisplay.test(commentText))) continue;
 
-        const cleanText = commentText.replace(new RegExp(`@${target.name}(?![\\w-])\\s*`, 'gi'), '').trim();
+        const cleanText = commentText.replace(new RegExp(`@${target.username}(?![\\w-])\\s*`, 'gi'), '').trim();
         const evt = {
           event: 'doc.commented',
-          source: 'document_comments',
+          source: 'comments',
           event_id: genId('evt'),
           timestamp: nowMs,
           data: {
@@ -487,20 +494,20 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
             parent_id: parent_comment_id || null,
             text: cleanText,
             raw_text: commentText,
-            sender: { name: agent.display_name || agent.name, type: agent.type || 'agent' },
+            sender: { name: displayName, type: req.actor?.type || 'agent' },
           },
         };
         db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
           .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), nowMs);
         pushEvent(target.id, evt);
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
-        console.log(`[gateway] Event ${evt.event} → ${target.name} (doc: ${req.params.id})`);
+        console.log(`[gateway] Event ${evt.event} → ${target.username} (doc: ${req.params.id})`);
       }
     } catch (e) {
       console.error(`[gateway] Doc comment mention error: ${e.message}`);
     }
 
-    const inserted = db.prepare('SELECT * FROM document_comments WHERE id = ?').get(commentId);
+    const inserted = db.prepare("SELECT * FROM comments WHERE id = ?").get(commentId);
     res.status(201).json(formatDocComment(inserted));
   });
 
@@ -511,30 +518,29 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE document_comments SET data_json = ?, updated_at = ? WHERE id = ?'
+      "UPDATE comments SET data_json = ?, updated_at = ? WHERE id = ? AND target_type = 'doc'"
     ).run(JSON.stringify(data), now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    const updated = db.prepare('SELECT * FROM document_comments WHERE id = ?').get(req.params.commentId);
+    const updated = db.prepare("SELECT * FROM comments WHERE id = ?").get(req.params.commentId);
     res.json(formatDocComment(updated));
   });
 
   // DELETE /api/documents/comments/:commentId — delete comment
   app.delete('/api/documents/comments/:commentId', authenticateAgent, (req, res) => {
-    const result = db.prepare('DELETE FROM document_comments WHERE id = ?').run(req.params.commentId);
+    const result = db.prepare("DELETE FROM comments WHERE id = ? AND target_type = 'doc'").run(req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ deleted: true });
   });
 
   // POST /api/documents/comments/:commentId/resolve — mark resolved
   app.post('/api/documents/comments/:commentId/resolve', authenticateAgent, (req, res) => {
-    const agent = req.agent;
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE document_comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?'
-    ).run(agent.display_name || agent.name, now, now, req.params.commentId);
+      "UPDATE comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ? AND target_type = 'doc'"
+    ).run(actorName(req), now, now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
-    const updated = db.prepare('SELECT * FROM document_comments WHERE id = ?').get(req.params.commentId);
+    const updated = db.prepare("SELECT * FROM comments WHERE id = ?").get(req.params.commentId);
     res.json(formatDocComment(updated));
   });
 
@@ -542,10 +548,10 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
   app.post('/api/documents/comments/:commentId/unresolve', authenticateAgent, (req, res) => {
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE document_comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?'
+      "UPDATE comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ? AND target_type = 'doc'"
     ).run(now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
-    const updated = db.prepare('SELECT * FROM document_comments WHERE id = ?').get(req.params.commentId);
+    const updated = db.prepare("SELECT * FROM comments WHERE id = ?").get(req.params.commentId);
     res.json(formatDocComment(updated));
   });
 }

@@ -6,6 +6,7 @@
  */
 import type { Graph, Node } from '@antv/x6';
 import { MINDMAP_COLORS } from '../constants';
+import { getT } from '@/lib/i18n';
 
 export interface MindmapTreeNode {
   id: string;
@@ -21,7 +22,8 @@ function newMmId() {
 
 // ── Tree CRUD ──
 
-export function createRootTree(label = '中心主题'): MindmapTreeNode {
+export function createRootTree(label?: string): MindmapTreeNode {
+  if (!label) label = getT()('diagram.centralTopic');
   return { id: newMmId(), label, collapsed: false, children: [] };
 }
 

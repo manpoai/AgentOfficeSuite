@@ -5,6 +5,7 @@ import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
 import { useTheme } from 'next-themes';
 import { Upload } from 'lucide-react';
+import { showError } from '@/lib/utils/error';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
@@ -29,7 +30,7 @@ export function EmojiPicker({ onSelect, onRemove, onUploadImage }: EmojiPickerPr
       const url = await onUploadImage(file);
       onSelect(url);
     } catch (err) {
-      console.error('Custom icon upload failed:', err);
+      showError('Custom icon upload failed', err);
     }
     // Reset input so same file can be re-selected
     e.target.value = '';

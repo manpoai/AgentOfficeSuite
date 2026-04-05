@@ -16,14 +16,19 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
 
-export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID, authenticateAny, authenticateAgent, genId, contentItemsUpsert, syncContentItems }) {
+// Get display name for the authenticated actor (human or agent)
+function actorName(req) {
+  return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
+}
+
+export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, authenticateAny, authenticateAgent, genId, contentItemsUpsert, syncContentItems }) {
 
   // ─── Presentations ─────────────────────────────
   app.post('/api/presentations', authenticateAgent, (req, res) => {
     const { title = '' } = req.body;
     const id = crypto.randomUUID();
     const now = Date.now();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     const defaultData = JSON.stringify({ slides: [] });
 
     db.prepare(`INSERT INTO presentations (id, data_json, created_by, updated_by, created_at, updated_at)
@@ -62,7 +67,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     if (!data) return res.status(400).json({ error: 'MISSING_DATA' });
 
     const now = Date.now();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
 
@@ -128,7 +133,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
 
     data.slides.push(slide);
     const now = Date.now();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
 
@@ -151,7 +156,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     }
 
     const now = Date.now();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
 
@@ -168,7 +173,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
 
     data.slides.splice(idx, 1);
     const now = Date.now();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
 
@@ -177,7 +182,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
 
   // ─── Diagram CRUD ────────────────────────────────
   app.post('/api/diagrams', authenticateAgent, (req, res) => {
-    const agentName = req.agentConfig?.name || 'unknown';
+    const agentName = actorName(req) || 'unknown';
     const now = Date.now();
     const id = crypto.randomUUID();
     const defaultData = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
@@ -191,13 +196,15 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     if (!row) return res.status(404).json({ error: 'Diagram not found' });
     let data;
     try { data = JSON.parse(row.data_json); } catch { data = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }; }
-    res.json({ id: row.id, data, created_by: row.created_by, updated_by: row.updated_by, created_at: row.created_at, updated_at: row.updated_at });
+    // Include title from content_items if available
+    const contentItem = db.prepare('SELECT title FROM content_items WHERE raw_id = ? AND type = ?').get(row.id, 'diagram');
+    res.json({ id: row.id, data, title: contentItem?.title || '', created_by: row.created_by, updated_by: row.updated_by, created_at: row.created_at, updated_at: row.updated_at });
   });
 
   app.patch('/api/diagrams/:id', authenticateAgent, (req, res) => {
     const row = db.prepare('SELECT * FROM diagrams WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'Diagram not found' });
-    const agentName = req.agentConfig?.name || 'unknown';
+    const agentName = actorName(req) || 'unknown';
     const now = Date.now();
     const { data } = req.body;
     if (!data) return res.status(400).json({ error: 'data is required' });
@@ -229,7 +236,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     }
 
     const now = new Date().toISOString();
-    const agentName = req.agent?.name || null;
+    const agentName = actorName(req);
 
     if (type === 'doc') {
       const docId = genId('doc');
@@ -248,10 +255,10 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     }
 
     if (type === 'table') {
-      if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+      if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
 
       const tableTitle = title || 'Untitled';
-      const result = await br('POST', `/api/database/tables/database/${NC_BASE_ID}/`, { name: tableTitle });
+      const result = await br('POST', `/api/database/tables/database/${BR_DATABASE_ID}/`, { name: tableTitle });
       if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
 
       const tableId = String(result.data.id);
@@ -370,14 +377,20 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
       db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, nowTs, nowTs);
 
-      const nodeId = `diagram:${id}`;
-      contentItemsUpsert.run(
-        nodeId, id, 'diagram', title || '',
-        null, parent_id, null,
-        agentName, agentName, isoNow, isoNow, null, Date.now()
-      );
+      // Embedded diagrams (created from PPT/Doc) don't get a content_items entry
+      if (!req.body.embedded) {
+        const nodeId = `diagram:${id}`;
+        contentItemsUpsert.run(
+          nodeId, id, 'diagram', title || '',
+          null, parent_id, null,
+          agentName, agentName, isoNow, isoNow, null, Date.now()
+        );
+      }
 
-      const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+      // Return a synthetic item with raw_id for embedded use
+      const item = req.body.embedded
+        ? { id: `diagram:${id}`, raw_id: id, type: 'diagram', title: title || '' }
+        : db.prepare('SELECT * FROM content_items WHERE id = ?').get(`diagram:${id}`);
       return res.status(201).json({ item });
     }
   });
@@ -458,7 +471,7 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     if (item.type === 'doc') {
       db.prepare('DELETE FROM documents WHERE id = ?').run(item.raw_id);
     } else if (item.type === 'table') {
-      if (NC_EMAIL && NC_PASSWORD) {
+      if (BR_EMAIL && BR_PASSWORD) {
         await br('DELETE', `/api/database/tables/${item.raw_id}/`).catch(() => {});
         invalidateFieldCache(item.raw_id);
       }
@@ -646,15 +659,18 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
   // ─── Content Comments (Generic) ─────────────────
   app.get('/api/content-items/:id/comments', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
+    // Derive target_type from contentId prefix (e.g., 'presentation:xxx' → 'presentation')
+    const colonIdx = contentId.indexOf(':');
+    const targetType = colonIdx > 0 ? contentId.substring(0, colonIdx) : 'content';
     const rows = db.prepare(
-      'SELECT * FROM content_comments WHERE content_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM comments WHERE target_id = ? ORDER BY created_at ASC'
     ).all(contentId);
     const comments = rows.map(r => ({
       id: r.id,
       text: r.text,
-      actor: r.author,
+      actor: r.actor,
       actor_id: r.actor_id,
-      parent_id: r.parent_comment_id || null,
+      parent_id: r.parent_id || null,
       resolved_by: r.resolved_by ? { id: r.resolved_by, name: r.resolved_by } : null,
       resolved_at: r.resolved_at || null,
       created_at: r.created_at,
@@ -668,19 +684,24 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     const { text, parent_comment_id } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
-    const agent = req.agent;
+    // Derive target_type from contentId prefix
+    const colonIdx = contentId.indexOf(':');
+    const targetType = colonIdx > 0 ? contentId.substring(0, colonIdx) : 'content';
+
+    const displayName = actorName(req);
+    const actorId = req.actor?.id || req.agent?.id;
     const id = genId('ccmt');
     const now = new Date().toISOString();
 
-    db.prepare(`INSERT INTO content_comments (id, content_id, text, author, actor_id, parent_comment_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, contentId, text, agent.display_name || agent.name, agent.id, parent_comment_id || null, now, now);
+    db.prepare(`INSERT INTO comments (id, target_type, target_id, text, actor, actor_id, parent_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, targetType, contentId, text, displayName, actorId, parent_comment_id || null, now, now);
 
     res.status(201).json({
       id,
       text,
-      actor: agent.display_name || agent.name,
-      actor_id: agent.id,
+      actor: displayName,
+      actor_id: actorId,
       parent_id: parent_comment_id || null,
       resolved_by: null,
       resolved_at: null,
@@ -695,24 +716,23 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
 
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE content_comments SET text = ?, updated_at = ? WHERE id = ?'
+      'UPDATE comments SET text = ?, updated_at = ? WHERE id = ?'
     ).run(text, now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ updated: true });
   });
 
   app.delete('/api/content-comments/:commentId', authenticateAgent, (req, res) => {
-    const result = db.prepare('DELETE FROM content_comments WHERE id = ?').run(req.params.commentId);
+    const result = db.prepare('DELETE FROM comments WHERE id = ?').run(req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ deleted: true });
   });
 
   app.post('/api/content-comments/:commentId/resolve', authenticateAgent, (req, res) => {
-    const agent = req.agent;
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE content_comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?'
-    ).run(agent.display_name || agent.name, now, now, req.params.commentId);
+      'UPDATE comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?'
+    ).run(actorName(req), now, now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ resolved: true });
   });
@@ -720,24 +740,24 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
   app.post('/api/content-comments/:commentId/unresolve', authenticateAgent, (req, res) => {
     const now = new Date().toISOString();
     const result = db.prepare(
-      'UPDATE content_comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?'
+      'UPDATE comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?'
     ).run(now, req.params.commentId);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ unresolved: true });
   });
 
-  // ─── Content Revisions (Generic) ─────────────────
+  // ─── Content Revisions (Generic — via unified content_snapshots) ─────────────────
   app.get('/api/content-items/:id/revisions', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
     const rows = db.prepare(
-      'SELECT * FROM content_revisions WHERE content_id = ? ORDER BY created_at DESC'
+      'SELECT * FROM content_snapshots WHERE content_id = ? ORDER BY created_at DESC'
     ).all(contentId);
     const revisions = rows.map(r => ({
       id: r.id,
       content_id: r.content_id,
-      data: (() => { try { return JSON.parse(r.data); } catch { return null; } })(),
+      data: (() => { try { return JSON.parse(r.data_json); } catch { return null; } })(),
       created_at: r.created_at,
-      created_by: r.created_by,
+      created_by: r.actor_id,
     }));
     res.json({ revisions });
   });
@@ -747,26 +767,29 @@ export default function contentRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_
     const { data } = req.body;
     if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data required' });
 
-    const agent = req.agent;
-    const id = genId('crev');
+    const displayName = actorName(req);
+    const id = genId('snap');
     const now = new Date().toISOString();
 
-    db.prepare(`INSERT INTO content_revisions (id, content_id, data, created_at, created_by)
-      VALUES (?, ?, ?, ?, ?)`)
-      .run(id, contentId, JSON.stringify(data), now, agent.display_name || agent.name);
+    // Derive content_type from contentId prefix
+    const contentType = contentId.includes(':') ? contentId.split(':')[0] : 'unknown';
 
-    res.status(201).json({ id, content_id: contentId, created_at: now, created_by: agent.display_name || agent.name });
+    db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
+      VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, ?, ?)`)
+      .run(id, contentType, contentId, JSON.stringify(data), displayName, now);
+
+    res.status(201).json({ id, content_id: contentId, created_at: now, created_by: displayName });
   });
 
   app.post('/api/content-items/:id/revisions/:revId/restore', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
     const revision = db.prepare(
-      'SELECT * FROM content_revisions WHERE id = ? AND content_id = ?'
+      'SELECT * FROM content_snapshots WHERE id = ? AND content_id = ?'
     ).get(req.params.revId, contentId);
     if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
 
     let data;
-    try { data = JSON.parse(revision.data); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
+    try { data = JSON.parse(revision.data_json); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
     res.json({ data, revision_id: revision.id, created_at: revision.created_at });
   });
 }

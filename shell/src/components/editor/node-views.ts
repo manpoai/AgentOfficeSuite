@@ -9,6 +9,7 @@ import type { EditorView, NodeView } from 'prosemirror-view';
 import DOMPurify from 'dompurify';
 import { ContentLinkView } from './content-link-node';
 import { DiagramEmbedView } from './diagram-embed-node';
+import { pickFile } from '@/lib/utils/pick-file';
 
 /** Lazy-load mermaid via CDN <script> tag (avoids webpack bundling issues). */
 let mermaidPromise: Promise<any> | null = null;
@@ -337,11 +338,8 @@ class ImageNodeView implements NodeView {
   }
 
   private replaceImage() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
+    pickFile({ accept: 'image/*' }).then((files) => {
+      const file = files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
@@ -356,7 +354,6 @@ class ImageNodeView implements NodeView {
       };
       reader.readAsDataURL(file);
     });
-    input.click();
   }
 
   private deleteImage() {

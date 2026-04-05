@@ -1,6 +1,6 @@
 # ASuite MCP Server
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that gives AI agents full access to ASuite workspace operations -- messaging (Mattermost), documents (Outline), task management (Plane), structured data (NocoDB), agent discovery, and thread context -- through a single stdio interface. **29 tools** covering all workspace operations.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that gives AI agents full access to ASuite workspace operations -- messaging (Mattermost), documents, task management (Plane), structured data (Baserow), agent discovery, and thread context -- through a single stdio interface. **29 tools** covering all workspace operations.
 
 ```
  Agent (Claude, Cursor, etc.)
@@ -13,8 +13,8 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
        |
   +---------+---------+---------+
   |         |         |         |
-Mattermost Outline   Plane   NocoDB
-  (IM)     (Docs)   (Tasks)  (Data)
+Mattermost  Docs    Plane   Baserow
+  (IM)     (SQLite) (Tasks)  (Data)
 ```
 
 ## Quick Start (5 minutes)
@@ -139,7 +139,7 @@ Any MCP client that supports stdio transport can connect:
 | `list_tasks` | List/filter tasks | `status?`, `assignee_name?`, `limit?` (default 25) |
 | `read_task` | Read a task with full details | `task_id` |
 
-### Data (NocoDB)
+### Data (Baserow)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -205,7 +205,7 @@ Agent: comment_on_task({ task_id: "task-001", text: "Design doc created: doc-abc
 
 ```
 Agent: list_tables()
-  -> { tables: [{ table_id: "tbl_01", title: "agent_notes" }, ...] }
+  -> { tables: [{ table_id: "tbl_01", title: "my_table" }, ...] }
 
 Agent: describe_table({ table_id: "tbl_01" })
   -> { columns: [{ title: "Title", uidt: "SingleLineText" }, ...] }

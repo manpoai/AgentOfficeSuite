@@ -3,9 +3,9 @@
  * ASuite Docker Init Container
  *
  * Runs once on first `docker compose up` to:
- * 1. Wait for backend services (MM, NocoDB) to be healthy
- * 2. Create admin users in MM and NocoDB
- * 3. Create NocoDB default base + agent_notes table
+ * 1. Wait for backend services (MM, Baserow) to be healthy
+ * 2. Create admin users in MM and Baserow
+ * 3. Create Baserow default base
  * 4. Write /data/init-done marker to skip on subsequent runs
  *
  * Designed to run inside Docker network (uses container hostnames).
@@ -17,7 +17,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Asuite2026!';
 
 // Docker network hostnames
 const MM_URL = process.env.MM_URL || 'http://mattermost:8065';
-const NC_URL = process.env.NC_URL || 'http://nocodb:8080';
+const BR_URL = process.env.BR_URL || 'http://baserow:8080';
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://gateway:4000';
 
 const MARKER_PATH = '/data/init-done';
@@ -66,7 +66,7 @@ async function main() {
   // Wait for services
   const services = [
     ['Mattermost', `${MM_URL}/api/v4/system/ping`],
-    ['NocoDB', `${NC_URL}/api/v1/health`],
+    ['Baserow', `${BR_URL}/api/v1/health`],
   ];
 
   for (const [name, url] of services) {
@@ -104,47 +104,47 @@ async function main() {
     }
   }
 
-  // ── NocoDB Setup ──
-  log('--- NocoDB Setup ---');
-  let ncToken = null;
+  // ── Baserow Setup ──
+  log('--- Baserow Setup ---');
+  let brToken = null;
 
   // Try signup first (first user = super admin)
-  const ncSignup = await api(NC_URL, 'POST', '/api/v1/auth/user/signup',
+  const brSignup = await api(BR_URL, 'POST', '/api/v1/auth/user/signup',
     { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, firstname: 'Admin', lastname: '' });
-  if (ncSignup.data?.token) {
-    ncToken = ncSignup.data.token;
-    log('NocoDB admin created');
+  if (brSignup.data?.token) {
+    brToken = brSignup.data.token;
+    log('Baserow admin created');
   } else {
-    const ncSignin = await api(NC_URL, 'POST', '/api/v1/auth/user/signin',
+    const brSignin = await api(BR_URL, 'POST', '/api/v1/auth/user/signin',
       { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-    if (ncSignin.data?.token) {
-      ncToken = ncSignin.data.token;
-      log('NocoDB admin exists, signed in');
+    if (brSignin.data?.token) {
+      brToken = brSignin.data.token;
+      log('Baserow admin exists, signed in');
     } else {
-      warn(`NocoDB auth failed: ${JSON.stringify(ncSignin.data)}`);
+      warn(`Baserow auth failed: ${JSON.stringify(brSignin.data)}`);
     }
   }
 
-  if (ncToken) {
+  if (brToken) {
     // Ensure default base
-    const basesRes = await api(NC_URL, 'GET', '/api/v1/db/meta/projects/', null,
-      { 'xc-auth': ncToken });
+    const basesRes = await api(BR_URL, 'GET', '/api/v1/db/meta/projects/', null,
+      { 'xc-auth': brToken });
     const bases = basesRes.data?.list || [];
     let baseId = bases.length > 0 ? bases[0].id : null;
 
     if (!baseId) {
-      log('Creating NocoDB default base...');
-      const createBase = await api(NC_URL, 'POST', '/api/v1/db/meta/projects/',
-        { title: 'ASuite' }, { 'xc-auth': ncToken });
+      log('Creating Baserow default base...');
+      const createBase = await api(BR_URL, 'POST', '/api/v1/db/meta/projects/',
+        { title: 'ASuite' }, { 'xc-auth': brToken });
       baseId = createBase.data?.id;
     }
 
     if (baseId) {
-      log(`NocoDB base: ${baseId}`);
+      log(`Baserow base: ${baseId}`);
 
       // Write init results for Gateway to read
       const initResult = {
-        nocodb_base_id: baseId,
+        baserow_base_id: baseId,
         admin_email: ADMIN_EMAIL,
         initialized_at: new Date().toISOString(),
       };

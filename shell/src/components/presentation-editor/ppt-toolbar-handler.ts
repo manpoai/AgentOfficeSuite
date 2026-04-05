@@ -1,4 +1,5 @@
 import type { ToolbarHandler, ToolbarState } from '@/components/shared/FloatingToolbar/types';
+import { pickFile } from '@/lib/utils/pick-file';
 
 interface PPTTarget {
   obj: any;       // Fabric.js object
@@ -11,10 +12,9 @@ type PPTTextTarget = PPTTarget;
 export function createPPTTextHandler(target: PPTTextTarget): ToolbarHandler {
   const { obj, canvas } = target;
 
-  function refresh() {
-    canvas.renderAll();
-    canvas.fire('object:modified', { target: obj });
-  }
+  // Snapshot BEFORE change, commit AFTER
+  function snapshot() { canvas.fire('before:modified', { target: obj }); }
+  function commit() { canvas.renderAll(); canvas.fire('object:modified', { target: obj }); }
 
   return {
     getState(): ToolbarState {
@@ -32,14 +32,14 @@ export function createPPTTextHandler(target: PPTTextTarget): ToolbarHandler {
 
     execute(key: string, value?: unknown) {
       switch (key) {
-        case 'fontFamily': obj.set('fontFamily', value); refresh(); break;
-        case 'fontSize': obj.set('fontSize', Math.max(1, Number(value))); refresh(); break;
-        case 'bold': obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold'); refresh(); break;
-        case 'italic': obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic'); refresh(); break;
-        case 'underline': obj.set('underline', !obj.underline); refresh(); break;
-        case 'strikethrough': obj.set('linethrough', !obj.linethrough); refresh(); break;
-        case 'align': obj.set('textAlign', value); refresh(); break;
-        case 'textColor': obj.set('fill', value); refresh(); break;
+        case 'fontFamily': snapshot(); obj.set('fontFamily', value); commit(); break;
+        case 'fontSize': snapshot(); obj.set('fontSize', Math.max(1, Number(value))); commit(); break;
+        case 'bold': snapshot(); obj.set('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold'); commit(); break;
+        case 'italic': snapshot(); obj.set('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic'); commit(); break;
+        case 'underline': snapshot(); obj.set('underline', !obj.underline); commit(); break;
+        case 'strikethrough': snapshot(); obj.set('linethrough', !obj.linethrough); commit(); break;
+        case 'align': snapshot(); obj.set('textAlign', value); commit(); break;
+        case 'textColor': snapshot(); obj.set('fill', value); commit(); break;
       }
     },
   };
@@ -56,11 +56,9 @@ export function createPPTImageHandler(target: PPTTarget): ToolbarHandler {
     execute(key: string, value?: unknown) {
       switch (key) {
         case 'replace': {
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = 'image/*';
-          input.onchange = () => {
-            const file = input.files?.[0];
+          canvas.fire('before:modified', { target: obj });
+          pickFile({ accept: 'image/*' }).then((files) => {
+            const file = files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = () => {
@@ -75,11 +73,11 @@ export function createPPTImageHandler(target: PPTTarget): ToolbarHandler {
               imgEl.src = src;
             };
             reader.readAsDataURL(file);
-          };
-          input.click();
+          });
           break;
         }
         case 'copy': {
+          canvas.fire('before:modified', { target: obj });
           obj.clone((cloned: any) => {
             cloned.set({ left: (obj.left || 0) + 20, top: (obj.top || 0) + 20 });
             canvas.add(cloned);
@@ -90,11 +88,13 @@ export function createPPTImageHandler(target: PPTTarget): ToolbarHandler {
           break;
         }
         case 'delete':
+          canvas.fire('before:modified', { target: obj });
           canvas.remove(obj);
           canvas.renderAll();
           canvas.fire('object:modified', { target: obj });
           break;
         case 'zOrder':
+          canvas.fire('before:modified', { target: obj });
           if (value === 'front') obj.bringToFront();
           else obj.sendToBack();
           canvas.renderAll();
@@ -108,10 +108,9 @@ export function createPPTImageHandler(target: PPTTarget): ToolbarHandler {
 export function createPPTShapeHandler(target: PPTTarget): ToolbarHandler {
   const { obj, canvas } = target;
 
-  function refresh() {
-    canvas.renderAll();
-    canvas.fire('object:modified', { target: obj });
-  }
+  // Snapshot BEFORE change, commit AFTER
+  function snapshot() { canvas.fire('before:modified', { target: obj }); }
+  function commit() { canvas.renderAll(); canvas.fire('object:modified', { target: obj }); }
 
   return {
     getState(): ToolbarState {
@@ -127,24 +126,27 @@ export function createPPTShapeHandler(target: PPTTarget): ToolbarHandler {
 
     execute(key: string, value?: unknown) {
       switch (key) {
-        case 'fillColor': obj.set('fill', value || 'transparent'); refresh(); break;
-        case 'borderColor': obj.set('stroke', value || 'transparent'); refresh(); break;
-        case 'borderWidth': obj.set('strokeWidth', Number(value)); refresh(); break;
+        case 'fillColor': snapshot(); obj.set('fill', value || 'transparent'); commit(); break;
+        case 'borderColor': snapshot(); obj.set('stroke', value || 'transparent'); commit(); break;
+        case 'borderWidth': snapshot(); obj.set('strokeWidth', Number(value)); commit(); break;
         case 'borderStyle': {
+          snapshot();
           if (value === 'dashed') obj.set('strokeDashArray', [8, 4]);
           else if (value === 'dotted') obj.set('strokeDashArray', [2, 4]);
           else obj.set('strokeDashArray', null);
-          refresh();
+          commit();
           break;
         }
-        case 'textColor': obj.set('fill', value); refresh(); break;
+        case 'textColor': snapshot(); obj.set('fill', value); commit(); break;
         case 'cornerRadius': {
+          snapshot();
           obj.set('rx', Number(value));
           obj.set('ry', Number(value));
-          refresh();
+          commit();
           break;
         }
         case 'copy': {
+          snapshot();
           obj.clone((cloned: any) => {
             cloned.set({ left: (obj.left || 0) + 20, top: (obj.top || 0) + 20 });
             canvas.add(cloned);
@@ -155,14 +157,16 @@ export function createPPTShapeHandler(target: PPTTarget): ToolbarHandler {
           break;
         }
         case 'delete':
+          snapshot();
           canvas.remove(obj);
           canvas.renderAll();
           canvas.fire('object:modified', { target: obj });
           break;
         case 'zOrder':
+          snapshot();
           if (value === 'front') obj.bringToFront();
           else obj.sendToBack();
-          refresh();
+          commit();
           break;
       }
     },

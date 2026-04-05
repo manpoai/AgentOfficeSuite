@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Graph, Shape } from '@antv/x6';
 import { registerShapes } from '../shapes/register';
 import { DEFAULT_EDGE_COLOR, DEFAULT_EDGE_WIDTH } from '../constants';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 export function useX6Graph(
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -50,7 +52,10 @@ export function useX6Graph(
             type: 'dot',
             size: 20,
             visible: true,
-            args: [{ color: '#e5e7eb', thickness: 1 }],
+            args: [{ color: '#a8aaa8', thickness: 1 }],
+          },
+          background: {
+            color: '#F5F7F5',
           },
 
           // Canvas navigation
@@ -247,10 +252,12 @@ export function useX6Graph(
         };
         container.addEventListener('wheel', onWheel, { passive: false });
 
+        // Touch pinch-to-zoom is handled by usePinchZoom in the main component.
+
         graphRef.current = graph;
         setReady(true);
       } catch (e) {
-        console.error('X6 Graph init failed:', e);
+        showError(getT()('diagram.initFailed'), e);
         setError(e instanceof Error ? e.message : String(e));
       }
     }

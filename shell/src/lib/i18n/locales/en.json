@@ -1,8 +1,6 @@
 {
   "nav": {
-    "im": "IM",
     "content": "Content",
-    "tasks": "Tasks",
     "contacts": "Contacts"
   },
   "theme": {
@@ -18,10 +16,6 @@
     "global": "Global",
     "openCommandPalette": "Open command palette",
     "openHelp": "Open this help",
-    "tasks": "Tasks",
-    "newTask": "New task",
-    "im": "IM",
-    "sendMessage": "Send message",
     "newLine": "New line",
     "cancelEdit": "Cancel edit/reply",
     "dataTable": "Data Table",
@@ -35,38 +29,19 @@
     "navHint": "↑↓ Navigate",
     "enterHint": "Enter Open",
     "escHint": "Esc Close",
-    "navIM": "IM / Messages",
     "navContent": "Content / Docs",
-    "navTasks": "Tasks",
     "navContacts": "Contacts / Agent",
     "navSettings": "Settings",
     "catNav": "Navigation",
-    "catTasks": "Tasks",
     "catDocs": "Documents",
     "catAgent": "Agent",
     "online": "Online",
     "offline": "Offline"
   },
-  "im": {
-    "selectChannel": "Select a channel to start chatting",
-    "channels": "Channels",
-    "searchChannels": "Search channels...",
-    "publicChannels": "Public Channels",
-    "privateChannels": "Private Channels",
-    "directMessages": "Direct Messages",
-    "typeMessage": "Type a message...",
-    "edited": "(edited)",
-    "deleteConfirm": "Delete this message?",
-    "members": "members"
-  },
   "content": {
     "title": "Content",
-    "newDoc": "New Document",
-    "newTable": "New Data Table",
     "newBoard": "New Board",
-    "newPresentation": "New Presentation",
     "newSpreadsheet": "New Spreadsheet",
-    "newDiagram": "New Diagram",
     "searchDocs": "Search documents...",
     "noMatch": "No matching documents found",
     "untitled": "Untitled",
@@ -117,7 +92,8 @@
     "cancelCreate": "Cancel",
     "viewerInsights": "Enable viewer insights",
     "enableEmbeds": "Enable embeds",
-    "fullWidth": "Full width"
+    "fullWidth": "Full width",
+    "searchContent": "Search content..."
   },
   "contacts": {
     "title": "Agent Management",
@@ -130,35 +106,6 @@
     "registerHint": "Agents register via self-register API",
     "sendMessage": "Send Message",
     "assignTask": "Assign Task"
-  },
-  "tasks": {
-    "title": "Tasks",
-    "newTask": "New Task",
-    "search": "Search tasks...",
-    "kanban": "Kanban",
-    "list": "List",
-    "allStatus": "All Status",
-    "allPriority": "All Priority",
-    "allAssignee": "All Assignee",
-    "todo": "Todo",
-    "inProgress": "In Progress",
-    "done": "Done",
-    "cancelled": "Cancelled",
-    "urgent": "Urgent",
-    "high": "High",
-    "medium": "Medium",
-    "low": "Low",
-    "none": "None",
-    "taskTitle": "Task Title",
-    "description": "Description",
-    "priority": "Priority",
-    "assignee": "Assignee",
-    "startDate": "Start Date",
-    "dueDate": "Due Date",
-    "status": "Status",
-    "createTask": "Create Task",
-    "noTasks": "No Tasks",
-    "comments": "Comments"
   },
   "editor": {
     "heading1": "Heading 1",
@@ -210,7 +157,9 @@
     "highlight": "Highlight",
     "comment": "Comment",
     "checkboxList": "Checkbox List",
-    "copy": "Copy"
+    "copy": "Copy",
+    "loading": "Loading editor...",
+    "initFailed": "Editor initialization failed"
   },
   "comments": {
     "title": "Comments",
@@ -236,7 +185,8 @@
     "resolvedBy": "Resolved by {name}",
     "reply": "Reply",
     "replyTo": "Replying to {name}",
-    "repliesCount": "{n} replies"
+    "repliesCount": "{n} replies",
+    "addComment": "Add comments"
   },
   "table": {
     "alignLeft": "Align left",
@@ -471,7 +421,9 @@
     "copy": "Copy",
     "chooseFile": "Choose a file",
     "pasteHint": "or ⌘+V to paste an image",
-    "addFileOrImage": "Add a file or image"
+    "addFileOrImage": "Add a file or image",
+    "formSubmitFailed": "Form submission failed",
+    "updateFieldFailed": "Failed to update field"
   },
   "dataTableHistory": {
     "title": "Version History",
@@ -517,14 +469,100 @@
     "new": "New",
     "settings": "Settings"
   },
-  "time": {
-    "justNow": "just now",
-    "minutesAgo": "{n}m ago",
-    "hoursAgo": "{n}h ago",
-    "daysAgo": "{n}d ago",
-    "editedAt": "Edited"
+  "shell": {
+    "tasks": "Tasks",
+    "docs": "Documents",
+    "database": "Database",
+    "settings": "Settings",
+    "initializing": "Initializing..."
+  },
+  "diagram": {
+    "loadFailed": "Diagram editor failed to load",
+    "retry": "Retry",
+    "shapes": "Shapes",
+    "deleteConfirm": "Are you sure you want to delete this diagram?",
+    "migrationNotice": "This diagram uses an old format and has been automatically migrated to the new engine.",
+    "saveNewFormat": "Save new format",
+    "crashed": "Diagram editor crashed",
+    "tools": {
+      "text": "Text (T)",
+      "shape": "Shape (R)",
+      "mindmap": "Mindmap (M)",
+      "image": "Image (I)",
+      "table": "Table",
+      "enterLabel": "Enter label...",
+      "dblclickImage": "Double-click to add image"
+    },
+    "connectors": {
+      "straight": "Straight",
+      "orthogonal": "Orthogonal",
+      "rounded": "Rounded",
+      "smooth": "Smooth"
+    },
+    "initFailed": "Diagram initialization failed",
+    "centralTopic": "Central topic",
+    "rectangle": "Rectangle",
+    "roundedRectangle": "Rounded Rectangle",
+    "diamond": "Diamond (Decision)",
+    "circle": "Circle",
+    "mindMapRoot": "Mind Map Root",
+    "mindMapBranch": "Mind Map Branch",
+    "nodeColor": "Node Color",
+    "autoLayoutTB": "Auto Layout (Top-Bottom)",
+    "autoLayoutLR": "Auto Layout (Left-Right)",
+    "notFound": "Diagram not found",
+    "empty": "Empty diagram",
+    "editDiagram": "Edit Diagram",
+    "searchDiagrams": "Search diagrams..."
   },
   "toolbar": {
+    "fonts": {
+      "notoSansSC": "Noto Sans SC",
+      "notoSerifSC": "Noto Serif SC",
+      "microsoftYaHei": "Microsoft YaHei",
+      "pingFangSC": "PingFang SC"
+    },
+    "common": {
+      "copy": "Copy",
+      "delete": "Delete",
+      "replace": "Replace",
+      "zOrder": "Layer order",
+      "bringToFront": "Bring to front",
+      "sendToBack": "Send to back",
+      "solidLine": "Solid",
+      "dashedLine": "Dashed",
+      "dottedLine": "Dotted",
+      "none": "None"
+    },
+    "ppt": {
+      "shape": "Shape",
+      "fillColor": "Fill color",
+      "borderColor": "Border color",
+      "borderWidth": "Border width",
+      "borderStyle": "Border style",
+      "textColor": "Text color",
+      "cornerRadius": "Corner radius"
+    },
+    "diagram": {
+      "shape": "Shape",
+      "fillColor": "Fill color",
+      "borderColor": "Border color",
+      "fontSize": "Font size",
+      "alignment": "Alignment",
+      "lineColor": "Line color",
+      "lineWidth": "Line width",
+      "lineStyle": "Line style",
+      "connectorType": "Connector type",
+      "arrowStyle": "Arrow style",
+      "arrowClassic": "Filled arrow",
+      "arrowOpen": "Open arrow",
+      "arrowNone": "No arrow",
+      "labelText": "Label text",
+      "connStraight": "Straight",
+      "connOrthogonal": "Orthogonal",
+      "connPolyline": "Polyline",
+      "connCurve": "Curve"
+    },
     "search": "Search",
     "notifications": "Notifications",
     "connectAgents": "Connect Agents",
@@ -564,22 +602,107 @@
     "decrease": "Decrease",
     "increase": "Increase",
     "markAllRead": "Mark all as read",
-    "removeColor": "Remove"
+    "removeColor": "Remove",
+    "undo": "Undo",
+    "redo": "Redo",
+    "save": "Save",
+    "more": "More",
+    "cancelEditing": "Cancel editing",
+    "help": "Help",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
+    "agents": "Agents",
+    "message": "Message",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "openFullEditor": "Open in full editor",
+    "pageIcon": "Page icon"
   },
-  "diagram": {
-    "rectangle": "Rectangle",
-    "roundedRectangle": "Rounded Rectangle",
-    "diamond": "Diamond (Decision)",
-    "circle": "Circle",
-    "mindMapRoot": "Mind Map Root",
-    "mindMapBranch": "Mind Map Branch",
-    "nodeColor": "Node Color",
-    "autoLayoutTB": "Auto Layout (Top-Bottom)",
-    "autoLayoutLR": "Auto Layout (Left-Right)",
-    "notFound": "Diagram not found",
-    "empty": "Empty diagram",
-    "editDiagram": "Edit Diagram",
-    "searchDiagrams": "Search diagrams..."
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{n}m ago",
+    "hoursAgo": "{n}h ago",
+    "daysAgo": "{n}d ago",
+    "editedAt": "Edited"
+  },
+  "errors": {
+    "createViewFailed": "Failed to create view",
+    "renameViewFailed": "Failed to rename view",
+    "deleteViewFailed": "Failed to delete view",
+    "addFilterFailed": "Failed to add filter",
+    "deleteFilterFailed": "Failed to delete filter",
+    "updateFilterFailed": "Failed to update filter",
+    "addSortFailed": "Failed to add sort",
+    "deleteSortFailed": "Failed to delete sort",
+    "createSortFailed": "Failed to create sort",
+    "updateSortFailed": "Failed to update sort",
+    "addRowFailed": "Failed to add row",
+    "deleteRowFailed": "Failed to delete row",
+    "updateDataFailed": "Failed to update data",
+    "toggleCheckboxFailed": "Failed to toggle checkbox",
+    "setOptionFailed": "Failed to set option",
+    "toggleMultiSelectFailed": "Failed to toggle multi-select",
+    "setRatingFailed": "Failed to set rating",
+    "uploadAttachmentFailed": "Attachment upload failed",
+    "batchDeleteFailed": "Batch delete failed",
+    "batchEditFailed": "Batch edit failed",
+    "exportCSVFailed": "Export CSV failed",
+    "deleteTableFailed": "Failed to delete table",
+    "updateDiagramTitleFailed": "Failed to update diagram title",
+    "deleteDiagramFailed": "Failed to delete diagram",
+    "autoSaveFailed": "Auto-save failed",
+    "saveCustomIconFailed": "Failed to save custom icon",
+    "revisionParseFailed": "Failed to parse revision data",
+    "imageUploadFallback": "Image upload failed, using local preview",
+    "loadDiagramPreviewFailed": "Failed to load diagram preview",
+    "bgImageUploadFailed": "Background image upload failed",
+    "restoreVersionFailed": "Failed to restore version",
+    "updateFieldFailed": "Failed to update field",
+    "deleteFailed": "Delete failed",
+    "togglePinFailed": "Failed to toggle pin",
+    "createDocFailed": "Failed to create document",
+    "createTableFailed": "Failed to create table",
+    "createPresentationFailed": "Failed to create presentation",
+    "createDiagramFailed": "Failed to create diagram",
+    "imageUploadFailed": "Image upload failed",
+    "markdownParseFailed": "Markdown parsing failed"
+  },
+  "entities": {
+    "doc": "Doc",
+    "table": "Table",
+    "slides": "Slides",
+    "flowchart": "Flowchart",
+    "agent": "Agent"
+  },
+  "actions": {
+    "newDoc": "New Doc",
+    "newTable": "New Table",
+    "newSlides": "New Slides",
+    "newFlowchart": "New Flowchart",
+    "newAgent": "New Agent",
+    "openNewTab": "Open in new tab",
+    "rename": "Rename",
+    "changeIcon": "Change icon",
+    "copyLink": "Copy link",
+    "pin": "Pin to top",
+    "unpin": "Unpin",
+    "moveToTrash": "Move to Trash",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "delete": "Delete",
+    "comment": "Comment",
+    "background": "Background settings",
+    "openRecord": "Open record",
+    "rowComments": "Comments",
+    "deleteRecord": "Delete record",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
+    "hideColumn": "Hide column",
+    "deleteColumn": "Delete column",
+    "download": "Download",
+    "share": "Share",
+    "addIcon": "Add icon"
   },
   "notification": {
     "noNotifications": "No notifications"
@@ -587,5 +710,12 @@
   "search": {
     "find": "Find...",
     "replace": "Replace..."
+  },
+  "sidebar": {
+    "searchPlaceholder": "Search(⌘+K)"
+  },
+  "icon": {
+    "changeIcon": "Change icon",
+    "addIcon": "Add icon"
   }
 }

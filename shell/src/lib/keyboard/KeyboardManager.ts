@@ -43,7 +43,7 @@ function matchesShortcut(e: KeyboardEvent, s: ShortcutRegistration): boolean {
 export class KeyboardManager {
   private static instance: KeyboardManager;
   private shortcuts: Map<string, ShortcutRegistration[]> = new Map();
-  private activeContext: string | null = null;
+  private activeScope: string | null = null;
   private listening = false;
 
   static getInstance(): KeyboardManager {
@@ -53,29 +53,60 @@ export class KeyboardManager {
     return KeyboardManager.instance;
   }
 
-  register(context: string, shortcut: ShortcutRegistration): () => void {
-    const list = this.shortcuts.get(context) || [];
-    list.push(shortcut);
-    this.shortcuts.set(context, list);
+  /**
+   * Register shortcuts under the 'global' scope.
+   * Returns a cleanup function that removes all registered shortcuts.
+   */
+  registerGlobal(shortcuts: ShortcutRegistration[]): () => void {
+    return this.registerContext('global', shortcuts);
+  }
+
+  /**
+   * Register shortcuts under a named scope.
+   * Returns a cleanup function that removes all registered shortcuts.
+   */
+  registerContext(scope: string, shortcuts: ShortcutRegistration[]): () => void {
+    const list = this.shortcuts.get(scope) || [];
+    list.push(...shortcuts);
+    this.shortcuts.set(scope, list);
     this.ensureListener();
     return () => {
-      const current = this.shortcuts.get(context);
+      const current = this.shortcuts.get(scope);
       if (current) {
-        const idx = current.indexOf(shortcut);
-        if (idx !== -1) current.splice(idx, 1);
-        if (current.length === 0) this.shortcuts.delete(context);
+        for (const shortcut of shortcuts) {
+          const idx = current.indexOf(shortcut);
+          if (idx !== -1) current.splice(idx, 1);
+        }
+        if (current.length === 0) this.shortcuts.delete(scope);
       }
     };
   }
 
-  setContext(context: string | null): void {
-    this.activeContext = context;
+  /**
+   * Alias for registerContext — used by useKeyboardScope.
+   */
+  registerContextBatch(scope: string, shortcuts: ShortcutRegistration[]): () => void {
+    return this.registerContext(scope, shortcuts);
   }
 
-  getAllShortcuts(): { context: string; shortcuts: ShortcutRegistration[] }[] {
-    const result: { context: string; shortcuts: ShortcutRegistration[] }[] = [];
-    for (const [context, shortcuts] of this.shortcuts) {
-      result.push({ context, shortcuts: [...shortcuts] });
+  setActiveScope(scope: string | null): void {
+    this.activeScope = scope;
+  }
+
+  getActiveScope(): string | null {
+    return this.activeScope;
+  }
+
+  /**
+   * Returns only the currently active shortcuts (global + active scope).
+   */
+  getActiveShortcuts(): ShortcutRegistration[] {
+    const result: ShortcutRegistration[] = [];
+    const globalShortcuts = this.shortcuts.get('global');
+    if (globalShortcuts) result.push(...globalShortcuts);
+    if (this.activeScope && this.activeScope !== 'global') {
+      const scopeShortcuts = this.shortcuts.get(this.activeScope);
+      if (scopeShortcuts) result.push(...scopeShortcuts);
     }
     return result;
   }
@@ -90,9 +121,9 @@ export class KeyboardManager {
       if (isProseMirrorTarget(e)) return;
     }
 
-    // Check active context shortcuts first
-    if (this.activeContext) {
-      const contextShortcuts = this.shortcuts.get(this.activeContext);
+    // Check active scope shortcuts first
+    if (this.activeScope) {
+      const contextShortcuts = this.shortcuts.get(this.activeScope);
       if (contextShortcuts && this.tryMatch(e, contextShortcuts)) return;
     }
 
@@ -118,5 +149,18 @@ export class KeyboardManager {
     if (typeof window === 'undefined') return;
     window.addEventListener('keydown', this.handleKeyDown);
     this.listening = true;
+  }
+
+  /**
+   * Remove the global keydown listener and clear all registered shortcuts.
+   * Call this during app teardown or hot-module-replacement cleanup.
+   */
+  destroy(): void {
+    if (this.listening && typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this.handleKeyDown);
+      this.listening = false;
+    }
+    this.shortcuts.clear();
+    this.activeScope = null;
   }
 }

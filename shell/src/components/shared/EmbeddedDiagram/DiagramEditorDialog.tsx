@@ -4,11 +4,16 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import dynamic from 'next/dynamic';
+<<<<<<< Updated upstream
 import { useT } from '@/lib/i18n';
+=======
+import type { DiagramEditorHandle } from '@/components/diagram-editor/X6DiagramEditor';
+import { EditorSkeleton } from '@/components/shared/Skeleton';
+>>>>>>> Stashed changes
 
 const X6DiagramEditor = dynamic(
   () => import('@/components/diagram-editor/X6DiagramEditor').then((m) => ({ default: m.default })),
-  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-muted-foreground">Loading editor...</div> }
+  { ssr: false, loading: () => <EditorSkeleton /> }
 );
 
 interface DiagramEditorDialogProps {
@@ -19,8 +24,11 @@ interface DiagramEditorDialogProps {
 export function DiagramEditorDialog({ diagramId, onClose }: DiagramEditorDialogProps) {
   const { t } = useT();
   const backdropRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<DiagramEditorHandle>(null);
 
-  const handleClose = useCallback(() => {
+  const handleClose = useCallback(async () => {
+    // Flush pending save and wait for it to complete before notifying listeners
+    await editorRef.current?.flushSave();
     window.dispatchEvent(new CustomEvent('diagram-updated', { detail: { diagramId } }));
     onClose();
   }, [diagramId, onClose]);
@@ -64,7 +72,7 @@ export function DiagramEditorDialog({ diagramId, onClose }: DiagramEditorDialogP
           </button>
         </div>
         <div className="flex-1 min-h-0">
-          <X6DiagramEditor diagramId={diagramId} embedded />
+          <X6DiagramEditor diagramId={diagramId} embedded editorRef={editorRef} />
         </div>
       </div>
     </div>,

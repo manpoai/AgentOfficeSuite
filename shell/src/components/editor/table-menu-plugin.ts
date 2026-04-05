@@ -158,6 +158,18 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     return container;
   }
 
+  /**
+   * Detect CSS scale factor applied to any ancestor (e.g. `transform: scale(zoom)`).
+   * Compares getBoundingClientRect (screen pixels) to offsetWidth (layout pixels).
+   * Returns 1 when no transform is applied.
+   */
+  function getScale(mount: HTMLElement): number {
+    const ow = mount.offsetWidth;
+    if (!ow) return 1;
+    const bw = mount.getBoundingClientRect().width;
+    return bw / ow || 1;
+  }
+
   function destroyAll() {
     if (container && container.parentElement) {
       container.parentElement.removeChild(container);
@@ -276,6 +288,8 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
   function buildTopBar(view: EditorView, info: NonNullable<ReturnType<typeof findTableInfo>>, tableDOM: HTMLElement, parentRect: DOMRect) {
     const tableRect = tableDOM.getBoundingClientRect();
+    const mount = view.dom.parentElement;
+    const s = mount ? getScale(mount) : 1;
     const { map } = info;
 
     if (!topBar) {
@@ -285,9 +299,9 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     topBar.innerHTML = '';
 
     // Position the top bar above the table — use absolute positioning for children
-    topBar.style.left = `${tableRect.left - parentRect.left}px`;
-    topBar.style.top = `${tableRect.top - parentRect.top - 16}px`;
-    topBar.style.width = `${tableRect.width}px`;
+    topBar.style.left = `${(tableRect.left - parentRect.left) / s}px`;
+    topBar.style.top = `${(tableRect.top - parentRect.top) / s - 16}px`;
+    topBar.style.width = `${tableRect.width / s}px`;
     topBar.style.display = 'block';
     topBar.style.position = 'absolute';
     topBar.style.height = '14px';
@@ -299,13 +313,13 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
       const cells = firstRowCells.querySelectorAll('th, td');
       cells.forEach((cell) => {
         const r = (cell as HTMLElement).getBoundingClientRect();
-        cellRects.push({ left: r.left - tableRect.left, width: r.width });
+        cellRects.push({ left: (r.left - tableRect.left) / s, width: r.width / s });
       });
     }
 
     // Fallback if cells don't match map width
     if (cellRects.length === 0) {
-      const evenWidth = tableRect.width / map.width;
+      const evenWidth = tableRect.width / s / map.width;
       for (let i = 0; i < map.width; i++) cellRects.push({ left: i * evenWidth, width: evenWidth });
     }
 
@@ -363,6 +377,8 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
   function buildLeftBar(view: EditorView, info: NonNullable<ReturnType<typeof findTableInfo>>, tableDOM: HTMLElement, parentRect: DOMRect) {
     const tableRect = tableDOM.getBoundingClientRect();
+    const mount = view.dom.parentElement;
+    const s = mount ? getScale(mount) : 1;
     const { map } = info;
 
     if (!leftBar) {
@@ -372,9 +388,9 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     leftBar.innerHTML = '';
 
     // Position the left bar to the left of the table — use absolute positioning for children
-    leftBar.style.left = `${tableRect.left - parentRect.left - 16}px`;
-    leftBar.style.top = `${tableRect.top - parentRect.top}px`;
-    leftBar.style.height = `${tableRect.height}px`;
+    leftBar.style.left = `${(tableRect.left - parentRect.left) / s - 16}px`;
+    leftBar.style.top = `${(tableRect.top - parentRect.top) / s}px`;
+    leftBar.style.height = `${tableRect.height / s}px`;
     leftBar.style.width = '14px';
     leftBar.style.display = 'block';
     leftBar.style.position = 'absolute';
@@ -384,7 +400,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     const rowRects: { top: number; height: number }[] = [];
     rows.forEach((row) => {
       const r = row.getBoundingClientRect();
-      rowRects.push({ top: r.top - tableRect.top, height: r.height });
+      rowRects.push({ top: (r.top - tableRect.top) / s, height: r.height / s });
     });
 
     for (let row = 0; row < rowRects.length; row++) {
@@ -1461,12 +1477,13 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
       // Just reposition existing bars without rebuilding
       const parentRect = mount.getBoundingClientRect();
       const tableRect = tableDOM.getBoundingClientRect();
-      topBar.style.left = `${tableRect.left - parentRect.left}px`;
-      topBar.style.top = `${tableRect.top - parentRect.top - 16}px`;
-      topBar.style.width = `${tableRect.width}px`;
-      leftBar.style.left = `${tableRect.left - parentRect.left - 16}px`;
-      leftBar.style.top = `${tableRect.top - parentRect.top}px`;
-      leftBar.style.height = `${tableRect.height}px`;
+      const s = getScale(mount);
+      topBar.style.left = `${(tableRect.left - parentRect.left) / s}px`;
+      topBar.style.top = `${(tableRect.top - parentRect.top) / s - 16}px`;
+      topBar.style.width = `${tableRect.width / s}px`;
+      leftBar.style.left = `${(tableRect.left - parentRect.left) / s - 16}px`;
+      leftBar.style.top = `${(tableRect.top - parentRect.top) / s}px`;
+      leftBar.style.height = `${tableRect.height / s}px`;
       return;
     }
 

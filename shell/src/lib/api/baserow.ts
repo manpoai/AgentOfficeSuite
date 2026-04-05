@@ -5,7 +5,14 @@
 const BASE = '/api/gateway/data';
 
 async function brFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`Baserow API ${path}: ${res.status}`);
   return res.json();
 }

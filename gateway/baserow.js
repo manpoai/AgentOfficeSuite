@@ -1,6 +1,6 @@
 /**
  * Baserow API adapter layer
- * Replaces NocoDB calls with Baserow REST API calls
+ * Baserow REST API adapter layer
  * Keeps the same gateway-facing interface
  */
 
@@ -14,6 +14,15 @@ const BR_TOKEN = process.env.BASEROW_TOKEN; // Database token for row operations
 let brJwt = null;
 let brJwtExpiry = 0;
 let brRefreshToken = null;
+
+/** Parse JWT payload to extract expiry timestamp. Falls back to 9 min from now. */
+function getJwtExpiry(token) {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    if (payload.exp) return payload.exp * 1000; // exp is in seconds
+  } catch { /* ignore parse errors */ }
+  return Date.now() + 9 * 60 * 1000; // fallback: 9 min
+}
 
 async function getBrJwt() {
   if (brJwt && Date.now() < brJwtExpiry - 60000) return brJwt;
@@ -32,11 +41,13 @@ async function getBrJwt() {
         if (data.access_token) {
           brJwt = data.access_token;
           brRefreshToken = data.refresh_token || brRefreshToken;
-          brJwtExpiry = Date.now() + 9 * 60 * 1000; // 9 min (Baserow access tokens are short-lived)
+          brJwtExpiry = getJwtExpiry(brJwt);
           return brJwt;
         }
       }
-    } catch {}
+    } catch (refreshErr) {
+      console.warn('[baserow] Token refresh failed, falling back to full login:', refreshErr.message);
+    }
   }
 
   // Full login
@@ -49,8 +60,7 @@ async function getBrJwt() {
   if (data.access_token || data.token) {
     brJwt = data.access_token || data.token;
     brRefreshToken = data.refresh_token || null;
-    // Baserow access tokens expire in 10 min by default
-    brJwtExpiry = Date.now() + 9 * 60 * 1000;
+    brJwtExpiry = getJwtExpiry(brJwt);
     console.log('[baserow] JWT refreshed');
   }
   return brJwt;
@@ -93,7 +103,7 @@ async function br(method, path, body, { useToken = false, rawResponse = false } 
 }
 
 // ─── Field type mapping ───────────────────────────
-// NocoDB uidt → Baserow field type
+// Gateway uidt → Baserow field type
 const UIDT_TO_BR = {
   'SingleLineText': 'text',
   'LongText': 'long_text',
@@ -108,7 +118,7 @@ const UIDT_TO_BR = {
   'MultiSelect': 'multiple_select',
   'ID': 'autonumber',
   'AutoNumber': 'autonumber',
-  'CreateTime': 'created_on',
+  'CreatedTime': 'created_on',
   'LastModifiedTime': 'last_modified',
   'CreatedBy': 'text',       // Baserow doesn't have CreatedBy — use text
   'LastModifiedBy': 'text',  // Baserow doesn't have LastModifiedBy — use text
@@ -125,7 +135,7 @@ const UIDT_TO_BR = {
   'Currency': 'number',
 };
 
-// Baserow field type → NocoDB-style uidt (for response mapping)
+// Baserow field type → gateway uidt (for response mapping)
 const BR_TO_UIDT = {
   'text': 'SingleLineText',
   'long_text': 'LongText',
@@ -137,7 +147,7 @@ const BR_TO_UIDT = {
   'single_select': 'SingleSelect',
   'multiple_select': 'MultiSelect',
   'autonumber': 'AutoNumber',
-  'created_on': 'CreateTime',
+  'created_on': 'CreatedTime',
   'last_modified': 'LastModifiedTime',
   'formula': 'Formula',
   'link_row': 'Links',
@@ -156,12 +166,10 @@ const BR_TO_UIDT = {
   'password': 'SingleLineText',
 };
 
-// ─── NocoDB where → Baserow filter params ─────────
-// NocoDB where format: (field,op,value)~and(field2,op,value2)
+// ─── Where clause → Baserow filter params ─────────
+// Where format: (field,op,value)~and(field2,op,value2)
 // Baserow filter format: filter__field_{id}__{type}=value (query params)
-// Since Baserow filters need field IDs, we'll use search_mode for simple cases
-// and convert to Baserow view filters for complex cases
-function parseNcWhere(where) {
+function parseWhere(where) {
   if (!where) return [];
   const filters = [];
   // Split on ~and or ~or
@@ -176,8 +184,8 @@ function parseNcWhere(where) {
   return filters;
 }
 
-// Map NocoDB comparison operators to Baserow filter types
-const NC_OP_TO_BR = {
+// Map comparison operators to Baserow filter types
+const OP_TO_BR = {
   'eq': 'equal',
   'neq': 'not_equal',
   'like': 'contains',
@@ -190,7 +198,8 @@ const NC_OP_TO_BR = {
   'isnot': 'not_equal',
   'null': 'empty',
   'notnull': 'not_empty',
-  'in': 'contains',
+  'in': 'equal',       // 'in' = value is one of a list; mapped per-value below
+  'notin': 'not_equal', // 'notin' = value is not in a list
 };
 
 // Baserow view type mapping
@@ -240,15 +249,14 @@ async function getFieldMap(tableId) {
 }
 
 // ─── Row response normalization ───────────────────
+// Normalize Baserow row data for gateway responses
 // Baserow returns field names as keys (with user_field_names=true)
-// NocoDB returns field names directly too, but the structure differs for:
-// - Select fields: Baserow returns {id, value, color}, NocoDB returns the string value
-// - Link fields: Baserow returns [{id, value}], NocoDB returns nested objects
-// - File fields: different attachment format
+// Select fields: {id, value, color} → string value
+// File fields: different attachment format normalization
 
 function normalizeRowForGateway(row, fields) {
   const normalized = {};
-  // Preserve the id as "Id" for NocoDB compat
+  // Preserve the id as "Id" for gateway compat
   normalized.Id = row.id;
   // Preserve order if present
   if (row.order !== undefined) normalized.order = row.order;
@@ -265,15 +273,16 @@ function normalizeRowForGateway(row, fields) {
       normalized[field.name] = Array.isArray(val) ? val.map(v => v.value).join(',') : val;
     } else if (field.type === 'link_row') {
       // Baserow: [{id: 1, value: "display_value"}, ...]
-      // NocoDB returns nested row objects, but gateway normalizes differently
+      // Gateway normalizes link row values
       normalized[field.name] = val;
     } else if (field.type === 'file') {
-      // Baserow: [{url, thumbnails, name, size, ...}]
-      // NocoDB: [{path, title, mimetype, size}]
+      // Baserow: [{url, thumbnails, visible_name, name, size, mime_type, ...}]
+      // Normalized: [{name (server), path, title (display), mimetype, size, url, thumbnails}]
       if (Array.isArray(val)) {
         normalized[field.name] = val.map(f => ({
+          name: f.name,  // server filename — needed for round-trip updates
           path: f.url,
-          title: f.name || f.original_name,
+          title: f.visible_name || f.original_name || f.name,
           mimetype: f.mime_type,
           size: f.size,
           url: f.url,
@@ -294,7 +303,7 @@ function normalizeRowForGateway(row, fields) {
 }
 
 // ─── Row data normalization for Baserow input ─────
-// Convert NocoDB-style row data to Baserow format
+// Convert gateway row data to Baserow format
 function normalizeRowForBaserow(rowData, fields) {
   const normalized = {};
   for (const [key, val] of Object.entries(rowData)) {
@@ -309,11 +318,10 @@ function normalizeRowForBaserow(rowData, fields) {
     }
 
     if (field.type === 'single_select') {
-      // NocoDB accepts string, Baserow accepts string value or option ID
-      // With user_field_names=true, Baserow accepts the option value string
+      // Baserow accepts string value or option ID (with user_field_names=true)
       normalized[key] = val;
     } else if (field.type === 'multiple_select') {
-      // NocoDB accepts comma-separated string, Baserow accepts array of values
+      // Gateway accepts comma-separated string, Baserow accepts array of values
       if (typeof val === 'string') {
         normalized[key] = val.split(',').map(v => v.trim()).filter(Boolean);
       } else {
@@ -323,6 +331,27 @@ function normalizeRowForBaserow(rowData, fields) {
       // Baserow accepts array of row IDs
       if (Array.isArray(val)) {
         normalized[key] = val.map(v => typeof v === 'object' ? (v.Id || v.id) : v).filter(Boolean);
+      } else {
+        normalized[key] = val;
+      }
+    } else if (field.type === 'file') {
+      // Baserow file fields expect [{name: "server_filename"}]
+      if (Array.isArray(val)) {
+        normalized[key] = val.map(f => {
+          if (typeof f === 'object' && f !== null) {
+            // 'name' = server filename (from upload response or round-tripped)
+            if (f.name) return { name: f.name };
+            // 'title' = server filename (from normalizeRowForGateway which maps name→title)
+            if (f.title) return { name: f.title };
+            // Try to extract server filename from URL path
+            if (f.url || f.path) {
+              const url = f.url || f.path;
+              const match = url.match(/\/([^/]+)$/);
+              if (match) return { name: match[1] };
+            }
+          }
+          return f;
+        });
       } else {
         normalized[key] = val;
       }
@@ -345,15 +374,15 @@ function normalizeRowForBaserow(rowData, fields) {
 
 // ─── Build Baserow filter query params ────────────
 // Baserow uses field-type-aware filter names for some types
-function getBaserowFilterType(fieldType, ncOp) {
-  const baseOp = NC_OP_TO_BR[ncOp] || 'equal';
+function getBaserowFilterType(fieldType, op) {
+  const baseOp = OP_TO_BR[op] || 'equal';
   // Single/multiple select fields use prefixed filter types
   if (fieldType === 'single_select') {
     const selectOpMap = {
       'equal': 'single_select_equal',
       'not_equal': 'single_select_not_equal',
-      'empty': 'single_select_is_none_of',
-      'not_empty': 'single_select_is_any_of',
+      'empty': 'empty',
+      'not_empty': 'not_empty',
     };
     return selectOpMap[baseOp] || `single_select_${baseOp}`;
   }
@@ -363,6 +392,8 @@ function getBaserowFilterType(fieldType, ncOp) {
       'not_equal': 'multiple_select_has_not',
       'contains': 'multiple_select_has',
       'contains_not': 'multiple_select_has_not',
+      'empty': 'empty',
+      'not_empty': 'not_empty',
     };
     return selectOpMap[baseOp] || `multiple_select_${baseOp}`;
   }
@@ -370,12 +401,55 @@ function getBaserowFilterType(fieldType, ncOp) {
     return 'boolean';
   }
   if (fieldType === 'link_row') {
-    return `link_row_${baseOp === 'equal' ? 'has' : baseOp}`;
+    const linkOpMap = {
+      'equal': 'link_row_has',
+      'not_equal': 'link_row_has_not',
+      'contains': 'link_row_contains',
+      'contains_not': 'link_row_contains_not',
+      'empty': 'empty',
+      'not_empty': 'not_empty',
+    };
+    return linkOpMap[baseOp] || 'link_row_has';
   }
   if (fieldType === 'date' || fieldType === 'last_modified' || fieldType === 'created_on') {
-    return `date_${baseOp}`;
+    const dateOpMap = {
+      'equal': 'date_equal',
+      'not_equal': 'date_not_equal',
+      'higher_than': 'date_after',
+      'higher_than_or_equal': 'date_after_or_equal',
+      'lower_than': 'date_before',
+      'lower_than_or_equal': 'date_before_or_equal',
+      'empty': 'empty',
+      'not_empty': 'not_empty',
+    };
+    return dateOpMap[baseOp] || baseOp;
   }
   return baseOp;
+}
+
+/** Reverse-map Baserow filter type back to gateway comparison_op */
+function reverseBaserowFilterType(brType) {
+  // Build reverse map from BR_TO_GW
+  const reverseMap = {
+    'equal': 'eq', 'not_equal': 'neq',
+    'contains': 'like', 'contains_not': 'nlike',
+    'higher_than': 'gt', 'higher_than_or_equal': 'gte',
+    'lower_than': 'lt', 'lower_than_or_equal': 'lte',
+    'empty': 'null', 'not_empty': 'notnull',
+    // Select types
+    'single_select_equal': 'eq', 'single_select_not_equal': 'neq',
+    'multiple_select_has': 'eq', 'multiple_select_has_not': 'neq',
+    // Link types
+    'link_row_has': 'eq', 'link_row_has_not': 'neq',
+    'link_row_contains': 'like', 'link_row_contains_not': 'nlike',
+    // Date types
+    'date_equal': 'eq', 'date_not_equal': 'neq',
+    'date_after': 'gt', 'date_after_or_equal': 'gte',
+    'date_before': 'lt', 'date_before_or_equal': 'lte',
+    // Boolean
+    'boolean': 'eq',
+  };
+  return reverseMap[brType] || brType;
 }
 
 function buildBaserowFilterParams(whereFilters, fieldMap) {
@@ -383,12 +457,35 @@ function buildBaserowFilterParams(whereFilters, fieldMap) {
   for (const filter of whereFilters) {
     const field = fieldMap[filter.field];
     if (!field) continue;
-    const brFilterType = getBaserowFilterType(field.type, filter.op);
+
     if (filter.op === 'null' || filter.op === 'notnull') {
+      const brFilterType = getBaserowFilterType(field.type, filter.op);
       params.append(`filter__field_${field.id}__${brFilterType}`, '');
+    } else if (filter.op === 'in' || filter.op === 'notin') {
+      // 'in' = value matches any in comma-separated list
+      // Expand to multiple Baserow equal/not_equal filters
+      const values = filter.value.split(',').map(v => v.trim()).filter(Boolean);
+      const baseOp = filter.op === 'in' ? 'equal' : 'not_equal';
+      const brFilterType = getBaserowFilterType(field.type, filter.op === 'in' ? 'eq' : 'neq');
+      for (const val of values) {
+        let filterValue = val;
+        if ((field.type === 'single_select' || field.type === 'multiple_select') && field.select_options) {
+          const opt = field.select_options.find(o => o.value === filterValue);
+          if (opt) filterValue = String(opt.id);
+        }
+        params.append(`filter__field_${field.id}__${brFilterType}`, filterValue);
+      }
+      // For 'in', filters should be OR'd (Baserow ORs same-field filters by default)
+      if (filter.op === 'in' && values.length > 1) {
+        params.set('filter_type', 'OR');
+      }
     } else {
+      const brFilterType = getBaserowFilterType(field.type, filter.op);
       let filterValue = filter.value;
-      // For single_select/multiple_select, resolve text value to option ID
+      // Strip SQL-style wildcards for contains/contains_not — Baserow does substring matching natively
+      if ((filter.op === 'like' || filter.op === 'nlike') && filterValue) {
+        filterValue = filterValue.replace(/^%|%$/g, '');
+      }
       if ((field.type === 'single_select' || field.type === 'multiple_select') && field.select_options) {
         const opt = field.select_options.find(o => o.value === filterValue);
         if (opt) filterValue = String(opt.id);
@@ -399,17 +496,20 @@ function buildBaserowFilterParams(whereFilters, fieldMap) {
   return params;
 }
 
-// ─── Build Baserow order_by from NocoDB sort ──────
+// ─── Build Baserow order_by from sort param ──────
 function buildBaserowOrderBy(sort, fieldMap) {
   if (!sort) return '';
-  // NocoDB sort format: -fieldname (desc) or fieldname (asc), comma-separated
+  // Sort format: -fieldname (desc) or fieldname (asc), comma-separated
   return sort.split(',').map(s => {
     const desc = s.startsWith('-');
     const name = desc ? s.slice(1) : s;
+    // 'Id' is the gateway's row ID — skip it, Baserow sorts by id by default
+    // With user_field_names=true, 'id' is not recognized in order_by
+    if (name === 'Id' || name === 'id') return null;
     const field = fieldMap[name];
     if (!field) return desc ? `-${name}` : name;
     return desc ? `-field_${field.id}` : `field_${field.id}`;
-  }).join(',');
+  }).filter(Boolean).join(',');
 }
 
 // ─── Build Baserow field creation body ────────────
@@ -478,7 +578,7 @@ export {
   BR_URL, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, BR_TOKEN,
   getBrJwt, br,
   UIDT_TO_BR, BR_TO_UIDT,
-  parseNcWhere, NC_OP_TO_BR, buildBaserowFilterParams, buildBaserowOrderBy,
+  parseWhere, OP_TO_BR, getBaserowFilterType, reverseBaserowFilterType, buildBaserowFilterParams, buildBaserowOrderBy,
   BR_VIEW_TYPE_MAP, BR_VIEW_TYPE_NUM,
   getTableFields, invalidateFieldCache, getFieldMap,
   normalizeRowForGateway, normalizeRowForBaserow,

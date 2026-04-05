@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import type { Graph } from '@antv/x6';
-import { Minus, Plus, Maximize2 } from 'lucide-react';
+import { Minus, Plus } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 interface ZoomBarProps {
   graph: Graph | null;
 }
 
-export function ZoomBar({ graph }: ZoomBarProps) {
+export function ZoomBar({
+  const { t } = useT(); graph }: ZoomBarProps) {
   const [zoom, setZoom] = useState(100);
 
   useEffect(() => {
@@ -26,38 +28,25 @@ export function ZoomBar({ graph }: ZoomBarProps) {
 
   const handleZoomIn = () => graph.zoom(0.1);
   const handleZoomOut = () => graph.zoom(-0.1);
-  const handleFitView = () => {
-    graph.zoomToFit({ padding: 60, maxScale: 1.5 });
-  };
 
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-card rounded-lg shadow-md border border-border px-2 py-1">
+    <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 bg-card/50 backdrop-blur-sm rounded border border-black/10 dark:border-white/10 px-3 h-10">
       <button
-        className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
+        className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/[0.04] text-black/70 dark:text-white/70"
         onClick={handleZoomOut}
-        title="缩小"
+        title={t('toolbar.zoomOut')}
       >
         <Minus size={14} />
       </button>
 
-      <span className="text-xs text-muted-foreground w-10 text-center tabular-nums">{zoom}%</span>
+      <span className="text-sm font-medium text-black/70 dark:text-white/70 w-10 text-center tabular-nums">{zoom}%</span>
 
       <button
-        className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
+        className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/[0.04] text-black/70 dark:text-white/70"
         onClick={handleZoomIn}
-        title="放大"
+        title={t('toolbar.zoomIn')}
       >
         <Plus size={14} />
-      </button>
-
-      <div className="w-px h-4 bg-border mx-0.5" />
-
-      <button
-        className="w-7 h-7 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
-        onClick={handleFitView}
-        title="适应屏幕"
-      >
-        <Maximize2 size={14} />
       </button>
     </div>
   );

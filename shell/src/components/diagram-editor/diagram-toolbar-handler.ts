@@ -1,6 +1,7 @@
 import type { ToolbarHandler, ToolbarState } from '@/components/shared/FloatingToolbar/types';
 import type { Graph, Cell, Node, Edge } from '@antv/x6';
 import { CONNECTOR_META, type ConnectorType } from './constants';
+import { getT } from '@/lib/i18n';
 
 interface DiagramTarget {
   graph: Graph;
@@ -62,7 +63,6 @@ export function createDiagramNodeHandler({ graph, cell }: DiagramTarget): Toolba
           break;
         case 'copy':
           graph.copy([cell]);
-          graph.paste();
           break;
         case 'delete':
           graph.removeCells([cell]);
@@ -174,7 +174,7 @@ export function createDiagramEdgeHandler({ graph, cell }: DiagramTarget): Toolba
           const input = document.createElement('input');
           input.type = 'text';
           input.value = currentText;
-          input.placeholder = '输入标签...';
+          input.placeholder = getT()('diagram.tools.enterLabel');
           input.style.cssText = `
             position: absolute;
             left: ${midPoint.x}px;
@@ -223,7 +223,6 @@ export function createDiagramEdgeHandler({ graph, cell }: DiagramTarget): Toolba
         }
         case 'copy':
           graph.copy([cell]);
-          graph.paste();
           break;
         case 'delete':
           graph.removeCells([cell]);
@@ -250,7 +249,6 @@ export function createDiagramImageHandler({ graph, cell }: DiagramTarget): Toolb
           break;
         case 'copy':
           graph.copy([cell]);
-          graph.paste();
           break;
         case 'delete':
           graph.removeCells([cell]);

@@ -10,323 +10,306 @@ import {
 } from 'lucide-react';
 import type { ToolbarItem } from './types';
 import { createElement } from 'react';
+import { getT } from '@/lib/i18n';
+import { PALETTES } from '@/actions/color-palettes';
 
 const icon = (Icon: any) => createElement(Icon, { className: 'h-4 w-4' });
 
-const HIGHLIGHT_COLORS = [
-  { name: 'Yellow', value: 'hsl(50 90% 60% / 0.3)' },
-  { name: 'Orange', value: 'hsl(25 90% 60% / 0.3)' },
-  { name: 'Red', value: 'hsl(0 80% 60% / 0.3)' },
-  { name: 'Pink', value: 'hsl(330 80% 65% / 0.3)' },
-  { name: 'Purple', value: 'hsl(270 60% 60% / 0.3)' },
-  { name: 'Blue', value: 'hsl(210 70% 55% / 0.3)' },
-  { name: 'Green', value: 'hsl(142 50% 50% / 0.3)' },
-];
+export function getDocsTextItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold (Cmd+B)', group: 'inline' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic (Cmd+I)', group: 'inline' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'inline' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline (Cmd+U)', group: 'inline' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Inline code', group: 'style' },
+    { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
+    { key: 'heading1', type: 'toggle', icon: icon(Heading1), label: 'Heading 1', group: 'heading' },
+    { key: 'heading2', type: 'toggle', icon: icon(Heading2), label: 'Heading 2', group: 'heading' },
+    { key: 'heading3', type: 'toggle', icon: icon(Heading3), label: 'Heading 3', group: 'heading' },
+    { key: 'checkboxList', type: 'toggle', icon: icon(ListTodo), label: 'Checkbox list', group: 'list' },
+    { key: 'orderedList', type: 'toggle', icon: icon(ListOrdered), label: 'Ordered list', group: 'list' },
+    { key: 'bulletList', type: 'toggle', icon: icon(List), label: 'Bullet list', group: 'list' },
+    { key: 'link', type: 'action', icon: icon(Link), label: 'Link', group: 'insert' },
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
+  ];
+}
 
-export const DOCS_TEXT_ITEMS: ToolbarItem[] = [
-  { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold (Cmd+B)', group: 'inline' },
-  { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic (Cmd+I)', group: 'inline' },
-  { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'inline' },
-  { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline (Cmd+U)', group: 'inline' },
-  { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: HIGHLIGHT_COLORS, colorClearable: true },
-  { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Inline code', group: 'style' },
-  { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
-  { key: 'heading1', type: 'toggle', icon: icon(Heading1), label: 'Heading 1', group: 'heading' },
-  { key: 'heading2', type: 'toggle', icon: icon(Heading2), label: 'Heading 2', group: 'heading' },
-  { key: 'heading3', type: 'toggle', icon: icon(Heading3), label: 'Heading 3', group: 'heading' },
-  { key: 'checkboxList', type: 'toggle', icon: icon(ListTodo), label: 'Checkbox list', group: 'list' },
-  { key: 'orderedList', type: 'toggle', icon: icon(ListOrdered), label: 'Ordered list', group: 'list' },
-  { key: 'bulletList', type: 'toggle', icon: icon(List), label: 'Bullet list', group: 'list' },
-  { key: 'link', type: 'action', icon: icon(Link), label: 'Link', group: 'insert' },
-  { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
-];
 
 // ── Docs Table Toolbar ──
 
-const CELL_BG_COLORS = [
-  { name: 'None', value: '' },
-  { name: 'Yellow', value: '#fef3c7' },
-  { name: 'Blue', value: '#dbeafe' },
-  { name: 'Green', value: '#d1fae5' },
-  { name: 'Pink', value: '#fce7f3' },
-  { name: 'Purple', value: '#ede9fe' },
-  { name: 'Orange', value: '#ffedd5' },
-  { name: 'Gray', value: '#f3f4f6' },
-];
+export function getDocsTableItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'toggleHeaderRow', type: 'action', icon: icon(TableProperties), label: 'Toggle header row', group: 'table' },
+    { key: 'toggleHeaderCol', type: 'action', icon: icon(Columns), label: 'Toggle header column', group: 'table' },
+    { key: 'mergeCells', type: 'action', icon: icon(Merge), label: 'Merge cells', group: 'table' },
+    { key: 'splitCell', type: 'action', icon: icon(Split), label: 'Split cell', group: 'table' },
+    { key: 'cellBgColor', type: 'color', icon: icon(Paintbrush), label: 'Cell background', group: 'cellStyle', colors: PALETTES.cellBackground, colorClearable: true },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Code', group: 'style' },
+    { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
+    { key: 'heading', type: 'dropdown', icon: icon(Heading1), label: 'Heading', group: 'block',
+      options: [
+        { value: '1', label: 'H1', icon: icon(Heading1) },
+        { value: '2', label: 'H2', icon: icon(Heading2) },
+        { value: '3', label: 'H3', icon: icon(Heading3) },
+        { value: 'paragraph', label: 'Paragraph', icon: icon(Type) },
+      ]},
+    { key: 'list', type: 'dropdown', icon: icon(List), label: 'List', group: 'block',
+      options: [
+        { value: 'checkbox', label: 'Checkbox', icon: icon(ListTodo) },
+        { value: 'ordered', label: 'Ordered', icon: icon(ListOrdered) },
+        { value: 'bullet', label: 'Bullet', icon: icon(List) },
+      ]},
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
+    { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: 'Delete row', group: 'delete' },
+    { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: 'Delete column', group: 'delete' },
+  ];
+}
 
-export const DOCS_TABLE_ITEMS: ToolbarItem[] = [
-  { key: 'toggleHeaderRow', type: 'action', icon: icon(TableProperties), label: 'Toggle header row', group: 'table' },
-  { key: 'toggleHeaderCol', type: 'action', icon: icon(Columns), label: 'Toggle header column', group: 'table' },
-  { key: 'mergeCells', type: 'action', icon: icon(Merge), label: 'Merge cells', group: 'table' },
-  { key: 'splitCell', type: 'action', icon: icon(Split), label: 'Split cell', group: 'table' },
-  { key: 'cellBgColor', type: 'color', icon: icon(Paintbrush), label: 'Cell background', group: 'cellStyle', colors: CELL_BG_COLORS, colorClearable: true },
-  { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
-  { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
-  { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
-  { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
-  { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: HIGHLIGHT_COLORS, colorClearable: true },
-  { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Code', group: 'style' },
-  { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
-  { key: 'heading', type: 'dropdown', icon: icon(Heading1), label: 'Heading', group: 'block',
-    options: [
-      { value: '1', label: 'H1', icon: icon(Heading1) },
-      { value: '2', label: 'H2', icon: icon(Heading2) },
-      { value: '3', label: 'H3', icon: icon(Heading3) },
-      { value: 'paragraph', label: 'Paragraph', icon: icon(Type) },
-    ]},
-  { key: 'list', type: 'dropdown', icon: icon(List), label: 'List', group: 'block',
-    options: [
-      { value: 'checkbox', label: 'Checkbox', icon: icon(ListTodo) },
-      { value: 'ordered', label: 'Ordered', icon: icon(ListOrdered) },
-      { value: 'bullet', label: 'Bullet', icon: icon(List) },
-    ]},
-  { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
-  { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: 'Delete row', group: 'delete' },
-  { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: 'Delete column', group: 'delete' },
-];
+
+// ── Simple Table Toolbar (PPT / Diagram — schema only has paragraph + inline marks) ──
+
+export function getSimpleTableItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'toggleHeaderRow', type: 'action', icon: icon(TableProperties), label: 'Toggle header row', group: 'table' },
+    { key: 'toggleHeaderCol', type: 'action', icon: icon(Columns), label: 'Toggle header column', group: 'table' },
+    { key: 'mergeCells', type: 'action', icon: icon(Merge), label: 'Merge cells', group: 'table' },
+    { key: 'splitCell', type: 'action', icon: icon(Split), label: 'Split cell', group: 'table' },
+    { key: 'cellBgColor', type: 'color', icon: icon(Paintbrush), label: 'Cell background', group: 'cellStyle', colors: PALETTES.cellBackground, colorClearable: true },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: 'Delete row', group: 'delete' },
+    { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: 'Delete column', group: 'delete' },
+  ];
+}
+
 
 // ── Docs Image Toolbar ──
 
-export const DOCS_IMAGE_ITEMS: ToolbarItem[] = [
-  { key: 'alignLeft', type: 'action', icon: icon(AlignLeft), label: 'Left', group: 'align' },
-  { key: 'alignCenter', type: 'action', icon: icon(AlignCenter), label: 'Center', group: 'align' },
-  { key: 'alignRight', type: 'action', icon: icon(AlignRight), label: 'Right', group: 'align' },
-  { key: 'alignFull', type: 'action', icon: icon(Maximize), label: 'Full width', group: 'align' },
-  { key: 'alignFit', type: 'action', icon: icon(Minimize), label: 'Fit width', group: 'align' },
-  { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
-  { key: 'download', type: 'action', icon: icon(Download), label: 'Download', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: 'Delete', group: 'action' },
-  { key: 'altText', type: 'action', icon: icon(Pencil), label: 'Alt text', group: 'action' },
-  { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'action' },
-];
+export function getDocsImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'alignLeft', type: 'action', icon: icon(AlignLeft), label: 'Left', group: 'align' },
+    { key: 'alignCenter', type: 'action', icon: icon(AlignCenter), label: 'Center', group: 'align' },
+    { key: 'alignRight', type: 'action', icon: icon(AlignRight), label: 'Right', group: 'align' },
+    { key: 'alignFull', type: 'action', icon: icon(Maximize), label: 'Full width', group: 'align' },
+    { key: 'alignFit', type: 'action', icon: icon(Minimize), label: 'Fit width', group: 'align' },
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
+    { key: 'download', type: 'action', icon: icon(Download), label: 'Download', group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: 'Delete', group: 'action' },
+    { key: 'altText', type: 'action', icon: icon(Pencil), label: 'Alt text', group: 'action' },
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'action' },
+  ];
+}
+
 
 // ── PPT Text Toolbar ──
 
-const TEXT_COLORS = [
-  { name: 'Black', value: '#1f2937' },
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Yellow', value: '#eab308' },
-  { name: 'Green', value: '#22c55e' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Pink', value: '#ec4899' },
-];
-
-const FONT_FAMILIES = [
-  { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
-  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
-  { value: 'Georgia, serif', label: 'Georgia' },
-  { value: '"Times New Roman", Times, serif', label: 'Times New Roman' },
-  { value: '"Courier New", Courier, monospace', label: 'Courier New' },
-  { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
-  { value: '"Trebuchet MS", sans-serif', label: 'Trebuchet MS' },
-  { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: '思源黑体' },
-  { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: '思源宋体' },
-  { value: '"Microsoft YaHei", sans-serif', label: '微软雅黑' },
-  { value: '"PingFang SC", sans-serif', label: '苹果苹方' },
-];
+function getFontFamilies(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
+    { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: '"Times New Roman", Times, serif', label: 'Times New Roman' },
+    { value: '"Courier New", Courier, monospace', label: 'Courier New' },
+    { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+    { value: '"Trebuchet MS", sans-serif', label: 'Trebuchet MS' },
+    { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: t('toolbar.fonts.notoSansSC') },
+    { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: t('toolbar.fonts.notoSerifSC') },
+    { value: '"Microsoft YaHei", sans-serif', label: t('toolbar.fonts.microsoftYaHei') },
+    { value: '"PingFang SC", sans-serif', label: t('toolbar.fonts.pingFangSC') },
+  ];
+}
 
 const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 96].map(
   s => ({ value: String(s), label: String(s) }),
 );
 
-export const PPT_TEXT_ITEMS: ToolbarItem[] = [
-  { key: 'fontFamily', type: 'dropdown', icon: null, label: 'Font', group: 'font', options: FONT_FAMILIES },
-  { key: 'fontSize', type: 'dropdown', icon: null, label: 'Size', group: 'font', options: FONT_SIZES },
-  { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
-  { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
-  { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
-  { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
-  { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: 'Alignment', group: 'align',
-    options: [
-      { value: 'left', label: 'Left', icon: icon(AlignLeft) },
-      { value: 'center', label: 'Center', icon: icon(AlignCenter) },
-      { value: 'right', label: 'Right', icon: icon(AlignRight) },
-    ]},
-  { key: 'textColor', type: 'color', icon: icon(Palette), label: 'Text color', group: 'color', colors: TEXT_COLORS },
-];
+export function getPptTextItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'fontFamily', type: 'dropdown', icon: null, label: 'Font', group: 'font', options: getFontFamilies(t) },
+    { key: 'fontSize', type: 'dropdown', icon: null, label: 'Size', group: 'font', options: FONT_SIZES },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: 'Alignment', group: 'align',
+      options: [
+        { value: 'left', label: 'Left', icon: icon(AlignLeft) },
+        { value: 'center', label: 'Center', icon: icon(AlignCenter) },
+        { value: 'right', label: 'Right', icon: icon(AlignRight) },
+      ]},
+    { key: 'textColor', type: 'color', icon: icon(Palette), label: 'Text color', group: 'color', colors: PALETTES.text },
+  ];
+}
+
 
 // ── PPT Image Toolbar ──
 
-export const PPT_IMAGE_ITEMS: ToolbarItem[] = [
-  { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
-  { key: 'copy', type: 'action', icon: icon(Copy), label: 'Copy', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: 'Delete', group: 'action' },
-  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action',
-    options: [
-      { value: 'front', label: '置顶' },
-      { value: 'back', label: '置底' },
-    ]},
-];
+export function getPptImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action',
+      options: [
+        { value: 'front', label: t('toolbar.common.bringToFront') },
+        { value: 'back', label: t('toolbar.common.sendToBack') },
+      ]},
+  ];
+}
+
 
 // ── PPT Shape Toolbar ──
 
-const PPT_FILL_COLORS = [
-  { name: 'White', value: '#ffffff' },
-  { name: 'Blue', value: '#dbeafe' },
-  { name: 'Green', value: '#dcfce7' },
-  { name: 'Yellow', value: '#fef9c3' },
-  { name: 'Red', value: '#fee2e2' },
-  { name: 'Purple', value: '#f3e8ff' },
-  { name: 'Orange', value: '#ffedd5' },
-  { name: 'Gray', value: '#f3f4f6' },
-  { name: 'Transparent', value: 'transparent' },
-];
 
-const PPT_BORDER_COLORS = [
-  { name: 'Dark', value: '#374151' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Green', value: '#22c55e' },
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Gray', value: '#94a3b8' },
-  { name: 'Transparent', value: 'transparent' },
-];
+function getBorderWidthOptions(t: ReturnType<typeof getT>) {
+  return [0, 1, 2, 3, 4, 6].map(
+    w => ({ value: String(w), label: w === 0 ? t('toolbar.common.none') : String(w) }),
+  );
+}
 
-const BORDER_WIDTH_OPTIONS = [0, 1, 2, 3, 4, 6].map(
-  w => ({ value: String(w), label: w === 0 ? 'None' : String(w) }),
-);
+function getBorderStyleOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'solid', label: t('toolbar.common.solidLine') },
+    { value: 'dashed', label: t('toolbar.common.dashedLine') },
+    { value: 'dotted', label: t('toolbar.common.dottedLine') },
+  ];
+}
 
-const BORDER_STYLE_OPTIONS = [
-  { value: 'solid', label: '实线' },
-  { value: 'dashed', label: '虚线' },
-  { value: 'dotted', label: '点线' },
-];
+function getCornerRadiusOptions(t: ReturnType<typeof getT>) {
+  return [0, 4, 8, 12, 16, 24].map(
+    r => ({ value: String(r), label: r === 0 ? t('toolbar.common.none') : `${r}px` }),
+  );
+}
 
-const CORNER_RADIUS_OPTIONS = [0, 4, 8, 12, 16, 24].map(
-  r => ({ value: String(r), label: r === 0 ? 'None' : `${r}px` }),
-);
+export function getPptShapeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: t('toolbar.ppt.shape'), group: 'shape' },
+    { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: t('toolbar.ppt.fillColor'), group: 'color', colors: PALETTES.fill, colorClearable: true },
+    { key: 'borderColor', type: 'color', icon: icon(Square), label: t('toolbar.ppt.borderColor'), group: 'border', colors: PALETTES.border, colorClearable: true },
+    { key: 'borderWidth', type: 'dropdown', icon: icon(Minus), label: t('toolbar.ppt.borderWidth'), group: 'border', options: getBorderWidthOptions(t) },
+    { key: 'borderStyle', type: 'dropdown', icon: null, label: t('toolbar.ppt.borderStyle'), group: 'border', options: getBorderStyleOptions(t) },
+    { key: 'textColor', type: 'color', icon: icon(Palette), label: t('toolbar.ppt.textColor'), group: 'color', colors: PALETTES.text },
+    { key: 'cornerRadius', type: 'dropdown', icon: null, label: t('toolbar.ppt.cornerRadius'), group: 'style', options: getCornerRadiusOptions(t) },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action',
+      options: [
+        { value: 'front', label: t('toolbar.common.bringToFront') },
+        { value: 'back', label: t('toolbar.common.sendToBack') },
+      ]},
+  ];
+}
 
-export const PPT_SHAPE_ITEMS: ToolbarItem[] = [
-  { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: '形状', group: 'shape' },
-  { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: '填充色', group: 'color', colors: PPT_FILL_COLORS, colorClearable: true },
-  { key: 'borderColor', type: 'color', icon: icon(Square), label: '边框色', group: 'border', colors: PPT_BORDER_COLORS, colorClearable: true },
-  { key: 'borderWidth', type: 'dropdown', icon: icon(Minus), label: '边框宽度', group: 'border', options: BORDER_WIDTH_OPTIONS },
-  { key: 'borderStyle', type: 'dropdown', icon: null, label: '边框样式', group: 'border', options: BORDER_STYLE_OPTIONS },
-  { key: 'textColor', type: 'color', icon: icon(Palette), label: '文字颜色', group: 'color', colors: TEXT_COLORS },
-  { key: 'cornerRadius', type: 'dropdown', icon: null, label: '圆角', group: 'style', options: CORNER_RADIUS_OPTIONS },
-  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
-  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action',
-    options: [
-      { value: 'front', label: '置顶' },
-      { value: 'back', label: '置底' },
-    ]},
-];
 
 // ── Diagram Toolbar ──
 
-const DIAGRAM_FILL_COLORS = [
-  { name: 'White', value: '#ffffff' },
-  { name: 'Blue', value: '#dbeafe' },
-  { name: 'Green', value: '#dcfce7' },
-  { name: 'Yellow', value: '#fef9c3' },
-  { name: 'Red', value: '#fee2e2' },
-  { name: 'Purple', value: '#f3e8ff' },
-  { name: 'Orange', value: '#ffedd5' },
-  { name: 'Indigo', value: '#e0e7ff' },
-  { name: 'Gray', value: '#f1f5f9' },
-  { name: 'Pink', value: '#fce7f3' },
-  { name: 'Transparent', value: 'transparent' },
-];
-
-const DIAGRAM_BORDER_COLORS = [
-  { name: 'Dark', value: '#374151' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Green', value: '#22c55e' },
-  { name: 'Yellow', value: '#eab308' },
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Indigo', value: '#6366f1' },
-  { name: 'Gray', value: '#94a3b8' },
-  { name: 'Transparent', value: 'transparent' },
-];
 
 const DIAGRAM_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32].map(
   s => ({ value: String(s), label: String(s) }),
 );
 
-const EDGE_COLORS = [
-  { name: 'Gray', value: '#94a3b8' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Green', value: '#22c55e' },
-  { name: 'Yellow', value: '#eab308' },
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Dark', value: '#374151' },
-];
 
 const EDGE_WIDTH_OPTIONS = [1, 1.5, 2, 3, 4, 6].map(
   w => ({ value: String(w), label: String(w) }),
 );
 
-const LINE_STYLE_OPTIONS = [
-  { value: 'solid', label: '实线' },
-  { value: 'dashed', label: '虚线' },
-  { value: 'dotted', label: '点线' },
-];
+function getLineStyleOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'solid', label: t('toolbar.common.solidLine') },
+    { value: 'dashed', label: t('toolbar.common.dashedLine') },
+    { value: 'dotted', label: t('toolbar.common.dottedLine') },
+  ];
+}
 
-const CONNECTOR_TYPE_OPTIONS = [
-  { value: 'straight', label: '直线' },
-  { value: 'manhattan', label: '正交' },
-  { value: 'rounded', label: '折线' },
-  { value: 'smooth', label: '曲线' },
-];
+function getConnectorTypeOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'straight', label: t('toolbar.diagram.connStraight') },
+    { value: 'manhattan', label: t('toolbar.diagram.connOrthogonal') },
+    { value: 'rounded', label: t('toolbar.diagram.connPolyline') },
+    { value: 'smooth', label: t('toolbar.diagram.connCurve') },
+  ];
+}
 
-const ZORDER_OPTIONS = [
-  { value: 'front', label: '置顶' },
-  { value: 'back', label: '置底' },
-];
+function getZOrderOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'front', label: t('toolbar.common.bringToFront') },
+    { value: 'back', label: t('toolbar.common.sendToBack') },
+  ];
+}
 
 /**
  * Diagram Node toolbar.
  * 'shapeSelect' item uses 'custom' type — the renderCustom is set by the diagram editor
  * at integration time since it depends on ShapePicker component.
  */
-export const DIAGRAM_NODE_ITEMS: ToolbarItem[] = [
-  { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: '形状', group: 'shape' },
-  { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: '填充色', group: 'color', colors: DIAGRAM_FILL_COLORS, colorClearable: true },
-  { key: 'borderColor', type: 'color', icon: icon(Square), label: '边框色', group: 'color', colors: DIAGRAM_BORDER_COLORS, colorClearable: true },
-  { key: 'fontSize', type: 'dropdown', icon: null, label: '字号', group: 'font', options: DIAGRAM_FONT_SIZES },
-  { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
-  { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
-  { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
-  { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
-  { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: '对齐', group: 'align',
-    options: [
-      { value: 'left', label: 'Left', icon: icon(AlignLeft) },
-      { value: 'center', label: 'Center', icon: icon(AlignCenter) },
-      { value: 'right', label: 'Right', icon: icon(AlignRight) },
-    ]},
-  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
-  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
-];
+export function getDiagramNodeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: t('toolbar.diagram.shape'), group: 'shape' },
+    { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: t('toolbar.diagram.fillColor'), group: 'color', colors: PALETTES.fill, colorClearable: true },
+    { key: 'borderColor', type: 'color', icon: icon(Square), label: t('toolbar.diagram.borderColor'), group: 'color', colors: PALETTES.border, colorClearable: true },
+    { key: 'fontSize', type: 'dropdown', icon: null, label: t('toolbar.diagram.fontSize'), group: 'font', options: DIAGRAM_FONT_SIZES },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: t('toolbar.diagram.alignment'), group: 'align',
+      options: [
+        { value: 'left', label: 'Left', icon: icon(AlignLeft) },
+        { value: 'center', label: 'Center', icon: icon(AlignCenter) },
+        { value: 'right', label: 'Right', icon: icon(AlignRight) },
+      ]},
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
 
-export const DIAGRAM_EDGE_ITEMS: ToolbarItem[] = [
-  { key: 'lineColor', type: 'color', icon: icon(Palette), label: '线条颜色', group: 'line', colors: EDGE_COLORS },
-  { key: 'lineWidth', type: 'dropdown', icon: icon(Minus), label: '线宽', group: 'line', options: EDGE_WIDTH_OPTIONS },
-  { key: 'lineStyle', type: 'dropdown', icon: null, label: '线型', group: 'line', options: LINE_STYLE_OPTIONS },
-  { key: 'connectorType', type: 'dropdown', icon: null, label: '连接类型', group: 'connector', options: CONNECTOR_TYPE_OPTIONS },
-  { key: 'arrowStyle', type: 'dropdown', icon: icon(ArrowRight), label: '箭头样式', group: 'connector',
-    options: [
-      { value: 'classic', label: '实心箭头' },
-      { value: 'open', label: '空心箭头' },
-      { value: 'none', label: '无箭头' },
-    ]},
-  { key: 'label', type: 'action', icon: icon(Type), label: '标签文本', group: 'label' },
-  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
-  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
-];
 
-export const DIAGRAM_IMAGE_ITEMS: ToolbarItem[] = [
-  { key: 'replace', type: 'action', icon: icon(ImageIcon), label: '替换', group: 'action' },
-  { key: 'copy', type: 'action', icon: icon(Copy), label: '复制', group: 'action' },
-  { key: 'delete', type: 'action', icon: icon(Trash2), label: '删除', group: 'action' },
-  { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: '层级', group: 'action', options: ZORDER_OPTIONS },
-];
+export function getDiagramEdgeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'lineColor', type: 'color', icon: icon(Palette), label: t('toolbar.diagram.lineColor'), group: 'line', colors: PALETTES.border },
+    { key: 'lineWidth', type: 'dropdown', icon: icon(Minus), label: t('toolbar.diagram.lineWidth'), group: 'line', options: EDGE_WIDTH_OPTIONS },
+    { key: 'lineStyle', type: 'dropdown', icon: null, label: t('toolbar.diagram.lineStyle'), group: 'line', options: getLineStyleOptions(t) },
+    { key: 'connectorType', type: 'dropdown', icon: null, label: t('toolbar.diagram.connectorType'), group: 'connector', options: getConnectorTypeOptions(t) },
+    { key: 'arrowStyle', type: 'dropdown', icon: icon(ArrowRight), label: t('toolbar.diagram.arrowStyle'), group: 'connector',
+      options: [
+        { value: 'classic', label: t('toolbar.diagram.arrowClassic') },
+        { value: 'open', label: t('toolbar.diagram.arrowOpen') },
+        { value: 'none', label: t('toolbar.diagram.arrowNone') },
+      ]},
+    { key: 'label', type: 'action', icon: icon(Type), label: t('toolbar.diagram.labelText'), group: 'label' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
+
+
+export function getDiagramImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: t('toolbar.common.replace'), group: 'action' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
+

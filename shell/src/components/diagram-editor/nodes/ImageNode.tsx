@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import type { Node } from '@antv/x6';
+import { useT } from '@/lib/i18n';
 
 interface ImageNodeData {
   imageUrl: string; // base64 or URL
@@ -9,6 +10,7 @@ interface ImageNodeData {
 }
 
 export function ImageNode({ node }: { node: Node }) {
+  const { t } = useT();
   const raw = node.getData() || {};
   const [imageUrl, setImageUrl] = useState<string>(raw.imageUrl || '');
   const [label, setLabel] = useState<string>(raw.label || '');
@@ -73,7 +75,7 @@ export function ImageNode({ node }: { node: Node }) {
           style={{ display: 'none' }}
           onChange={handleFileChange}
         />
-        <span>双击添加图片</span>
+        <span>{t('diagram.tools.dblclickImage')}</span>
       </div>
     );
   }

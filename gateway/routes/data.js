@@ -8,26 +8,27 @@ import {
   BR_URL,
   getBrJwt, br,
   UIDT_TO_BR, BR_TO_UIDT,
-  parseNcWhere, NC_OP_TO_BR, buildBaserowFilterParams, buildBaserowOrderBy,
+  parseWhere, OP_TO_BR, getBaserowFilterType, reverseBaserowFilterType, buildBaserowFilterParams, buildBaserowOrderBy,
   BR_VIEW_TYPE_MAP, BR_VIEW_TYPE_NUM,
   getTableFields, invalidateFieldCache,
   normalizeRowForGateway, normalizeRowForBaserow,
   buildFieldCreateBody,
 } from '../baserow.js';
 
-export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID, authenticateAgent, genId, contentItemsUpsert, pushEvent, deliverWebhook }) {
+// Get display name for the authenticated actor (human or agent)
+function actorName(req) {
+  return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
+}
 
-  // Legacy aliases
-  const nc = br;
-  const getNcJwt = getBrJwt;
+export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, authenticateAgent, genId, contentItemsUpsert, pushEvent, deliverWebhook }) {
 
   // Baserow doesn't need per-agent users
-  async function createNcUser(agentName, displayName) {
+  async function createBrUser(agentName, displayName) {
     console.log(`[gateway] Agent ${agentName} registered (Baserow mode — no per-agent DB user needed)`);
     return null;
   }
 
-  async function getNcAgentJwt(agentName, password) {
+  async function getBrAgentJwt(agentName, password) {
     return getBrJwt();
   }
 
@@ -57,38 +58,40 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     }
     const dataJson = JSON.stringify(allRows);
 
-    const lastVersion = db.prepare('SELECT MAX(version) as maxV FROM table_snapshots WHERE table_id = ?').get(tableId);
+    const lastVersion = db.prepare("SELECT MAX(version) as maxV FROM content_snapshots WHERE content_type = 'table' AND content_id = ?").get(tableId);
     const version = (lastVersion?.maxV || 0) + 1;
 
-    const result = db.prepare(
-      'INSERT INTO table_snapshots (table_id, version, schema_json, data_json, trigger_type, agent, row_count) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(tableId, version, schemaJson, dataJson, triggerType, agent || null, allRows.length);
+    const snapId = genId('snap');
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?)"
+    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, allRows.length, agent || null, now);
 
     // Retention cleanup
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-    const countAll = db.prepare('SELECT COUNT(*) as cnt FROM table_snapshots WHERE table_id = ?').get(tableId);
+    const countAll = db.prepare("SELECT COUNT(*) as cnt FROM content_snapshots WHERE content_type = 'table' AND content_id = ?").get(tableId);
     if (countAll.cnt > 20) {
-      const fiftieth = db.prepare('SELECT id FROM table_snapshots WHERE table_id = ? ORDER BY version DESC LIMIT 1 OFFSET 19').get(tableId);
+      const fiftieth = db.prepare("SELECT id, created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC LIMIT 1 OFFSET 19").get(tableId);
       if (fiftieth) {
-        db.prepare('DELETE FROM table_snapshots WHERE table_id = ? AND id < ? AND created_at < ?')
-          .run(tableId, fiftieth.id, thirtyDaysAgo);
+        db.prepare("DELETE FROM content_snapshots WHERE content_type = 'table' AND content_id = ? AND created_at < ? AND created_at < ?")
+          .run(tableId, fiftieth.created_at, thirtyDaysAgo);
       }
     }
 
     return {
-      id: result.lastInsertRowid,
+      id: snapId,
       version,
       table_id: tableId,
       trigger_type: triggerType,
       agent: agent || null,
       row_count: allRows.length,
-      created_at: new Date().toISOString(),
+      created_at: now,
     };
   }
 
   async function maybeAutoSnapshot(tableId, agent) {
     try {
-      const last = db.prepare('SELECT created_at FROM table_snapshots WHERE table_id = ? ORDER BY version DESC LIMIT 1').get(tableId);
+      const last = db.prepare("SELECT created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC LIMIT 1").get(tableId);
       if (last) {
         const lastTime = new Date(last.created_at).getTime();
         if (Date.now() - lastTime < 30 * 60 * 1000) return;
@@ -102,8 +105,8 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   // ─── Tables ──────────────────────────────────────
   // List tables in the ASuite base
   app.get('/api/data/tables', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('GET', `/api/database/tables/database/${NC_BASE_ID}/`);
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const result = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     const tables = Array.isArray(result.data) ? result.data : [];
     const list = tables.map(t => ({
@@ -117,12 +120,12 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Create a table
   app.post('/api/data/tables', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title, columns = [] } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
 
     const createBody = { name: title };
-    const result = await br('POST', `/api/database/tables/database/${NC_BASE_ID}/`, createBody);
+    const result = await br('POST', `/api/database/tables/database/${BR_DATABASE_ID}/`, createBody);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
 
     const tableId = String(result.data.id);
@@ -169,14 +172,14 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     }));
 
     const nodeId = `table:${tableId}`;
-    contentItemsUpsert.run(nodeId, tableId, 'table', title, null, null, null, req.agent?.name || null, null, new Date().toISOString(), null, null, Date.now());
+    contentItemsUpsert.run(nodeId, tableId, 'table', title, null, null, null, actorName(req), null, new Date().toISOString(), null, null, Date.now());
 
     res.status(201).json({ table_id: tableId, title, columns: responseCols });
   });
 
   // Describe a table
   app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
 
     const fieldsResult = await br('GET', `/api/database/fields/table/${tableId}/`);
@@ -184,7 +187,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
     const viewsResult = await br('GET', `/api/database/views/table/${tableId}/`);
 
-    const tablesResult = await br('GET', `/api/database/tables/database/${NC_BASE_ID}/`);
+    const tablesResult = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
     let tableName = 'Untitled';
     let tableCreatedAt = null;
     if (tablesResult.status < 400 && Array.isArray(tablesResult.data)) {
@@ -216,7 +219,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
         if (f.target_field_id) col.fk_lookup_column_id = String(f.target_field_id);
       }
       if (f.type === 'number' && f.number_decimal_places) {
-        col.meta = { decimals: f.number_decimal_places };
+        col.meta = { precision: f.number_decimal_places };
       }
       return col;
     });
@@ -228,6 +231,8 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       type: BR_VIEW_TYPE_NUM[v.type] || 3,
       is_default: i === 0,
       order: v.order,
+      ...(v.single_select_field ? { fk_grp_col_id: String(v.single_select_field) } : {}),
+      ...(v.card_cover_image_field ? { fk_cover_image_col_id: String(v.card_cover_image_field) } : {}),
     }));
 
     res.json({ table_id: tableId, title: tableName, columns, views, created_at: tableCreatedAt, updated_at: null });
@@ -235,7 +240,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Add a column
   app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title, uidt: rawUidt = 'SingleLineText', options, meta } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
     const tableId = req.params.table_id;
@@ -264,7 +269,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
         if (rowsResult.status < 400 && rowsResult.data?.results?.length > 0) {
           for (const row of rowsResult.data.results) {
             await br('PATCH', `/api/database/rows/table/${tableId}/${row.id}/?user_field_names=true`,
-              { [title]: req.agent.display_name || req.agent.name || 'system' }, { useToken: true });
+              { [title]: actorName(req) || 'system' }, { useToken: true });
           }
         }
       } catch (backfillErr) {
@@ -277,7 +282,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Update a column
   app.patch('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const columnId = req.params.column_id;
     const tableId = req.params.table_id;
 
@@ -319,7 +324,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Delete a column
   app.delete('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('DELETE', `/api/database/fields/${req.params.column_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     invalidateFieldCache(req.params.table_id);
@@ -328,7 +333,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Rename a table
   app.patch('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
     const result = await br('PATCH', `/api/database/tables/${req.params.table_id}/`, { name: title });
@@ -340,7 +345,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Delete a table
   app.delete('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('DELETE', `/api/database/tables/${req.params.table_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     invalidateFieldCache(req.params.table_id);
@@ -350,7 +355,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // ── Views ──
   app.get('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('GET', `/api/database/views/table/${req.params.table_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     const brViews = Array.isArray(result.data) ? result.data : [];
@@ -361,12 +366,14 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       is_default: i === 0,
       order: v.order,
       lock_type: null,
+      ...(v.single_select_field ? { fk_grp_col_id: String(v.single_select_field) } : {}),
+      ...(v.card_cover_image_field ? { fk_cover_image_col_id: String(v.card_cover_image_field) } : {}),
     }));
     res.json({ list: views });
   });
 
   app.post('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title, type } = req.body;
     if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
     const brType = BR_VIEW_TYPE_MAP[type] || 'grid';
@@ -386,7 +393,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.patch('/api/data/views/:view_id/kanban', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const body = {};
     if (req.body.fk_grp_col_id) body.single_select_field = parseInt(req.body.fk_grp_col_id, 10);
     const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, body);
@@ -395,7 +402,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.patch('/api/data/views/:view_id/gallery', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const body = {};
     if (req.body.fk_cover_image_col_id !== undefined) body.card_cover_image_field = parseInt(req.body.fk_cover_image_col_id, 10);
     const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, body);
@@ -404,7 +411,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.patch('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
     const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, { name: title });
@@ -413,7 +420,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.delete('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('DELETE', `/api/database/views/${req.params.view_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json({ deleted: true });
@@ -421,14 +428,14 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // ── Filters ──
   app.get('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('GET', `/api/database/views/${req.params.view_id}/filters/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     const brFilters = Array.isArray(result.data) ? result.data : [];
     const filters = brFilters.map(f => ({
       filter_id: String(f.id),
       fk_column_id: String(f.field),
-      comparison_op: f.type,
+      comparison_op: reverseBaserowFilterType(f.type),
       comparison_sub_op: null,
       value: f.value,
       logical_op: 'and',
@@ -438,21 +445,45 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.post('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { fk_column_id, comparison_op, value } = req.body;
     if (!fk_column_id || !comparison_op) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id and comparison_op required' });
-    const brType = NC_OP_TO_BR[comparison_op] || comparison_op;
-    const body = { field: parseInt(fk_column_id, 10), type: brType, value: value || '' };
+
+    // Look up field type for type-aware filter mapping
+    const fieldId = parseInt(fk_column_id, 10);
+    const fieldMeta = await br('GET', `/api/database/fields/${fieldId}/`);
+    const fieldType = fieldMeta.status < 400 ? fieldMeta.data?.type : null;
+    const brType = fieldType ? getBaserowFilterType(fieldType, comparison_op) : (OP_TO_BR[comparison_op] || comparison_op);
+
+    // For select fields, map option value to option ID
+    let filterValue = value || '';
+    if (fieldMeta.status < 400 && (fieldType === 'single_select' || fieldType === 'multiple_select') && fieldMeta.data?.select_options && filterValue) {
+      const opt = fieldMeta.data.select_options.find(o => o.value === filterValue);
+      if (opt) filterValue = String(opt.id);
+    }
+
+    const body = { field: fieldId, type: brType, value: filterValue };
     const result = await br('POST', `/api/database/views/${req.params.view_id}/filters/`, body);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.status(201).json({ filter_id: String(result.data.id), fk_column_id: String(result.data.field), comparison_op: comparison_op, value: result.data.value });
   });
 
   app.patch('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const body = {};
     if (req.body.fk_column_id) body.field = parseInt(req.body.fk_column_id, 10);
-    if (req.body.comparison_op) body.type = NC_OP_TO_BR[req.body.comparison_op] || req.body.comparison_op;
+    if (req.body.comparison_op) {
+      // Look up existing filter to get field type for type-aware mapping
+      const existing = await br('GET', `/api/database/views/filter/${req.params.filter_id}/`);
+      const fieldId = body.field || (existing.status < 400 ? existing.data?.field : null);
+      if (fieldId) {
+        const fieldMeta = await br('GET', `/api/database/fields/${fieldId}/`);
+        const fieldType = fieldMeta.status < 400 ? fieldMeta.data?.type : null;
+        body.type = fieldType ? getBaserowFilterType(fieldType, req.body.comparison_op) : (OP_TO_BR[req.body.comparison_op] || req.body.comparison_op);
+      } else {
+        body.type = OP_TO_BR[req.body.comparison_op] || req.body.comparison_op;
+      }
+    }
     if (req.body.value !== undefined) body.value = req.body.value;
     const result = await br('PATCH', `/api/database/views/filter/${req.params.filter_id}/`, body);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
@@ -460,7 +491,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.delete('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('DELETE', `/api/database/views/filter/${req.params.filter_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json({ deleted: true });
@@ -468,7 +499,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // ── Sorts ──
   app.get('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('GET', `/api/database/views/${req.params.view_id}/sortings/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     const brSorts = Array.isArray(result.data) ? result.data : [];
@@ -482,7 +513,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.post('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { fk_column_id, direction } = req.body;
     if (!fk_column_id) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id required' });
     const body = { field: parseInt(fk_column_id, 10), order: (direction || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC' };
@@ -492,18 +523,18 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.delete('/api/data/sorts/:sort_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('DELETE', `/api/database/views/sorting/${req.params.sort_id}/`);
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const result = await br('DELETE', `/api/database/views/sort/${req.params.sort_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json({ deleted: true });
   });
 
   app.patch('/api/data/sorts/:sort_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const body = {};
     if (req.body.fk_column_id) body.field = parseInt(req.body.fk_column_id, 10);
     if (req.body.direction) body.order = req.body.direction.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-    const result = await br('PATCH', `/api/database/views/sorting/${req.params.sort_id}/`, body);
+    const result = await br('PATCH', `/api/database/views/sort/${req.params.sort_id}/`, body);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json(result.data);
   });
@@ -511,7 +542,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   // ── Rows ──
   // Query rows through a specific view
   app.get('/api/data/:table_id/views/:view_id/rows', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const viewId = req.params.view_id;
     const { where, limit = '25', offset = '0', sort } = req.query;
@@ -524,12 +555,13 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     params.set('page', String(page));
 
     if (where) {
-      const filters = parseNcWhere(where);
+      const filters = parseWhere(where);
       const filterParams = buildBaserowFilterParams(filters, fieldMap);
       for (const [key, val] of filterParams.entries()) params.append(key, val);
     }
     if (sort) {
-      params.set('order_by', buildBaserowOrderBy(sort, fieldMap));
+      const orderBy = buildBaserowOrderBy(sort, fieldMap);
+      if (orderBy) params.set('order_by', orderBy);
     }
 
     const result = await br('GET', `/api/database/rows/table/${tableId}/?${params}`, null, { useToken: true });
@@ -541,7 +573,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // List rows from a table
   app.get('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const { where, limit = '25', offset = '0', sort } = req.query;
     const fields = await getTableFields(tableId);
@@ -553,12 +585,13 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     params.set('page', String(page));
 
     if (where) {
-      const filters = parseNcWhere(where);
+      const filters = parseWhere(where);
       const filterParams = buildBaserowFilterParams(filters, fieldMap);
       for (const [key, val] of filterParams.entries()) params.append(key, val);
     }
     if (sort) {
-      params.set('order_by', buildBaserowOrderBy(sort, fieldMap));
+      const orderBy = buildBaserowOrderBy(sort, fieldMap);
+      if (orderBy) params.set('order_by', orderBy);
     }
 
     const result = await br('GET', `/api/database/rows/table/${tableId}/?${params}`, null, { useToken: true });
@@ -570,7 +603,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Insert row(s)
   app.post('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     let rowData = req.body;
 
@@ -580,7 +613,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       if (field.type === 'text' && !rowData[field.name]) {
         const lcName = field.name.toLowerCase();
         if (lcName === 'created_by' || lcName === 'createdby') {
-          rowData = { ...rowData, [field.name]: req.agent.display_name || req.agent.name };
+          rowData = { ...rowData, [field.name]: actorName(req) };
         }
       }
     }
@@ -591,12 +624,12 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
     const normalized = normalizeRowForGateway(result.data, fields);
     res.status(201).json(normalized);
-    maybeAutoSnapshot(tableId, req.agent.display_name || req.agent.name).catch(() => {});
+    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
   });
 
   // Update row
   app.patch('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
     let updateData = req.body;
@@ -607,7 +640,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       if (field.type === 'text') {
         const lcName = field.name.toLowerCase();
         if (lcName === 'lastmodifiedby' || lcName === 'last_modified_by') {
-          updateData = { ...updateData, [field.name]: req.agent.display_name || req.agent.name };
+          updateData = { ...updateData, [field.name]: actorName(req) };
         }
       }
     }
@@ -621,10 +654,10 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
     // Async: check for User field assignments → notify assigned agents
     try {
-      const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+      const allAgents = db.prepare("SELECT * FROM actors WHERE type = 'agent'").all();
       const agentMap = new Map();
       for (const a of allAgents) {
-        agentMap.set(a.name, a);
+        agentMap.set(a.username, a);
         if (a.display_name) agentMap.set(a.display_name, a);
       }
       const body = req.body || {};
@@ -633,8 +666,8 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
         const valStr = typeof val === 'string' ? val : (typeof val === 'object' && val.email ? val.email : null);
         if (!valStr) continue;
         const target = agentMap.get(valStr);
-        if (!target || target.id === req.agent.id) continue;
-        console.log(`[gateway] User assigned: ${target.name} via field "${field}" by ${req.agent.name}`);
+        if (!target || target.id === (req.actor?.id || req.agent?.id)) continue;
+        console.log(`[gateway] User assigned: ${target.username} via field "${field}" by ${actorName(req)}`);
         const now = Date.now();
         const evt = {
           event: 'data.user_assigned',
@@ -646,7 +679,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
             row_id: rowId,
             field,
             assigned_to: val,
-            assigned_by: { name: req.agent.display_name || req.agent.name, type: req.agent.type || 'agent' },
+            assigned_by: { name: actorName(req), type: req.actor?.type || 'agent' },
           },
         };
         db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -655,25 +688,99 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
       }
     } catch (e) { console.error(`[gateway] User assignment notification error: ${e.message}`); }
-    maybeAutoSnapshot(tableId, req.agent.display_name || req.agent.name).catch(() => {});
+    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
   });
 
   // Delete row
   app.delete('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const result = await br('DELETE', `/api/database/rows/table/${req.params.table_id}/${req.params.row_id}/`, null, { useToken: true });
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json({ deleted: true });
-    maybeAutoSnapshot(req.params.table_id, req.agent.display_name || req.agent.name).catch(() => {});
+    maybeAutoSnapshot(req.params.table_id, actorName(req)).catch(() => {});
+  });
+
+  // ─── Batch row operations ────────────────────────────────────────────
+
+  // Batch insert rows
+  app.post('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const tableId = req.params.table_id;
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
+
+    const fields = await getTableFields(tableId);
+    const normalizedRows = rows.map(row => {
+      let r = { ...row };
+      for (const field of fields) {
+        if (field.type === 'text' && !r[field.name]) {
+          const lcName = field.name.toLowerCase();
+          if (lcName === 'created_by' || lcName === 'createdby') {
+            r[field.name] = actorName(req);
+          }
+        }
+      }
+      return normalizeRowForBaserow(r, fields);
+    });
+
+    const result = await br('POST', `/api/database/rows/table/${tableId}/batch/?user_field_names=true`, { items: normalizedRows }, { useToken: true });
+    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+
+    const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
+    res.status(201).json({ items });
+    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+  });
+
+  // Batch update rows
+  app.patch('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const tableId = req.params.table_id;
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
+
+    const fields = await getTableFields(tableId);
+    const normalizedRows = rows.map(row => {
+      let r = { ...row };
+      for (const field of fields) {
+        if (field.type === 'text') {
+          const lcName = field.name.toLowerCase();
+          if (lcName === 'lastmodifiedby' || lcName === 'last_modified_by') {
+            r[field.name] = actorName(req);
+          }
+        }
+      }
+      return { id: row.id, ...normalizeRowForBaserow(r, fields) };
+    });
+
+    const result = await br('PATCH', `/api/database/rows/table/${tableId}/batch/?user_field_names=true`, { items: normalizedRows }, { useToken: true });
+    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+
+    const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
+    res.json({ items });
+    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+  });
+
+  // Batch delete rows
+  app.post('/api/data/:table_id/rows/batch-delete', authenticateAgent, async (req, res) => {
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const tableId = req.params.table_id;
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
+
+    const result = await br('POST', `/api/database/rows/table/${tableId}/batch-delete/`, { items: ids }, { useToken: true });
+    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+
+    res.json({ deleted: ids.length });
+    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
   });
 
   // Duplicate a table
   app.post('/api/data/:table_id/duplicate', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     try {
       const srcTableId = req.params.table_id;
 
-      const tablesResult = await br('GET', `/api/database/tables/database/${NC_BASE_ID}/`);
+      const tablesResult = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
       let srcTitle = 'Untitled';
       if (tablesResult.status < 400 && Array.isArray(tablesResult.data)) {
         const t = tablesResult.data.find(t => String(t.id) === String(srcTableId));
@@ -683,7 +790,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       const srcFields = await getTableFields(srcTableId);
       const SKIP_TYPES = new Set(['autonumber', 'created_on', 'last_modified', 'link_row', 'lookup', 'rollup', 'formula', 'count']);
 
-      const createResult = await br('POST', `/api/database/tables/database/${NC_BASE_ID}/`, { name: `${srcTitle} (copy)` });
+      const createResult = await br('POST', `/api/database/tables/database/${BR_DATABASE_ID}/`, { name: `${srcTitle} (copy)` });
       if (createResult.status >= 400) return res.status(createResult.status).json({ error: 'CREATE_FAILED', detail: createResult.data });
       const newTableId = String(createResult.data.id);
 
@@ -728,7 +835,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       const srcItem = db.prepare('SELECT * FROM content_items WHERE raw_id = ? AND type = ?').get(srcTableId, 'table');
       const displayTitle = srcItem ? `${srcItem.title} (copy)` : `${srcTitle} (copy)`;
       const nodeId = `table:${newTableId}`;
-      contentItemsUpsert.run(nodeId, newTableId, 'table', displayTitle, null, srcItem?.parent_id || null, null, req.agent?.name || null, null, new Date().toISOString(), null, null, Date.now());
+      contentItemsUpsert.run(nodeId, newTableId, 'table', displayTitle, null, srcItem?.parent_id || null, null, actorName(req), null, new Date().toISOString(), null, null, Date.now());
       res.json({ success: true, new_table_id: newTableId, copied_rows: copiedRows });
     } catch (e) {
       console.error(`[gateway] Duplicate table failed: ${e.message}`);
@@ -738,22 +845,23 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Post a comment on a row
   app.post('/api/data/:table_id/rows/:row_id/comments', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
-    const agent = req.agent;
+    const displayName = actorName(req);
+    const actId = req.actor?.id || req.agent?.id;
     const commentId = genId('cmt');
-    const now = Date.now();
+    const now = new Date().toISOString();
     db.prepare(
-      'INSERT INTO table_comments (id, table_id, row_id, text, actor, actor_id, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(commentId, req.params.table_id, req.params.row_id, text, agent.display_name || agent.name, agent.id, null, now, now);
+      "INSERT INTO comments (id, target_type, target_id, row_id, text, actor, actor_id, parent_id, created_at, updated_at) VALUES (?, 'table', ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(commentId, req.params.table_id, req.params.row_id, text, displayName, actId, null, now, now);
 
     res.status(201).json({
       comment_id: commentId,
       table_id: req.params.table_id,
       row_id: req.params.row_id,
-      created_at: now,
+      created_at: new Date(now).getTime(),
     });
   });
 
@@ -798,7 +906,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   // Linked records
   app.get('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
     const columnId = req.params.column_id;
@@ -816,7 +924,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.post('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
     const columnId = req.params.column_id;
@@ -845,7 +953,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.delete('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
     const columnId = req.params.column_id;
@@ -877,7 +985,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   const fileUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   app.post('/api/data/upload', authenticateAgent, fileUpload.array('files', 10), async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'NO_FILES' });
 
     try {
@@ -899,6 +1007,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
         }
         const data = await uploadRes.json();
         results.push({
+          name: data.name,  // Baserow server filename — required for setting file fields
           path: data.url,
           title: data.original_name || file.originalname,
           mimetype: data.mime_type || file.mimetype,
@@ -914,13 +1023,26 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     }
   });
 
-  // File download proxy
+  // File download proxy (restricted to Baserow origin to prevent SSRF)
   app.get('/api/data/dl', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ error: 'MISSING_PATH' });
     try {
-      const targetUrl = filePath.startsWith('http') ? filePath : `${BR_URL}${filePath.startsWith('/') ? filePath : '/' + filePath}`;
+      let targetUrl;
+      if (filePath.startsWith('http')) {
+        // Only allow URLs pointing to the configured Baserow instance (hostname match)
+        try {
+          const parsed = new URL(filePath);
+          const allowed = new URL(BR_URL);
+          if (parsed.hostname !== allowed.hostname || parsed.port !== allowed.port) {
+            return res.status(403).json({ error: 'FORBIDDEN_URL' });
+          }
+        } catch { return res.status(403).json({ error: 'INVALID_URL' }); }
+        targetUrl = filePath;
+      } else {
+        targetUrl = `${BR_URL}${filePath.startsWith('/') ? filePath : '/' + filePath}`;
+      }
       const brRes = await fetch(targetUrl);
       if (!brRes.ok) return res.status(brRes.status).send('Not found');
       res.set('Content-Type', brRes.headers.get('content-type') || 'application/octet-stream');
@@ -934,12 +1056,24 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     }
   });
 
-  // Legacy path-based download route
+  // Legacy path-based download route (restricted to Baserow origin)
   app.get('/api/data/download/*', authenticateAgent, async (req, res) => {
-    if (!NC_EMAIL || !NC_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     try {
       const brPath = '/' + req.params[0];
-      const targetUrl = brPath.startsWith('http') ? brPath : `${BR_URL}${brPath}`;
+      let targetUrl;
+      if (brPath.startsWith('http')) {
+        try {
+          const parsed = new URL(brPath);
+          const allowed = new URL(BR_URL);
+          if (parsed.hostname !== allowed.hostname || parsed.port !== allowed.port) {
+            return res.status(403).json({ error: 'FORBIDDEN_URL' });
+          }
+        } catch { return res.status(403).json({ error: 'INVALID_URL' }); }
+        targetUrl = brPath;
+      } else {
+        targetUrl = `${BR_URL}${brPath}`;
+      }
       const brRes = await fetch(targetUrl);
       if (!brRes.ok) return res.status(brRes.status).send('Not found');
       res.set('Content-Type', brRes.headers.get('content-type') || 'application/octet-stream');
@@ -957,7 +1091,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
 
   app.get('/api/data/tables/:table_id/commented-rows', authenticateAgent, (req, res) => {
     const { table_id } = req.params;
-    const rows = db.prepare('SELECT DISTINCT row_id, COUNT(*) as count FROM table_comments WHERE table_id = ? AND row_id IS NOT NULL GROUP BY row_id').all(table_id);
+    const rows = db.prepare("SELECT DISTINCT row_id, COUNT(*) as count FROM comments WHERE target_type = 'table' AND target_id = ? AND row_id IS NOT NULL GROUP BY row_id").all(table_id);
     res.json({ rows: rows.map(r => ({ row_id: r.row_id, count: r.count })) });
   });
 
@@ -966,11 +1100,11 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     const { row_id, include_all } = req.query;
     let rows;
     if (row_id) {
-      rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? AND row_id = ? ORDER BY created_at ASC').all(table_id, row_id);
+      rows = db.prepare("SELECT * FROM comments WHERE target_type = 'table' AND target_id = ? AND row_id = ? ORDER BY created_at ASC").all(table_id, row_id);
     } else if (include_all === '1' || include_all === 'true') {
-      rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? ORDER BY created_at ASC').all(table_id);
+      rows = db.prepare("SELECT * FROM comments WHERE target_type = 'table' AND target_id = ? ORDER BY created_at ASC").all(table_id);
     } else {
-      rows = db.prepare('SELECT * FROM table_comments WHERE table_id = ? AND row_id IS NULL ORDER BY created_at ASC').all(table_id);
+      rows = db.prepare("SELECT * FROM comments WHERE target_type = 'table' AND target_id = ? AND row_id IS NULL ORDER BY created_at ASC").all(table_id);
     }
     const comments = rows.map(r => ({
       id: r.id,
@@ -980,9 +1114,9 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       parent_id: r.parent_id || null,
       row_id: r.row_id || null,
       resolved_by: r.resolved_by ? { id: r.resolved_by, name: r.resolved_by } : null,
-      resolved_at: r.resolved_at ? new Date(r.resolved_at).toISOString() : null,
-      created_at: new Date(r.created_at).toISOString(),
-      updated_at: new Date(r.updated_at).toISOString(),
+      resolved_at: r.resolved_at || null,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
     }));
     res.json({ comments });
   });
@@ -992,45 +1126,47 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     const { text, parent_id, row_id } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
-    const agent = req.agent;
+    const displayName = actorName(req);
+    const actId = req.actor?.id || req.agent?.id;
     const id = crypto.randomUUID();
-    const now = Date.now();
+    const now = new Date().toISOString();
 
-    db.prepare(`INSERT INTO table_comments (id, table_id, row_id, parent_id, text, actor, actor_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT INTO comments (id, target_type, target_id, row_id, parent_id, text, actor, actor_id, created_at, updated_at)
+      VALUES (?, 'table', ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       id, table_id, row_id || null, parent_id || null, text,
-      agent.display_name || agent.name, agent.id, now, now
+      displayName, actId, now, now
     );
 
     // Notify agents mentioned via @agentname
     try {
-      const allAgents = db.prepare('SELECT * FROM agent_accounts').all();
+      const allAgents = db.prepare("SELECT * FROM actors WHERE type = 'agent'").all();
+      const nowMs = Date.now();
       for (const target of allAgents) {
-        if (target.id === agent.id) continue;
-        const mentionRegex = new RegExp(`@${target.name}(?![\\w-])`, 'i');
+        if (target.id === actId) continue;
+        const mentionRegex = new RegExp(`@${target.username}(?![\\w-])`, 'i');
         if (!mentionRegex.test(text)) continue;
 
-        const cleanText = text.replace(new RegExp(`@${target.name}(?![\\w-])\\s*`, 'gi'), '').trim();
+        const cleanText = text.replace(new RegExp(`@${target.username}(?![\\w-])\\s*`, 'gi'), '').trim();
         const evt = {
           event: 'data.commented',
-          source: 'table_comments',
+          source: 'comments',
           event_id: genId('evt'),
-          timestamp: now,
+          timestamp: nowMs,
           data: {
             comment_id: id,
             table_id,
             row_id: row_id || null,
             text: cleanText,
             raw_text: text,
-            sender: { name: agent.display_name || agent.name, type: agent.type || 'agent' },
+            sender: { name: displayName, type: req.actor?.type || 'agent' },
           },
         };
         db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)`)
-          .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), Date.now());
+          .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), nowMs);
         pushEvent(target.id, evt);
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
-        console.log(`[gateway] Event ${evt.event} → ${target.name} (table: ${table_id}, row: ${row_id || 'none'})`);
+        console.log(`[gateway] Event ${evt.event} → ${target.username} (table: ${table_id}, row: ${row_id || 'none'})`);
       }
     } catch (e) {
       console.error(`[gateway] Table comment notification error: ${e.message}`);
@@ -1039,13 +1175,13 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     res.status(201).json({
       id,
       text,
-      actor: agent.display_name || agent.name,
-      actor_id: agent.id,
+      actor: displayName,
+      actor_id: actId,
       parent_id: parent_id || null,
       resolved_by: null,
       resolved_at: null,
-      created_at: new Date(now).toISOString(),
-      updated_at: new Date(now).toISOString(),
+      created_at: now,
+      updated_at: now,
     });
   });
 
@@ -1054,31 +1190,30 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
-    const now = Date.now();
-    const result = db.prepare('UPDATE table_comments SET text = ?, updated_at = ? WHERE id = ?').run(text, now, comment_id);
+    const now = new Date().toISOString();
+    const result = db.prepare("UPDATE comments SET text = ?, updated_at = ? WHERE id = ? AND target_type = 'table'").run(text, now, comment_id);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ updated: true });
   });
 
   app.delete('/api/data/table-comments/:comment_id', authenticateAgent, (req, res) => {
     const { comment_id } = req.params;
-    const result = db.prepare('DELETE FROM table_comments WHERE id = ?').run(comment_id);
+    const result = db.prepare("DELETE FROM comments WHERE id = ? AND target_type = 'table'").run(comment_id);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ deleted: true });
   });
 
   app.post('/api/data/table-comments/:comment_id/resolve', authenticateAgent, (req, res) => {
-    const agent = req.agent;
-    const now = Date.now();
-    const result = db.prepare('UPDATE table_comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?')
-      .run(agent.display_name || agent.name, now, now, req.params.comment_id);
+    const now = new Date().toISOString();
+    const result = db.prepare("UPDATE comments SET resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ? AND target_type = 'table'")
+      .run(actorName(req), now, now, req.params.comment_id);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ resolved: true });
   });
 
   app.post('/api/data/table-comments/:comment_id/unresolve', authenticateAgent, (req, res) => {
-    const now = Date.now();
-    const result = db.prepare('UPDATE table_comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ?')
+    const now = new Date().toISOString();
+    const result = db.prepare("UPDATE comments SET resolved_by = NULL, resolved_at = NULL, updated_at = ? WHERE id = ? AND target_type = 'table'")
       .run(now, req.params.comment_id);
     if (result.changes === 0) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json({ unresolved: true });
@@ -1087,15 +1222,15 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   // ─── Table Snapshots ─────────────────────────────
 
   app.get('/api/data/:table_id/snapshots', authenticateAgent, (req, res) => {
-    const snapshots = db.prepare(
-      'SELECT id, version, trigger_type, agent, row_count, created_at FROM table_snapshots WHERE table_id = ? ORDER BY version DESC'
+    const rows = db.prepare(
+      "SELECT id, version, trigger_type, actor_id as agent, row_count, created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC"
     ).all(req.params.table_id);
-    res.json({ snapshots });
+    res.json({ snapshots: rows });
   });
 
   app.get('/api/data/:table_id/snapshots/:snapshot_id', authenticateAgent, (req, res) => {
     const snap = db.prepare(
-      'SELECT * FROM table_snapshots WHERE id = ? AND table_id = ?'
+      "SELECT id, content_id as table_id, version, trigger_type, actor_id as agent, row_count, schema_json, data_json, created_at FROM content_snapshots WHERE id = ? AND content_type = 'table' AND content_id = ?"
     ).get(req.params.snapshot_id, req.params.table_id);
     if (!snap) return res.status(404).json({ error: 'NOT_FOUND' });
     res.json(snap);
@@ -1104,7 +1239,7 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   app.post('/api/data/:table_id/snapshots', authenticateAgent, async (req, res) => {
     try {
       const { agent: agentName } = req.body || {};
-      const snap = await createTableSnapshot(req.params.table_id, 'manual', agentName || req.agent.display_name || req.agent.name);
+      const snap = await createTableSnapshot(req.params.table_id, 'manual', agentName || actorName(req));
       res.status(201).json(snap);
     } catch (e) {
       console.error(`[gateway] Manual snapshot failed: ${e.message}`);
@@ -1113,26 +1248,24 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
   });
 
   app.post('/api/data/:table_id/snapshots/:snapshot_id/restore', authenticateAgent, async (req, res) => {
-    const snap = db.prepare('SELECT * FROM table_snapshots WHERE id = ? AND table_id = ?')
+    const snap = db.prepare("SELECT * FROM content_snapshots WHERE id = ? AND content_type = 'table' AND content_id = ?")
       .get(req.params.snapshot_id, req.params.table_id);
     if (!snap) return res.status(404).json({ error: 'NOT_FOUND' });
 
     try {
-      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', req.agent.display_name || req.agent.name);
+      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req));
 
       const snapshotRows = JSON.parse(snap.data_json);
 
-      // Delete all current rows
-      let delPage = 1;
+      // Delete all current rows (batch)
       while (true) {
         const currentRows = await br('GET', `/api/database/rows/table/${req.params.table_id}/?size=200&page=1`, null, { useToken: true });
         if (currentRows.status >= 400) break;
         const list = currentRows.data?.results || [];
         if (list.length === 0) break;
-        for (const row of list) {
-          if (row.id) {
-            await br('DELETE', `/api/database/rows/table/${req.params.table_id}/${row.id}/`, null, { useToken: true });
-          }
+        const ids = list.map(r => r.id).filter(Boolean);
+        if (ids.length > 0) {
+          await br('POST', `/api/database/rows/table/${req.params.table_id}/batch-delete/`, { items: ids }, { useToken: true });
         }
       }
 
@@ -1164,7 +1297,8 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
       invalidateFieldCache(req.params.table_id);
       const newFields = await getTableFields(req.params.table_id);
 
-      let restored = 0;
+      // Batch insert restored rows (chunks of 200)
+      const cleanRows = [];
       for (const row of snapshotRows) {
         const cleanRow = {};
         for (const [key, val] of Object.entries(row)) {
@@ -1174,9 +1308,16 @@ export default function dataRoutes(app, { db, NC_EMAIL, NC_PASSWORD, NC_BASE_ID,
           }
         }
         if (Object.keys(cleanRow).length > 0) {
-          const normalized = normalizeRowForBaserow(cleanRow, newFields);
-          await br('POST', `/api/database/rows/table/${req.params.table_id}/?user_field_names=true`, normalized, { useToken: true });
-          restored++;
+          cleanRows.push(normalizeRowForBaserow(cleanRow, newFields));
+        }
+      }
+
+      let restored = 0;
+      for (let i = 0; i < cleanRows.length; i += 200) {
+        const chunk = cleanRows.slice(i, i + 200);
+        const result = await br('POST', `/api/database/rows/table/${req.params.table_id}/batch/?user_field_names=true`, { items: chunk }, { useToken: true });
+        if (result.status < 400) {
+          restored += (result.data?.items || chunk).length;
         }
       }
 

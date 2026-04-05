@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Node } from '@antv/x6';
 import type { FlowchartShape } from '../constants';
+import { SHAPE_MAP } from '@/components/shared/ShapeSet/shapes';
 
 interface FlowchartNodeData {
   label: string;
@@ -181,32 +182,125 @@ export function FlowchartNode({ node }: { node: Node }) {
     <div style={{ position: 'relative', zIndex: 1, padding: padding || '0 16px' }}>{textEl}</div>
   );
 
-  // Helper: SVG polygon shape
-  const svgShape = (points: string, textPad?: string) => (
-    <div style={{ ...baseStyle, position: 'relative' }}>
-      <svg width={w} height={h} style={svgAbsolute}>
-        <polygon points={points} fill={d.bgColor} stroke={stroke} strokeWidth={2} />
-      </svg>
-      {textOverlay(textPad)}
-    </div>
-  );
+  // ─── Render shape using shared ShapeSet ───
+  const shapeDef = SHAPE_MAP.get(d.flowchartShape);
 
-  // Helper: SVG path shape
-  const svgPathShape = (pathD: string, textPad?: string) => (
-    <div style={{ ...baseStyle, position: 'relative' }}>
-      <svg width={w} height={h} style={svgAbsolute}>
-        <path d={pathD} fill={d.bgColor} stroke={stroke} strokeWidth={2} />
-      </svg>
-      {textOverlay(textPad)}
-    </div>
-  );
+  // CSS-only shapes (rect, circle/ellipse, stadium, rounded-rect) for pixel-perfect rendering
+  if (d.flowchartShape === 'rect') {
+    return (
+      <div
+        style={{
+          ...baseStyle,
+          backgroundColor: d.bgColor,
+          border: d.borderColor === 'transparent' ? 'none' : `2px solid ${d.borderColor}`,
+        }}
+      >
+        {textEl}
+      </div>
+    );
+  }
 
-  // Helper: CSS border-radius shape
-  const cssShape = (borderRadius: number | string) => (
+  if (d.flowchartShape === 'circle' || d.flowchartShape === 'ellipse') {
+    return (
+      <div
+        style={{
+          ...baseStyle,
+          borderRadius: '50%',
+          backgroundColor: d.bgColor,
+          border: d.borderColor === 'transparent' ? 'none' : `2px solid ${d.borderColor}`,
+        }}
+      >
+        {textEl}
+      </div>
+    );
+  }
+
+  if (d.flowchartShape === 'stadium') {
+    return (
+      <div
+        style={{
+          ...baseStyle,
+          borderRadius: h / 2,
+          backgroundColor: d.bgColor,
+          border: d.borderColor === 'transparent' ? 'none' : `2px solid ${d.borderColor}`,
+        }}
+      >
+        {textEl}
+      </div>
+    );
+  }
+
+  if (d.flowchartShape === 'rounded-rect') {
+    return (
+      <div
+        style={{
+          ...baseStyle,
+          borderRadius: 8,
+          backgroundColor: d.bgColor,
+          border: d.borderColor === 'transparent' ? 'none' : `2px solid ${d.borderColor}`,
+        }}
+      >
+        {textEl}
+      </div>
+    );
+  }
+
+  // Brace shapes: stroke-only (no fill)
+  if (d.flowchartShape === 'brace-left' || d.flowchartShape === 'brace-right') {
+    const pathData = shapeDef?.renderPath(w, h) ?? '';
+    return (
+      <div style={{ ...baseStyle, position: 'relative' }}>
+        <svg width={w} height={h} style={svgAbsolute}>
+          <path d={pathData} fill="none" stroke={stroke} strokeWidth={2} />
+        </svg>
+        {textOverlay()}
+      </div>
+    );
+  }
+
+  // Cylinder: special multi-element SVG (ellipse cap + body)
+  if (d.flowchartShape === 'cylinder') {
+    return (
+      <div style={{ ...baseStyle, position: 'relative' }}>
+        <svg width={w} height={h} style={svgAbsolute}>
+          <ellipse cx={w / 2} cy={h * 0.15} rx={w / 2 - s} ry={h * 0.15 - s}
+            fill={d.bgColor} stroke={stroke} strokeWidth={2} />
+          <path
+            d={`M${s},${h * 0.15} v${h * 0.7} a${w / 2 - s},${h * 0.15 - s} 0 0,0 ${w - 2 * s},0 v-${h * 0.7}`}
+            fill={d.bgColor} stroke={stroke} strokeWidth={2}
+          />
+        </svg>
+        <div style={{ position: 'relative', zIndex: 1, paddingTop: h * 0.15 }}>{textEl}</div>
+      </div>
+    );
+  }
+
+  // All other shapes: use shared renderPath
+  // Inset the path by half strokeWidth to avoid clipping at SVG edges
+  if (shapeDef) {
+    const sw = 2; // strokeWidth
+    const inset = sw / 2;
+    const iw = w - sw; // inner width after inset
+    const ih = h - sw; // inner height after inset
+    const pathData = shapeDef.renderPath(iw, ih);
+    return (
+      <div style={{ ...baseStyle, position: 'relative' }}>
+        <svg width={w} height={h} style={svgAbsolute}>
+          <g transform={`translate(${inset},${inset})`}>
+            <path d={pathData} fill={d.bgColor} stroke={stroke} strokeWidth={sw} strokeLinejoin="round" />
+          </g>
+        </svg>
+        {textOverlay()}
+      </div>
+    );
+  }
+
+  // Fallback: rounded-rect (CSS for pixel-perfect rendering)
+  return (
     <div
       style={{
         ...baseStyle,
-        borderRadius,
+        borderRadius: 8,
         backgroundColor: d.bgColor,
         border: d.borderColor === 'transparent' ? 'none' : `2px solid ${d.borderColor}`,
       }}
@@ -214,171 +308,4 @@ export function FlowchartNode({ node }: { node: Node }) {
       {textEl}
     </div>
   );
-
-  switch (d.flowchartShape) {
-    case 'rect':
-      return cssShape(0);
-
-    case 'circle':
-    case 'ellipse':
-      return cssShape('50%');
-
-    case 'stadium':
-      return cssShape(h / 2);
-
-    case 'diamond':
-      return svgShape(`${w / 2},${s} ${w - s},${h / 2} ${w / 2},${h - s} ${s},${h / 2}`);
-
-    case 'parallelogram':
-      return svgShape(
-        `${w * 0.15},${h - s} ${s},${s} ${w * 0.85},${s} ${w - s},${h - s}`,
-        '0 20px',
-      );
-
-    case 'triangle':
-      return (
-        <div style={{ ...baseStyle, position: 'relative' }}>
-          <svg width={w} height={h} style={svgAbsolute}>
-            <polygon
-              points={`${w / 2},${s} ${w - s},${h - s} ${s},${h - s}`}
-              fill={d.bgColor} stroke={stroke} strokeWidth={2}
-            />
-          </svg>
-          <div style={{ position: 'relative', zIndex: 1, paddingTop: h * 0.3 }}>{textEl}</div>
-        </div>
-      );
-
-    case 'hexagon':
-      return svgShape(
-        `${w * 0.25},${s} ${w * 0.75},${s} ${w - s},${h / 2} ${w * 0.75},${h - s} ${w * 0.25},${h - s} ${s},${h / 2}`,
-        '0 20px',
-      );
-
-    case 'pentagon':
-      return svgShape(
-        `${w / 2},${s} ${w - s},${h * 0.38} ${w * 0.82},${h - s} ${w * 0.18},${h - s} ${s},${h * 0.38}`,
-      );
-
-    case 'octagon': {
-      const o = Math.min(w, h) * 0.29;
-      return svgShape(
-        `${o},${s} ${w - o},${s} ${w - s},${o} ${w - s},${h - o} ${w - o},${h - s} ${o},${h - s} ${s},${h - o} ${s},${o}`,
-      );
-    }
-
-    case 'star': {
-      const cx = w / 2, cy = h / 2;
-      const outerR = Math.min(w, h) / 2 - s;
-      const innerR = outerR * 0.38;
-      const pts: string[] = [];
-      for (let i = 0; i < 5; i++) {
-        const ao = (Math.PI / 2) + (i * 2 * Math.PI / 5);
-        const ai = (Math.PI / 2) + ((i + 0.5) * 2 * Math.PI / 5);
-        pts.push(`${cx - outerR * Math.cos(ao)},${cy - outerR * Math.sin(ao)}`);
-        pts.push(`${cx - innerR * Math.cos(ai)},${cy - innerR * Math.sin(ai)}`);
-      }
-      return svgShape(pts.join(' '));
-    }
-
-    case 'cross':
-      return svgShape(
-        `${w * 0.33},${s} ${w * 0.67},${s} ${w * 0.67},${h * 0.33} ${w - s},${h * 0.33} ${w - s},${h * 0.67} ${w * 0.67},${h * 0.67} ${w * 0.67},${h - s} ${w * 0.33},${h - s} ${w * 0.33},${h * 0.67} ${s},${h * 0.67} ${s},${h * 0.33} ${w * 0.33},${h * 0.33}`,
-      );
-
-    case 'cloud':
-      return svgPathShape(
-        `M${w * 0.25},${h * 0.75} ` +
-        `a${w * 0.15},${h * 0.2} 0 0,1 ${w * 0.05},-${h * 0.35} ` +
-        `a${w * 0.2},${h * 0.25} 0 0,1 ${w * 0.35},-${h * 0.15} ` +
-        `a${w * 0.2},${h * 0.2} 0 0,1 ${w * 0.25},${h * 0.1} ` +
-        `a${w * 0.15},${h * 0.2} 0 0,1 ${w * 0.05},${h * 0.3} ` +
-        `z`,
-      );
-
-    case 'cylinder':
-      return (
-        <div style={{ ...baseStyle, position: 'relative' }}>
-          <svg width={w} height={h} style={svgAbsolute}>
-            <ellipse cx={w / 2} cy={h * 0.15} rx={w / 2 - s} ry={h * 0.15 - s}
-              fill={d.bgColor} stroke={stroke} strokeWidth={2} />
-            <path
-              d={`M${s},${h * 0.15} v${h * 0.7} a${w / 2 - s},${h * 0.15 - s} 0 0,0 ${w - 2 * s},0 v-${h * 0.7}`}
-              fill={d.bgColor} stroke={stroke} strokeWidth={2}
-            />
-          </svg>
-          <div style={{ position: 'relative', zIndex: 1, paddingTop: h * 0.15 }}>{textEl}</div>
-        </div>
-      );
-
-    case 'arrow-right':
-      return svgShape(
-        `${s},${h * 0.2} ${w * 0.65},${h * 0.2} ${w * 0.65},${s} ${w - s},${h / 2} ${w * 0.65},${h - s} ${w * 0.65},${h * 0.8} ${s},${h * 0.8}`,
-        '0 30px 0 10px',
-      );
-
-    case 'arrow-left':
-      return svgShape(
-        `${w - s},${h * 0.2} ${w * 0.35},${h * 0.2} ${w * 0.35},${s} ${s},${h / 2} ${w * 0.35},${h - s} ${w * 0.35},${h * 0.8} ${w - s},${h * 0.8}`,
-        '0 10px 0 30px',
-      );
-
-    case 'arrow-double':
-      return svgShape(
-        `${s},${h / 2} ${w * 0.2},${s} ${w * 0.2},${h * 0.25} ${w * 0.8},${h * 0.25} ${w * 0.8},${s} ${w - s},${h / 2} ${w * 0.8},${h - s} ${w * 0.8},${h * 0.75} ${w * 0.2},${h * 0.75} ${w * 0.2},${h - s}`,
-        '0 24px',
-      );
-
-    case 'chevron-right':
-      return svgShape(
-        `${s},${s} ${w * 0.75},${s} ${w - s},${h / 2} ${w * 0.75},${h - s} ${s},${h - s} ${w * 0.25},${h / 2}`,
-        '0 20px',
-      );
-
-    case 'chevron-left':
-      return svgShape(
-        `${w - s},${s} ${w * 0.25},${s} ${s},${h / 2} ${w * 0.25},${h - s} ${w - s},${h - s} ${w * 0.75},${h / 2}`,
-        '0 20px',
-      );
-
-    case 'trapezoid':
-      return svgShape(
-        `${w * 0.15},${s} ${w * 0.85},${s} ${w - s},${h - s} ${s},${h - s}`,
-        '0 16px',
-      );
-
-    case 'callout':
-      return svgPathShape(
-        `M${s},${s} h${w - 2 * s} v${h * 0.7} h-${w * 0.55} l-${w * 0.1},${h * 0.25} v-${h * 0.25} h-${w * 0.35 + s - 2 * s} z`,
-      );
-
-    case 'brace-left':
-      return (
-        <div style={{ ...baseStyle, position: 'relative' }}>
-          <svg width={w} height={h} style={svgAbsolute}>
-            <path
-              d={`M${w - s},${s} Q${w * 0.5},${s} ${w * 0.5},${h * 0.25} T${s},${h / 2} Q${w * 0.5},${h * 0.5} ${w * 0.5},${h * 0.75} T${w - s},${h - s}`}
-              fill="none" stroke={stroke} strokeWidth={2}
-            />
-          </svg>
-          {textOverlay()}
-        </div>
-      );
-
-    case 'brace-right':
-      return (
-        <div style={{ ...baseStyle, position: 'relative' }}>
-          <svg width={w} height={h} style={svgAbsolute}>
-            <path
-              d={`M${s},${s} Q${w * 0.5},${s} ${w * 0.5},${h * 0.25} T${w - s},${h / 2} Q${w * 0.5},${h * 0.5} ${w * 0.5},${h * 0.75} T${s},${h - s}`}
-              fill="none" stroke={stroke} strokeWidth={2}
-            />
-          </svg>
-          {textOverlay()}
-        </div>
-      );
-
-    case 'rounded-rect':
-    default:
-      return cssShape(8);
-  }
 }

@@ -230,10 +230,10 @@
 
 /* List marker color — theme accent */
 .outline-editor-content ul > li::marker {
-  color: #2FCC71;
+  color: hsl(var(--brand));
 }
 .outline-editor-content ol > li::marker {
-  color: #2FCC71;
+  color: hsl(var(--brand));
 }
 
 /* Image inside a list item: prevent it from creating a new list counter */

@@ -1,8 +1,6 @@
 {
   "nav": {
-    "im": "IM",
     "content": "콘텐츠",
-    "tasks": "작업",
     "contacts": "연락처"
   },
   "theme": {
@@ -18,10 +16,6 @@
     "global": "전역",
     "openCommandPalette": "명령 팔레트 열기",
     "openHelp": "도움말 열기",
-    "tasks": "작업",
-    "newTask": "새 작업",
-    "im": "IM",
-    "sendMessage": "메시지 보내기",
     "newLine": "줄바꿈",
     "cancelEdit": "편집/답장 취소",
     "dataTable": "데이터 테이블",
@@ -35,38 +29,19 @@
     "navHint": "↑↓ 탐색",
     "enterHint": "Enter 열기",
     "escHint": "Esc 닫기",
-    "navIM": "IM / 메시지",
     "navContent": "콘텐츠 / 문서",
-    "navTasks": "작업",
     "navContacts": "연락처 / Agent",
     "navSettings": "설정",
     "catNav": "탐색",
-    "catTasks": "작업",
     "catDocs": "문서",
     "catAgent": "Agent",
     "online": "온라인",
     "offline": "오프라인"
   },
-  "im": {
-    "selectChannel": "채팅을 시작할 채널을 선택하세요",
-    "channels": "채널",
-    "searchChannels": "채널 검색...",
-    "publicChannels": "공개 채널",
-    "privateChannels": "비공개 채널",
-    "directMessages": "다이렉트 메시지",
-    "typeMessage": "메시지를 입력...",
-    "edited": "(수정됨)",
-    "deleteConfirm": "이 메시지를 삭제하시겠습니까?",
-    "members": "멤버"
-  },
   "content": {
     "title": "콘텐츠",
-    "newDoc": "새 문서",
-    "newTable": "새 데이터 테이블",
     "newBoard": "새 보드",
-    "newPresentation": "새 프레젠테이션",
     "newSpreadsheet": "새 스프레드시트",
-    "newDiagram": "새 다이어그램",
     "searchDocs": "문서 검색...",
     "noMatch": "일치하는 문서를 찾을 수 없습니다",
     "untitled": "제목 없음",
@@ -103,7 +78,8 @@
     "colName": "열 이름",
     "colType": "열 유형",
     "create": "생성",
-    "cancelCreate": "취소"
+    "cancelCreate": "취소",
+    "searchContent": "콘텐츠 검색..."
   },
   "contacts": {
     "title": "Agent 관리",
@@ -116,35 +92,6 @@
     "registerHint": "Agent는 self-register API로 등록",
     "sendMessage": "메시지 보내기",
     "assignTask": "작업 할당"
-  },
-  "tasks": {
-    "title": "작업",
-    "newTask": "새 작업",
-    "search": "작업 검색...",
-    "kanban": "칸반",
-    "list": "목록",
-    "allStatus": "전체 상태",
-    "allPriority": "전체 우선순위",
-    "allAssignee": "전체 담당자",
-    "todo": "할 일",
-    "inProgress": "진행 중",
-    "done": "완료",
-    "cancelled": "취소됨",
-    "urgent": "긴급",
-    "high": "높음",
-    "medium": "보통",
-    "low": "낮음",
-    "none": "없음",
-    "taskTitle": "작업 제목",
-    "description": "설명",
-    "priority": "우선순위",
-    "assignee": "담당자",
-    "startDate": "시작일",
-    "dueDate": "마감일",
-    "status": "상태",
-    "createTask": "작업 생성",
-    "noTasks": "작업 없음",
-    "comments": "댓글"
   },
   "editor": {
     "heading1": "제목 1",
@@ -194,7 +141,9 @@
     "linkPrompt": "링크 URL:",
     "inlineCode": "인라인 코드",
     "highlight": "강조",
-    "comment": "댓글"
+    "comment": "댓글",
+    "loading": "에디터 로딩 중...",
+    "initFailed": "에디터 초기화에 실패했습니다"
   },
   "comments": {
     "title": "댓글",
@@ -219,7 +168,8 @@
     "open": "미해결",
     "resolved": "해결됨",
     "noResolved": "해결된 댓글이 없습니다",
-    "resolvedBy": "{name}이(가) 해결"
+    "resolvedBy": "{name}이(가) 해결",
+    "addComment": "댓글 추가"
   },
   "dataTable": {
     "colTypes": {
@@ -429,7 +379,9 @@
     "copy": "복사",
     "chooseFile": "파일 선택",
     "pasteHint": "또는 ⌘+V로 이미지 붙여넣기",
-    "addFileOrImage": "파일 또는 이미지 추가"
+    "addFileOrImage": "파일 또는 이미지 추가",
+    "formSubmitFailed": "폼 제출에 실패했습니다",
+    "updateFieldFailed": "필드 업데이트에 실패했습니다"
   },
   "dataTableHistory": {
     "title": "버전 기록",
@@ -475,14 +427,100 @@
     "new": "새로 만들기",
     "settings": "설정"
   },
-  "time": {
-    "justNow": "방금 전",
-    "minutesAgo": "{n}분 전",
-    "hoursAgo": "{n}시간 전",
-    "daysAgo": "{n}일 전",
-    "editedAt": "수정"
+  "shell": {
+    "tasks": "작업",
+    "docs": "문서",
+    "database": "데이터베이스",
+    "settings": "설정",
+    "initializing": "초기화 중..."
+  },
+  "diagram": {
+    "loadFailed": "다이어그램 에디터를 불러오지 못했습니다",
+    "retry": "재시도",
+    "shapes": "도형",
+    "deleteConfirm": "이 다이어그램을 삭제하시겠습니까?",
+    "migrationNotice": "이 다이어그램은 이전 형식을 사용하고 있으며 새 엔진으로 자동 마이그레이션되었습니다.",
+    "saveNewFormat": "새 형식으로 저장",
+    "crashed": "다이어그램 에디터가 충돌했습니다",
+    "tools": {
+      "text": "텍스트 (T)",
+      "shape": "도형 (R)",
+      "mindmap": "마인드맵 (M)",
+      "image": "이미지 (I)",
+      "table": "테이블",
+      "enterLabel": "레이블 입력...",
+      "dblclickImage": "더블클릭하여 이미지 추가"
+    },
+    "connectors": {
+      "straight": "직선",
+      "orthogonal": "직각 연결",
+      "rounded": "꺾은선",
+      "smooth": "곡선"
+    },
+    "initFailed": "다이어그램 초기화에 실패했습니다",
+    "centralTopic": "중심 주제",
+    "rectangle": "직사각형",
+    "roundedRectangle": "둥근 직사각형",
+    "diamond": "마름모(판단)",
+    "circle": "원",
+    "mindMapRoot": "마인드맵 루트",
+    "mindMapBranch": "마인드맵 가지",
+    "nodeColor": "노드 색상",
+    "autoLayoutTB": "자동 레이아웃(위→아래)",
+    "autoLayoutLR": "자동 레이아웃(왼→오른)",
+    "notFound": "다이어그램을 찾을 수 없습니다",
+    "empty": "빈 다이어그램",
+    "editDiagram": "다이어그램 편집",
+    "searchDiagrams": "다이어그램 검색..."
   },
   "toolbar": {
+    "fonts": {
+      "notoSansSC": "Noto Sans SC",
+      "notoSerifSC": "Noto Serif SC",
+      "microsoftYaHei": "Microsoft YaHei",
+      "pingFangSC": "PingFang SC"
+    },
+    "common": {
+      "copy": "복사",
+      "delete": "삭제",
+      "replace": "교체",
+      "zOrder": "순서",
+      "bringToFront": "맨 앞으로",
+      "sendToBack": "맨 뒤로",
+      "solidLine": "실선",
+      "dashedLine": "파선",
+      "dottedLine": "점선",
+      "none": "없음"
+    },
+    "ppt": {
+      "shape": "도형",
+      "fillColor": "채우기 색상",
+      "borderColor": "테두리 색상",
+      "borderWidth": "테두리 너비",
+      "borderStyle": "테두리 스타일",
+      "textColor": "글자 색상",
+      "cornerRadius": "모서리 반경"
+    },
+    "diagram": {
+      "shape": "도형",
+      "fillColor": "채우기 색상",
+      "borderColor": "테두리 색상",
+      "fontSize": "글꼴 크기",
+      "alignment": "정렬",
+      "lineColor": "선 색상",
+      "lineWidth": "선 너비",
+      "lineStyle": "선 스타일",
+      "connectorType": "연결 유형",
+      "arrowStyle": "화살표 스타일",
+      "arrowClassic": "채운 화살표",
+      "arrowOpen": "빈 화살표",
+      "arrowNone": "화살표 없음",
+      "labelText": "레이블 텍스트",
+      "connStraight": "직선",
+      "connOrthogonal": "직각",
+      "connPolyline": "꺾은선",
+      "connCurve": "곡선"
+    },
     "search": "검색",
     "notifications": "알림",
     "connectAgents": "에이전트 연결",
@@ -522,22 +560,95 @@
     "decrease": "감소",
     "increase": "증가",
     "markAllRead": "모두 읽음으로 표시",
-    "removeColor": "제거"
+    "removeColor": "제거",
+    "undo": "실행 취소",
+    "redo": "다시 실행",
+    "save": "저장",
+    "more": "더 보기",
+    "cancelEditing": "편집 취소",
+    "help": "도움말",
+    "collapseSidebar": "사이드바 접기",
+    "expandSidebar": "사이드바 펼치기",
+    "agents": "에이전트",
+    "message": "메시지",
+    "zoomIn": "확대",
+    "zoomOut": "축소",
+    "openFullEditor": "전체 편집기에서 열기",
+    "pageIcon": "페이지 아이콘"
   },
-  "diagram": {
-    "rectangle": "직사각형",
-    "roundedRectangle": "둥근 직사각형",
-    "diamond": "마름모(판단)",
-    "circle": "원",
-    "mindMapRoot": "마인드맵 루트",
-    "mindMapBranch": "마인드맵 가지",
-    "nodeColor": "노드 색상",
-    "autoLayoutTB": "자동 레이아웃(위→아래)",
-    "autoLayoutLR": "자동 레이아웃(왼→오른)",
-    "notFound": "다이어그램을 찾을 수 없습니다",
-    "empty": "빈 다이어그램",
-    "editDiagram": "다이어그램 편집",
-    "searchDiagrams": "다이어그램 검색..."
+  "time": {
+    "justNow": "방금 전",
+    "minutesAgo": "{n}분 전",
+    "hoursAgo": "{n}시간 전",
+    "daysAgo": "{n}일 전",
+    "editedAt": "수정"
+  },
+  "errors": {
+    "createViewFailed": "뷰 생성에 실패했습니다",
+    "renameViewFailed": "뷰 이름 변경에 실패했습니다",
+    "deleteViewFailed": "뷰 삭제에 실패했습니다",
+    "addFilterFailed": "필터 추가에 실패했습니다",
+    "deleteFilterFailed": "필터 삭제에 실패했습니다",
+    "updateFilterFailed": "필터 업데이트에 실패했습니다",
+    "addSortFailed": "정렬 추가에 실패했습니다",
+    "deleteSortFailed": "정렬 삭제에 실패했습니다",
+    "createSortFailed": "정렬 생성에 실패했습니다",
+    "updateSortFailed": "정렬 업데이트에 실패했습니다",
+    "addRowFailed": "행 추가에 실패했습니다",
+    "deleteRowFailed": "행 삭제에 실패했습니다",
+    "updateDataFailed": "데이터 업데이트에 실패했습니다",
+    "toggleCheckboxFailed": "체크박스 전환에 실패했습니다",
+    "setOptionFailed": "옵션 설정에 실패했습니다",
+    "toggleMultiSelectFailed": "다중 선택 전환에 실패했습니다",
+    "setRatingFailed": "평점 설정에 실패했습니다",
+    "uploadAttachmentFailed": "첨부 파일 업로드에 실패했습니다",
+    "batchDeleteFailed": "일괄 삭제에 실패했습니다",
+    "batchEditFailed": "일괄 편집에 실패했습니다",
+    "exportCSVFailed": "CSV 내보내기에 실패했습니다",
+    "deleteTableFailed": "테이블 삭제에 실패했습니다",
+    "updateDiagramTitleFailed": "다이어그램 제목 업데이트에 실패했습니다",
+    "deleteDiagramFailed": "다이어그램 삭제에 실패했습니다",
+    "autoSaveFailed": "자동 저장에 실패했습니다",
+    "saveCustomIconFailed": "사용자 정의 아이콘 저장에 실패했습니다",
+    "revisionParseFailed": "버전 데이터 파싱에 실패했습니다",
+    "imageUploadFallback": "이미지 업로드에 실패했습니다. 로컬 미리보기를 사용합니다",
+    "loadDiagramPreviewFailed": "다이어그램 미리보기 로드에 실패했습니다",
+    "bgImageUploadFailed": "배경 이미지 업로드에 실패했습니다",
+    "restoreVersionFailed": "버전 복원에 실패했습니다",
+    "updateFieldFailed": "필드 업데이트에 실패했습니다",
+    "deleteFailed": "삭제에 실패했습니다",
+    "togglePinFailed": "고정 전환에 실패했습니다",
+    "createDocFailed": "문서 생성에 실패했습니다",
+    "createTableFailed": "테이블 생성에 실패했습니다",
+    "createPresentationFailed": "프레젠테이션 생성에 실패했습니다",
+    "createDiagramFailed": "다이어그램 생성에 실패했습니다",
+    "imageUploadFailed": "이미지 업로드에 실패했습니다",
+    "markdownParseFailed": "Markdown 파싱에 실패했습니다"
+  },
+  "entities": {
+    "doc": "문서",
+    "table": "테이블",
+    "slides": "슬라이드",
+    "flowchart": "플로차트",
+    "agent": "에이전트"
+  },
+  "actions": {
+    "newDoc": "새 문서",
+    "newTable": "새 테이블",
+    "newSlides": "새 슬라이드",
+    "newFlowchart": "새 플로차트",
+    "newAgent": "새 에이전트",
+    "openNewTab": "새 탭에서 열기",
+    "rename": "이름 변경",
+    "changeIcon": "아이콘 변경",
+    "copyLink": "링크 복사",
+    "pin": "상단에 고정",
+    "unpin": "고정 해제",
+    "moveToTrash": "휴지통으로 이동",
+    "download": "다운로드",
+    "share": "공유",
+    "delete": "삭제",
+    "addIcon": "아이콘 추가"
   },
   "notification": {
     "noNotifications": "알림이 없습니다"
@@ -545,5 +656,12 @@
   "search": {
     "find": "찾기...",
     "replace": "바꾸기..."
+  },
+  "sidebar": {
+    "searchPlaceholder": "검색(⌘+K)"
+  },
+  "icon": {
+    "changeIcon": "아이콘 변경",
+    "addIcon": "아이콘 추가"
   }
 }

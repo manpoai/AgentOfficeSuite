@@ -12,6 +12,7 @@
 import type { Node as PMNode, NodeSpec } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
 import { Plugin, PluginKey } from 'prosemirror-state';
+import { getContentItem } from '@/lib/api/gateway';
 
 // ── Node Spec ──
 
@@ -94,9 +95,11 @@ export class ContentLinkView implements NodeView {
     });
     this.dom.addEventListener('click', (e) => {
       e.preventDefault();
-      const id = node.attrs.contentId;
+      e.stopPropagation();
+      const id = this.node.attrs.contentId;
       if (id) {
-        window.location.href = `/content?id=${encodeURIComponent(id)}`;
+        const url = `/content?id=${encodeURIComponent(id)}`;
+        window.open(url, '_blank');
       }
     });
   }
@@ -112,6 +115,12 @@ export class ContentLinkView implements NodeView {
 
   update(node: PMNode) {
     if (node.type.name !== 'content_link') return false;
+    this.node = node;
+    // Update DOM when title changes (e.g. after async title resolution)
+    const type = getContentType(node.attrs.contentId);
+    const icon = TYPE_ICONS[type] || TYPE_ICONS.doc;
+    const label = node.attrs.title || TYPE_LABELS[type] || 'Link';
+    this.dom.innerHTML = `<span style="font-size:0.85em">${icon}</span><span>${this.escapeHtml(label)}</span>`;
     return true;
   }
 }
@@ -121,7 +130,7 @@ export class ContentLinkView implements NodeView {
 
 export const contentLinkPasteKey = new PluginKey('contentLinkPaste');
 
-const CONTENT_LINK_RE = /\/content\?id=((?:doc|table|presentation|diagram):[a-zA-Z0-9_-]+)/;
+const CONTENT_LINK_RE = /(?:https?:\/\/[^/]+)?\/content\?id=((?:doc|table|presentation|diagram)(?::|%3A)([a-zA-Z0-9_-]+))/i;
 
 export function contentLinkPastePlugin(): Plugin {
   return new Plugin({
@@ -134,17 +143,39 @@ export function contentLinkPastePlugin(): Plugin {
         const match = text.match(CONTENT_LINK_RE);
         if (!match) return false;
 
-        const contentId = match[1];
+        // Normalize: decode %3A to colon
+        const contentId = decodeURIComponent(match[1]);
         const contentLinkType = view.state.schema.nodes.content_link;
         if (!contentLinkType) return false;
 
         const node = contentLinkType.create({
           contentId,
-          title: contentId, // Will be resolved by the NodeView or React component
+          title: contentId, // Placeholder — will be resolved below
         });
         const { from, to } = view.state.selection;
         const tr = view.state.tr.replaceWith(from, to, node);
         view.dispatch(tr);
+
+        // Async: fetch real title and update the node
+        getContentItem(contentId).then((item) => {
+          if (!item?.title) return;
+          // Find the content_link node we just inserted
+          const { doc } = view.state;
+          doc.descendants((n, pos) => {
+            if (n.type.name === 'content_link' && n.attrs.contentId === contentId && n.attrs.title === contentId) {
+              const updateTr = view.state.tr.setNodeMarkup(pos, undefined, {
+                ...n.attrs,
+                title: item.title,
+              });
+              view.dispatch(updateTr);
+              return false; // stop after first match
+            }
+            return true;
+          });
+        }).catch(() => {
+          // Ignore — placeholder title remains
+        });
+
         return true;
       },
     },

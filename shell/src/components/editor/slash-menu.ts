@@ -9,6 +9,7 @@ import { schema } from './schema';
 import { setBlockType, wrapIn } from 'prosemirror-commands';
 import { getT } from '@/lib/i18n';
 import { uploadAndInsert } from './image-plugin';
+import { pickFile } from '@/lib/utils/pick-file';
 
 export const slashMenuKey = new PluginKey('slashMenu');
 
@@ -106,20 +107,13 @@ function buildSlashItems(getDocId?: () => string | undefined): SlashMenuItem[] {
       label: t('editor.image'), description: t('editor.imageDesc'), icon: '🖼', keywords: 'image picture photo img',
       command: (view) => {
         // Open file picker for image upload
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'image/*';
-        input.style.display = 'none';
-        input.addEventListener('change', () => {
-          const file = input.files?.[0];
+        pickFile({ accept: 'image/*' }).then((files) => {
+          const file = files[0];
           if (file) {
             const { from } = view.state.selection;
             uploadAndInsert(view, file, from, getDocId?.());
           }
-          input.remove();
         });
-        document.body.appendChild(input);
-        input.click();
       },
     },
     // --- Notices / Callouts ---
@@ -178,13 +172,11 @@ function buildSlashItems(getDocId?: () => string | undefined): SlashMenuItem[] {
     {
       label: 'Embed Diagram', description: 'Embed a diagram with live preview', icon: '\u{1F500}', keywords: 'diagram embed flowchart graph x6',
       command: (view) => {
-        const editorEl = view.dom.closest('.outline-editor');
-        if (editorEl) {
-          const coords = view.coordsAtPos(view.state.selection.from);
-          editorEl.dispatchEvent(new CustomEvent('open-diagram-picker', {
-            detail: { top: coords.bottom + 4, left: coords.left },
-          }));
-        }
+        const coords = view.coordsAtPos(view.state.selection.from);
+        view.dom.dispatchEvent(new CustomEvent('open-diagram-picker', {
+          bubbles: true,
+          detail: { top: coords.bottom + 4, left: coords.left },
+        }));
       },
     },
   ];

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 interface RevisionPreviewProps {
   /** ProseMirror JSON data for the selected revision */
@@ -52,7 +54,7 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
         const sanitized = sanitizeDocJson(data, schema);
         doc = Node.fromJSON(schema, sanitized);
       } catch (e) {
-        console.error('Failed to parse revision JSON:', e);
+        showError(getT()('errors.revisionParseFailed'), e);
         if (mountRef.current) {
           mountRef.current.textContent = 'Failed to render this version';
         }
@@ -70,7 +72,7 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
             },
           });
         } catch (e) {
-          console.error('Diff computation failed:', e);
+          showError('Diff computation failed', e);
         }
       }
 

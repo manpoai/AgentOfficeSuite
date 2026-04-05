@@ -4,7 +4,12 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { KeyboardManager } from '@/lib/keyboard';
+<<<<<<< Updated upstream
 import { useT } from '@/lib/i18n';
+=======
+import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+>>>>>>> Stashed changes
 
 function formatKey(shortcut: { key: string; modifiers?: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } }): string {
   const parts: string[] = [];
@@ -25,6 +30,7 @@ function formatKey(shortcut: { key: string; modifiers?: { meta?: boolean; ctrl?:
 export function ShortcutHelpPanel() {
   const { t } = useT();
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const handler = () => setOpen((v) => !v);
@@ -48,21 +54,19 @@ export function ShortcutHelpPanel() {
   if (!open) return null;
 
   const manager = KeyboardManager.getInstance();
-  const allShortcuts = manager.getAllShortcuts();
+  const activeShortcuts = manager.getActiveShortcuts();
 
   // Group by category
   const grouped = new Map<string, { key: string; label: string; modifiers?: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } }[]>();
 
-  for (const { shortcuts } of allShortcuts) {
-    for (const s of shortcuts) {
-      const category = s.category || 'Other';
-      const list = grouped.get(category) || [];
-      // Deduplicate by id
-      if (!list.some((item) => item.label === s.label && item.key === s.key)) {
-        list.push({ key: s.key, label: s.label, modifiers: s.modifiers });
-      }
-      grouped.set(category, list);
+  for (const s of activeShortcuts) {
+    const category = s.category || 'Other';
+    const list = grouped.get(category) || [];
+    // Deduplicate by id
+    if (!list.some((item) => item.label === s.label && item.key === s.key)) {
+      list.push({ key: s.key, label: s.label, modifiers: s.modifiers });
     }
+    grouped.set(category, list);
   }
 
   // Sort categories: Global first, then alphabetical
@@ -72,6 +76,53 @@ export function ShortcutHelpPanel() {
     return a.localeCompare(b);
   });
 
+  // Shared shortcut list content
+  const shortcutContent = (
+    <div className="px-5 py-3">
+      {sortedCategories.map((category) => (
+        <div key={category} className="mb-4 last:mb-0">
+          <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            {category}
+          </h3>
+          <div className="space-y-1">
+            {grouped.get(category)!.map((item, i) => (
+              <div
+                key={`${category}-${i}`}
+                className="flex items-center justify-between py-1.5"
+              >
+                <span className="text-sm text-foreground">{item.label}</span>
+                <kbd
+                  className={cn(
+                    'inline-flex items-center gap-0.5 px-2 py-0.5 rounded',
+                    'text-xs font-mono text-muted-foreground',
+                    'bg-muted border border-border/50',
+                  )}
+                >
+                  {formatKey(item)}
+                </kbd>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  // Mobile: use BottomSheet
+  if (isMobile) {
+    return (
+      <BottomSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={t('shortcuts.title')}
+        initialHeight="full"
+      >
+        {shortcutContent}
+      </BottomSheet>
+    );
+  }
+
+  // Desktop: centered modal
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -94,33 +145,8 @@ export function ShortcutHelpPanel() {
         </div>
 
         {/* Content */}
-        <div className="max-h-[60vh] overflow-y-auto px-5 py-3">
-          {sortedCategories.map((category) => (
-            <div key={category} className="mb-4 last:mb-0">
-              <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                {category}
-              </h3>
-              <div className="space-y-1">
-                {grouped.get(category)!.map((item, i) => (
-                  <div
-                    key={`${category}-${i}`}
-                    className="flex items-center justify-between py-1.5"
-                  >
-                    <span className="text-sm text-foreground">{item.label}</span>
-                    <kbd
-                      className={cn(
-                        'inline-flex items-center gap-0.5 px-2 py-0.5 rounded',
-                        'text-xs font-mono text-muted-foreground',
-                        'bg-muted border border-border/50',
-                      )}
-                    >
-                      {formatKey(item)}
-                    </kbd>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+        <div className="max-h-[60vh] overflow-y-auto">
+          {shortcutContent}
         </div>
       </div>
     </div>

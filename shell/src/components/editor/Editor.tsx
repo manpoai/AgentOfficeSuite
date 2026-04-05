@@ -9,9 +9,12 @@ import { ContentLinkPicker } from '../shared/ContentLink/ContentLinkPicker';
 import { DiagramPicker } from '../shared/EmbeddedDiagram/DiagramPicker';
 import { DiagramEditorDialog } from '../shared/EmbeddedDiagram/DiagramEditorDialog';
 import { FloatingToolbar } from '../shared/FloatingToolbar';
-import { DOCS_TEXT_ITEMS, DOCS_TABLE_ITEMS, DOCS_IMAGE_ITEMS } from '../shared/FloatingToolbar/presets';
+import { getDocsTextItems, getDocsTableItems, getDocsImageItems } from '../shared/FloatingToolbar/presets';
 import { createDocsTextHandler, createDocsTableHandler, createDocsImageHandler } from './docs-toolbar-handler';
 import type { SelectionInfo } from './floating-toolbar';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
+import { EditorSkeleton } from '@/components/shared/Skeleton';
 import type { TableToolbarInfo } from './table-menu-plugin';
 
 interface EditorProps {
@@ -290,7 +293,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           }, 50);
         }
       } catch (e: any) {
-        console.error('Editor init error:', e);
+        showError(getT()('editor.initFailed'), e);
         setError(e.message || 'Editor initialization failed');
       }
     })();
@@ -353,17 +356,23 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
   }, []);
 
   const handleDiagramSelect = useCallback((diagramId: string, item: any) => {
+    setDiagramPicker(null);
     const view = viewRef.current;
     if (!view) return;
-    const schema = view.state.schema;
-    const node = schema.nodes.diagram_embed.create({
-      diagramId,
-      title: item.title || 'Untitled Diagram',
-    });
-    const { from, to } = view.state.selection;
-    view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
-    setDiagramPicker(null);
-    view.focus();
+    try {
+      const schema = view.state.schema;
+      // Use raw_id (UUID without prefix) for API calls
+      const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
+      const node = schema.nodes.diagram_embed.create({
+        diagramId: rawId,
+        title: item.title || 'Untitled Diagram',
+      });
+      const { from, to } = view.state.selection;
+      view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
+      view.focus();
+    } catch (err) {
+      showError('Failed to insert diagram embed', err);
+    }
   }, []);
 
   const handleDiagramPickerCancel = useCallback(() => {
@@ -395,7 +404,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
       <div ref={editorRef} className="outline-editor-mount" />
       {selectionInfo && !readOnly && (
         <FloatingToolbar
-          items={DOCS_TEXT_ITEMS}
+          items={getDocsTextItems()}
           handler={createDocsTextHandler(selectionInfo.view)}
           anchor={selectionInfo.anchor}
           visible={true}
@@ -408,7 +417,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
       )}
       {tableToolbarInfo && !readOnly && (
         <FloatingToolbar
-          items={DOCS_TABLE_ITEMS}
+          items={getDocsTableItems()}
           handler={createDocsTableHandler(tableToolbarInfo.view)}
           anchor={tableToolbarInfo.anchor}
           visible={true}
@@ -421,7 +430,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
       )}
       {imageToolbarInfo && !readOnly && (
         <FloatingToolbar
-          items={DOCS_IMAGE_ITEMS}
+          items={getDocsImageItems()}
           handler={createDocsImageHandler(imageToolbarInfo.view, imageToolbarInfo.nodePos)}
           anchor={imageToolbarInfo.anchor}
           visible={true}
@@ -455,6 +464,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           <DiagramPicker
             onSelect={handleDiagramSelect}
             onCancel={handleDiagramPickerCancel}
+            embedded
           />
         </div>,
         document.body,
@@ -475,5 +485,5 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
  */
 export const Editor = dynamic(() => Promise.resolve(EditorInner), {
   ssr: false,
-  loading: () => <div className="p-4 text-sm text-muted-foreground">加载编辑器...</div>,
+  loading: () => <EditorSkeleton />,
 });

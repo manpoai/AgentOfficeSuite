@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Clock, X, Plus, Database, Bot, Timer, Shield } from 'lucide-react';
 import * as gw from '@/lib/api/gateway';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { formatRelativeTime, formatDateTime } from '@/lib/utils/time';
 import { useT } from '@/lib/i18n';
 
 export interface SnapshotPreview {
-  snapshotId: number;
+  snapshotId: string;
   version: number;
   createdAt: string;
   schema: { title: string; uidt: string }[];
@@ -20,7 +21,7 @@ interface Props {
   onClose: () => void;
   onRestored: () => void;
   onSelectVersion: (preview: SnapshotPreview | null) => void;
-  selectedSnapshotId?: number | null;
+  selectedSnapshotId?: string | null;
 }
 
 const TRIGGER_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -43,7 +44,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [loadingSnapshotId, setLoadingSnapshotId] = useState<number | null>(null);
+  const [loadingSnapshotId, setLoadingSnapshotId] = useState<string | null>(null);
 
   const loadSnapshots = useCallback(async () => {
     try {
@@ -91,7 +92,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
         rows,
       });
     } catch (e) {
-      console.error('Load snapshot failed:', e);
+      showError('Load snapshot failed', e);
       onSelectVersion(null);
     } finally {
       setLoadingSnapshotId(null);

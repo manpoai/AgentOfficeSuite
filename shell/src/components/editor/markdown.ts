@@ -13,6 +13,8 @@ import markdownIt from 'markdown-it';
 import markdownItContainer from 'markdown-it-container';
 import markdownItMark from 'markdown-it-mark';
 import { schema } from './schema';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 import type { Node as PMNode } from 'prosemirror-model';
 import type Token from 'markdown-it/lib/token.mjs';
 import type MarkdownItType from 'markdown-it';
@@ -238,6 +240,61 @@ function htmlImgPlugin(mdInstance: MarkdownItType) {
 }
 md.use(htmlImgPlugin);
 md.core.ruler.after('text_join', 'html_table_parse', htmlTableRule);
+
+// Convert html_block containing <div class="diagram-embed-node"> into diagram_embed tokens
+md.core.ruler.after('text_join', 'html_diagram_embed', (state) => {
+  const tokens = state.tokens;
+  const newTokens: typeof tokens = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.type === 'html_block' && /diagram-embed-node/.test(tok.content)) {
+      const idMatch = tok.content.match(/data-diagram-id="([^"]+)"/);
+      const titleMatch = tok.content.match(/data-title="([^"]+)"/);
+      if (idMatch) {
+        const dTok = new state.Token('diagram_embed', 'div', 0);
+        dTok.attrs = [
+          ['diagramId', idMatch[1]],
+          ['title', titleMatch ? titleMatch[1] : 'Untitled Diagram'],
+        ];
+        dTok.block = true;
+        newTokens.push(dTok);
+        continue;
+      }
+    }
+    newTokens.push(tok);
+  }
+  state.tokens = newTokens;
+});
+
+// Convert inline links with /content?id= href into content_link tokens
+md.core.ruler.after('text_join', 'inline_content_link', (state) => {
+  for (const blockToken of state.tokens) {
+    if (blockToken.type !== 'inline' || !blockToken.children) continue;
+    const children = blockToken.children;
+    const newChildren: Token[] = [];
+    for (let i = 0; i < children.length; i++) {
+      const tok = children[i];
+      if (tok.type === 'link_open') {
+        const href = tok.attrGet('href') || '';
+        const contentMatch = href.match(/\/content\?id=((?:doc|table|presentation|diagram)(?::|%3A)[a-zA-Z0-9_-]+)/i);
+        if (contentMatch && i + 2 < children.length && children[i + 1].type === 'text' && children[i + 2].type === 'link_close') {
+          const contentId = decodeURIComponent(contentMatch[1]);
+          const title = children[i + 1].content || contentId;
+          const clTok = new state.Token('content_link', 'span', 0);
+          clTok.attrs = [
+            ['contentId', contentId],
+            ['title', title],
+          ];
+          newChildren.push(clTok);
+          i += 2; // skip text + link_close
+          continue;
+        }
+      }
+      newChildren.push(tok);
+    }
+    blockToken.children = newChildren;
+  }
+});
 
 // Wrap table cell inline content in paragraph tokens.
 // markdown-it emits: th_open → inline → th_close (no paragraph wrapper).
@@ -596,6 +653,18 @@ export const markdownParser = new MarkdownParser(schema, md, {
     },
   },
 
+  // Content link (inline node)
+  content_link: { node: 'content_link', getAttrs: (tok) => ({
+    contentId: tok.attrGet('contentId') || '',
+    title: tok.attrGet('title') || '',
+  }), noCloseToken: true },
+
+  // Diagram embed
+  diagram_embed: { node: 'diagram_embed', getAttrs: (tok) => ({
+    diagramId: tok.attrGet('diagramId') || '',
+    title: tok.attrGet('title') || 'Untitled Diagram',
+  }), noCloseToken: true },
+
   // HTML inline/block tokens (e.g. <br>) — ignore to prevent parse errors
   // noCloseToken needed because these are single tokens, not open/close pairs
   html_inline: { ignore: true, noCloseToken: true },
@@ -718,7 +787,7 @@ export function parseMarkdown(markdown: string): PMNode | null {
     markdown = markdown.replace(/\\+\s*$/, '');
     return markdownParser.parse(markdown);
   } catch (e: any) {
-    console.error('Markdown parse error:', e.message);
+    showError(getT()('errors.markdownParseFailed'), e);
     // Fallback: wrap as plain text in a paragraph
     return schema.node('doc', null, [
       schema.node('paragraph', null, markdown ? [schema.text(markdown)] : []),
@@ -1018,6 +1087,12 @@ export const markdownSerializer = new MarkdownSerializer(
     content_link(state, node) {
       const title = node.attrs.title || node.attrs.contentId;
       state.write(`[${title}](/content?id=${encodeURIComponent(node.attrs.contentId)})`);
+    },
+    diagram_embed(state, node) {
+      const id = node.attrs.diagramId || '';
+      const title = (node.attrs.title || 'Untitled Diagram').replace(/"/g, '&quot;');
+      state.write(`<div class="diagram-embed-node" data-diagram-id="${id}" data-title="${title}"></div>`);
+      state.closeBlock(node);
     },
   },
   {

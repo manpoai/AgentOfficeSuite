@@ -1,4 +1,5 @@
 import { toggleMark, setBlockType, wrapIn, lift } from 'prosemirror-commands';
+import { pickFile } from '@/lib/utils/pick-file';
 import { liftListItem, wrapInList } from 'prosemirror-schema-list';
 import type { EditorView } from 'prosemirror-view';
 import type { NodeType } from 'prosemirror-model';
@@ -404,7 +405,7 @@ export function createDocsImageHandler(view: EditorView, nodePos: number): Toolb
       };
     },
 
-    execute(key: string, value?: unknown) {
+    async execute(key: string, value?: unknown) {
       const node = view.state.doc.nodeAt(nodePos);
       if (!node) return;
 
@@ -423,21 +424,16 @@ export function createDocsImageHandler(view: EditorView, nodePos: number): Toolb
           break;
         }
         case 'replace': {
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = 'image/*';
-          input.onchange = () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-              const src = reader.result as string;
-              const tr = view.state.tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, src });
-              view.dispatch(tr);
-            };
-            reader.readAsDataURL(file);
+          const files = await pickFile({ accept: 'image/*' });
+          const file = files[0];
+          if (!file) break;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const src = reader.result as string;
+            const tr = view.state.tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, src });
+            view.dispatch(tr);
           };
-          input.click();
+          reader.readAsDataURL(file);
           break;
         }
         case 'download': {

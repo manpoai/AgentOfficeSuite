@@ -1,27 +1,22 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-// @ts-ignore - react-dom types not installed but module exists
-import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Plus, Trash2, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown,
-  ArrowLeft, Table2, MoreHorizontal, Type, Hash, Calendar, CheckSquare,
-  Link, Mail, AlignLeft, Pencil, Star, Phone, Clock, DollarSign,
-  Percent, List, Tags, Braces, Paperclip, User, Sigma, Link2, Search, GitBranch,
-  LayoutGrid, Filter, ArrowUpDown, ChevronDown, Columns, GalleryHorizontalEnd,
-  FileText, CalendarDays, Expand, ArrowLeftToLine, ArrowRightToLine,
-  Download, Upload, Eye, EyeOff, SlidersHorizontal, Lock, Loader2,
-  Copy, CopyPlus, ArrowLeftFromLine, ArrowRightFromLine, Snowflake, Group, AlignVerticalSpaceAround,
-  Settings, Info, GripVertical, ToggleLeft, ToggleRight, ArrowUpNarrowWide,
-  CreditCard, Image, MessageSquare, UserCheck, RotateCcw,
+  Pencil, Clock, Paperclip, Link2, Search,
+  Expand, Download, Upload, EyeOff, Lock, Loader2,
+  Copy, ArrowLeftFromLine, ArrowRightFromLine, Snowflake, Group,
+  GripVertical, MessageSquare, MoreHorizontal,
+  ExternalLink, AtSign, Share2, Pin, Calendar,
 } from 'lucide-react';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
+import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import * as br from '@/lib/api/baserow';
 import * as gw from '@/lib/api/gateway';
@@ -30,216 +25,36 @@ import { CommentPanel } from '@/components/shared/CommentPanel';
 import { LinkRecordPicker } from './LinkRecordPicker';
 import TableHistory, { SnapshotPreview } from './TableHistory';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { formatRelativeTime } from '@/lib/utils/time';
 import { BottomSheet } from '@/components/shared/BottomSheet';
-import { EditFAB } from '@/components/shared/EditFAB';
+import { MobileCommentBar } from '@/components/shared/MobileCommentBar';
+import { tableRowActions, type TableRowCtx } from '@/actions/table-row.actions';
+import { tableColumnActions, type TableColumnCtx } from '@/actions/table-column.actions';
+import { tableSurfaces } from '@/surfaces/table.surfaces';
+import { toContextMenuItems } from '@/surfaces/bridge';
+import { buildActionMap } from '@/actions/types';
+import { useKeyboardScope } from '@/lib/keyboard';
+import type { ShortcutRegistration } from '@/lib/keyboard';
+import {
+  getColIcon, SELECT_COLORS, getOptionColor, READONLY_TYPES, attachmentUrl,
+  getFilterOpsForType, TABLE_SHORTCUTS as TABLE_SHORTCUTS_DEF,
+  TableEditorProps,
+} from './types';
+import {
+  RatingStars, DatePickerDropdown, LinkedRecordChips, CellDisplay, GroupRows,
+  SortableAttachmentItem, KanbanView, GalleryView, FormView, CalendarView,
+} from './TableGrid';
+import { AddFieldDialog } from './AddFieldDialog';
+import { TableToolbar } from './TableToolbar';
+import { ViewTabsBar } from './ViewTabsBar';
+import { SnapshotPreviewPanel, CSVImportDialog, BulkEditDialog } from './TableDialogs';
 
-// ── Column type config ──
+const TABLE_SHORTCUTS: ShortcutRegistration[] = TABLE_SHORTCUTS_DEF as unknown as ShortcutRegistration[];
 
-interface ColTypeDef {
-  value: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  group: 'text' | 'number' | 'datetime' | 'select' | 'relation' | 'other';
-}
-
-const COLUMN_TYPES: ColTypeDef[] = [
-  // Text
-  { value: 'SingleLineText', label: 'SingleLineText', icon: Type, group: 'text' },
-  { value: 'LongText', label: 'LongText', icon: AlignLeft, group: 'text' },
-  { value: 'Email', label: 'Email', icon: Mail, group: 'text' },
-  { value: 'URL', label: 'URL', icon: Link, group: 'text' },
-  { value: 'PhoneNumber', label: 'PhoneNumber', icon: Phone, group: 'text' },
-  // Number
-  { value: 'Number', label: 'Number', icon: Hash, group: 'number' },
-  { value: 'Decimal', label: 'Decimal', icon: Hash, group: 'number' },
-  { value: 'Currency', label: 'Currency', icon: DollarSign, group: 'number' },
-  { value: 'Percent', label: 'Percent', icon: Percent, group: 'number' },
-  { value: 'Rating', label: 'Rating', icon: Star, group: 'number' },
-  { value: 'AutoNumber', label: 'AutoNumber', icon: Hash, group: 'number' },
-  // Date & Time
-  { value: 'Date', label: 'Date', icon: Calendar, group: 'datetime' },
-  { value: 'DateTime', label: 'DateTime', icon: Calendar, group: 'datetime' },
-  // Selection
-  { value: 'Checkbox', label: 'Checkbox', icon: CheckSquare, group: 'select' },
-  { value: 'SingleSelect', label: 'SingleSelect', icon: List, group: 'select' },
-  { value: 'MultiSelect', label: 'MultiSelect', icon: Tags, group: 'select' },
-  // Relation & Computed
-  { value: 'Links', label: 'Links', icon: Link2, group: 'relation' },
-  { value: 'Lookup', label: 'Lookup', icon: Search, group: 'relation' },
-  { value: 'Rollup', label: 'Rollup', icon: Sigma, group: 'relation' },
-  { value: 'Formula', label: 'Formula', icon: GitBranch, group: 'relation' },
-  // Other
-  { value: 'Attachment', label: 'Attachment', icon: Paperclip, group: 'other' },
-  { value: 'JSON', label: 'JSON', icon: Braces, group: 'other' },
-  { value: 'User', label: 'User', icon: User, group: 'other' },
-  { value: 'CreatedBy', label: 'CreatedBy', icon: UserCheck, group: 'other' },
-  { value: 'LastModifiedBy', label: 'LastModifiedBy', icon: UserCheck, group: 'other' },
-];
-
-// label field now stores the colType key; use tColType() to get translated label
-function tColType(t: (key: string) => string, ct: ColTypeDef): string {
-  return t(`dataTable.colTypes.${ct.value}`);
-}
-
-const GROUP_KEYS = ['text', 'number', 'datetime', 'select', 'relation', 'other'] as const;
-
-function getColIcon(uidt: string) {
-  return COLUMN_TYPES.find(c => c.value === uidt)?.icon || Type;
-}
-
-// ── Select option colors ──
-
-const SELECT_COLORS = [
-  '#d4e5ff', '#d1f0e0', '#fde2cc', '#fdd8d8', '#e8d5f5',
-  '#d5e8f5', '#fff3bf', '#f0d5e8', '#d5f5e8', '#e8e8d5',
-];
-
-function getOptionColor(color?: string, idx?: number) {
-  if (color) return color;
-  return SELECT_COLORS[(idx || 0) % SELECT_COLORS.length];
-}
-
-// ── Read-only column types ──
-const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
-
-/** Resolve NocoDB attachment path to a proxied URL */
-function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
-  const p = a.signedPath || a.path || '';
-  if (!p) return '';
-  // Already a full URL
-  if (p.startsWith('http://') || p.startsWith('https://')) return p;
-  // Already proxied
-  if (p.startsWith('/api/')) return p;
-  // NocoDB relative path — use query-param route to avoid Next.js file-extension routing issues
-  return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
-}
-
-// ── Compact cell display for kanban/gallery views ──
-function CompactCellDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
-  if (value == null || value === '') return null;
-  const colType = col.type;
-
-  // Attachment — show thumbnails
-  if (colType === 'Attachment') {
-    try {
-      const arr = Array.isArray(value) ? value : JSON.parse(String(value));
-      if (Array.isArray(arr) && arr.length > 0) {
-        return (
-          <div className="flex gap-1 py-0.5 items-center">
-            {arr.slice(0, 3).map((a: any, i: number) => (
-              a.mimetype?.startsWith('image/') ? (
-                <img key={i} src={ncAttachmentUrl(a)} className="h-5 w-5 rounded object-cover border border-border" alt="" />
-              ) : (
-                <span key={i} className="text-[9px] bg-muted px-1 py-0.5 rounded truncate max-w-[60px] flex items-center gap-0.5">
-                  <Paperclip className="h-2 w-2 shrink-0" />{a.title || 'file'}
-                </span>
-              )
-            ))}
-            {arr.length > 3 && <span className="text-[9px] text-muted-foreground">+{arr.length - 3}</span>}
-          </div>
-        );
-      }
-    } catch {}
-    return null;
-  }
-
-  // Links — show count
-  if (colType === 'Links' || colType === 'LinkToAnotherRecord') {
-    const arr = Array.isArray(value) ? value : [];
-    const num = arr.length || parseInt(String(value)) || 0;
-    return num > 0 ? <span className="text-[10px] text-sidebar-primary">{num}</span> : null;
-  }
-
-  // SingleSelect — colored badge
-  if (colType === 'SingleSelect') {
-    const str = String(value);
-    const opt = col.options?.find(o => o.title === str);
-    const color = opt?.color || SELECT_COLORS[0];
-    return <span className="inline-block px-1.5 py-0.5 rounded text-[9px]" style={{ backgroundColor: color, color: '#1a1a2e' }}>{str}</span>;
-  }
-
-  // MultiSelect — colored badges
-  if (colType === 'MultiSelect') {
-    const items = String(value).split(',').map(s => s.trim()).filter(Boolean);
-    return (
-      <div className="flex flex-wrap gap-0.5">
-        {items.map((item, i) => {
-          const opt = col.options?.find(o => o.title === item);
-          const color = opt?.color || SELECT_COLORS[i % SELECT_COLORS.length];
-          return <span key={i} className="inline-block px-1 py-0.5 rounded text-[9px]" style={{ backgroundColor: color, color: '#1a1a2e' }}>{item}</span>;
-        })}
-      </div>
-    );
-  }
-
-  // Checkbox
-  if (colType === 'Checkbox') {
-    return <span className="text-[10px]">{value ? '✓' : ''}</span>;
-  }
-
-  // Default — safe string conversion
-  const str = typeof value === 'object' ? (Array.isArray(value) ? value.map(String).join(', ') : JSON.stringify(value)) : String(value);
-  return <span className="text-[10px] text-foreground/80 truncate">{str}</span>;
-}
-
-// ── Filter operators ──
-const FILTER_OPS = [
-  { value: 'eq', key: 'eq' },
-  { value: 'neq', key: 'neq' },
-  { value: 'like', key: 'like' },
-  { value: 'nlike', key: 'nlike' },
-  { value: 'gt', key: 'gt' },
-  { value: 'gte', key: 'gte' },
-  { value: 'lt', key: 'lt' },
-  { value: 'lte', key: 'lte' },
-  { value: 'is', key: 'is' },
-  { value: 'isnot', key: 'isnot' },
-  { value: 'checked', key: 'checked' },
-  { value: 'notchecked', key: 'notchecked' },
-];
-
-// Type-specific filter operators
-const TEXT_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
-const NUM_FILTER_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is', 'isnot'];
-const DATE_FILTER_OPS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'is', 'isnot'];
-const BOOL_FILTER_OPS = ['checked', 'notchecked'];
-const SELECT_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
-const LINK_USER_FILTER_OPS = ['eq', 'neq', 'like', 'nlike', 'is', 'isnot'];
-
-function getFilterOpsForType(colType?: string): typeof FILTER_OPS {
-  if (!colType) return FILTER_OPS;
-  const numTypes = new Set(['Number', 'Decimal', 'Currency', 'Percent', 'Rating', 'Duration', 'AutoNumber']);
-  const textTypes = new Set(['SingleLineText', 'LongText', 'Email', 'URL', 'PhoneNumber', 'JSON']);
-  const dateTypes = new Set(['Date', 'DateTime', 'CreatedTime', 'LastModifiedTime']);
-  const selectTypes = new Set(['SingleSelect', 'MultiSelect']);
-  const linkUserTypes = new Set(['Links', 'LinkToAnotherRecord', 'User', 'CreatedBy', 'LastModifiedBy']);
-
-  let allowed: string[];
-  if (colType === 'Checkbox') allowed = BOOL_FILTER_OPS;
-  else if (numTypes.has(colType)) allowed = NUM_FILTER_OPS;
-  else if (dateTypes.has(colType)) allowed = DATE_FILTER_OPS;
-  else if (selectTypes.has(colType)) allowed = SELECT_FILTER_OPS;
-  else if (linkUserTypes.has(colType)) allowed = LINK_USER_FILTER_OPS;
-  else if (textTypes.has(colType)) allowed = TEXT_FILTER_OPS;
-  else return FILTER_OPS;
-
-  return FILTER_OPS.filter(op => allowed.includes(op.value));
-}
-
-// ── View type config ──
-const VIEW_TYPES = [
-  { type: 'grid', typeNum: 3, key: 'grid', icon: LayoutGrid },
-  { type: 'kanban', typeNum: 4, key: 'kanban', icon: Columns },
-  { type: 'gallery', typeNum: 2, key: 'gallery', icon: GalleryHorizontalEnd },
-  { type: 'form', typeNum: 1, key: 'form', icon: FileText },
-] as const;
-
-function getViewIcon(typeNum: number) {
-  return VIEW_TYPES.find(v => v.typeNum === typeNum)?.icon || LayoutGrid;
-}
+const tableRowActionMap = buildActionMap(tableRowActions);
+const tableColumnActionMap = buildActionMap(tableColumnActions);
 
 // ── Sortable wrapper components (must be top-level for hooks) ──
-
 function SortableFieldRow({ id, children }: { id: string; children: (props: { dragHandleProps: Record<string, unknown> }) => React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style: React.CSSProperties = {
@@ -252,7 +67,6 @@ function SortableFieldRow({ id, children }: { id: string; children: (props: { dr
     </div>
   );
 }
-
 function SortableViewTab({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style: React.CSSProperties = {
@@ -266,20 +80,6 @@ function SortableViewTab({ id, children }: { id: string; children: React.ReactNo
     </div>
   );
 }
-
-function SortableAttachmentItem({ id, children }: { id: number; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {children}
-    </div>
-  );
-}
-
 function SortableColumnHeader({ id, children, className, style: extraStyle, isOver, overSide }: { id: string; children: React.ReactNode; className?: string; style?: React.CSSProperties; isOver?: boolean; overSide?: 'left' | 'right' }) {
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id });
   const thRef = React.useRef<HTMLTableCellElement>(null);
@@ -309,20 +109,7 @@ function SortableColumnHeader({ id, children, className, style: extraStyle, isOv
   );
 }
 
-// ── Main component ──
-
-interface TableEditorProps {
-  tableId: string;
-  breadcrumb?: { id: string; title: string }[];
-  onBack: () => void;
-  onDeleted?: () => void;
-  onDuplicate?: () => void;
-  onCopyLink?: () => void;
-  docListVisible?: boolean;
-  onToggleDocList?: () => void;
-}
-
-// Error Boundary to prevent white-screen crashes
+// ── Main component ── Error Boundary to prevent white-screen crashes
 class TableEditorErrorBoundary extends React.Component<
   { children: React.ReactNode; onBack: () => void },
   { hasError: boolean; error: Error | null }
@@ -359,12 +146,14 @@ export function TableEditor(props: TableEditorProps) {
   );
 }
 
-function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate, onCopyLink, docListVisible, onToggleDocList }: TableEditorProps) {
+function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate, onCopyLink, docListVisible, onToggleDocList, onNavigate }: TableEditorProps) {
   const { t } = useT();
+
+  // Register table keyboard scope + context shortcuts
+  useKeyboardScope('table', TABLE_SHORTCUTS);
   const isMobile = useIsMobile();
-  const [mobileEditing, setMobileEditing] = useState(false);
-  // On mobile, default to read-only preview; on desktop always editable
-  const mobilePreview = isMobile && !mobileEditing;
+  // Mobile is always in preview/read-only mode — tap row to open detail for editing
+  const mobilePreview = isMobile;
   const [page, setPage] = useState(1);
   const [editingCell, setEditingCell] = useState<{ rowId: number; col: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -381,7 +170,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [numFormat, setNumFormat] = useState<{ decimals: number; thousands: boolean; prefix: string; suffix: string }>({ decimals: 0, thousands: false, prefix: '', suffix: '' });
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [decimalPrecision, setDecimalPrecision] = useState(2);
-  const [durationFormat, setDurationFormat] = useState(0); // NocoDB duration format index
+  const [durationFormat, setDurationFormat] = useState(0); // duration format index
   const [ratingMax, setRatingMax] = useState(5);
   const [ratingIcon, setRatingIcon] = useState('star');
   const [dateFormat, setDateFormat] = useState('YYYY-MM-DD');
@@ -536,7 +325,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     enabled: !!activeViewId,
   });
 
-  // Build NocoDB where clause from view filters: (field,op,value)~and(field2,op2,value2)
+  // Build where clause from view filters: (field,op,value)~and(field2,op2,value2)
   const whereParam = useMemo(() => {
     if (!viewFilters?.length || !meta?.columns) return undefined;
     const parts = viewFilters.map(f => {
@@ -571,8 +360,8 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     return parts.length > 0 ? parts.join(',') : 'Id';
   }, [viewSorts, meta?.columns, sortParam]);
 
-  // Always query from table (not view) — NocoDB view-scoped queries strip columns hidden
-  // in NocoDB's native view settings, which breaks Kanban grouping and card field display.
+  // Always query from table (not view) — view-scoped queries may strip columns hidden
+  // in native view settings, which breaks Kanban grouping and card field display.
   // Shell manages column visibility independently via Gateway view_column_settings.
   // Filters and sorts from the view are applied as query params.
   const { data: rowsData, isLoading, isFetching } = useQuery({
@@ -688,7 +477,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   // ── Drag-and-drop setup ──
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: isMobile ? 999 : 5 } })
   );
 
   // Local view order state (no API persistence, just in-state)
@@ -750,6 +539,152 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       el.removeEventListener('touchmove', onTouchMove);
     };
   }, []);
+
+  // ── Context menu: right-click on cells and column headers ──
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+
+    const showMenu = (items: import('@/lib/hooks/use-context-menu').ContextMenuItem[], x: number, y: number) => {
+      if (items.length === 0) return;
+      window.dispatchEvent(
+        new CustomEvent('show-context-menu', { detail: { items, x, y } })
+      );
+    };
+
+    // Desktop: right-click
+    const onContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Check if clicked on a column header (<th>)
+      const th = target.closest('th[data-col-id]') as HTMLElement | null;
+      if (th) {
+        const colId = th.getAttribute('data-col-id');
+        const col = sortedDisplayCols.find(c => c.column_id === colId);
+        if (col) {
+          e.preventDefault();
+          e.stopPropagation();
+          const colCtx: TableColumnCtx = {
+            colKey: col.title,
+            sortColumn: (key, dir) => window.dispatchEvent(new CustomEvent('table:sort', { detail: { colKey: key, dir } })),
+            hideColumn: (key) => window.dispatchEvent(new CustomEvent('table:hide-column', { detail: { colKey: key } })),
+            deleteColumn: (key) => window.dispatchEvent(new CustomEvent('table:delete-column', { detail: { colKey: key } })),
+          };
+          showMenu(toContextMenuItems(tableSurfaces.headerMenu, tableColumnActionMap, colCtx, t), e.clientX, e.clientY);
+          return;
+        }
+      }
+      // Check if clicked on a data cell (<td> with data-col-title inside a <tr> with data-row-id)
+      const td = target.closest('td[data-col-title]') as HTMLElement | null;
+      const tr = target.closest('tr[data-row-id]') as HTMLElement | null;
+      if (td && tr) {
+        const rowId = Number(tr.getAttribute('data-row-id'));
+        if (!isNaN(rowId)) {
+          // If this cell is being edited, let browser handle
+          if (editingCell?.rowId === rowId) return;
+          const rowIdx = rows.findIndex(r => (r.Id as number) === rowId);
+          e.preventDefault();
+          e.stopPropagation();
+          const rowCtx: TableRowCtx = {
+            rowId,
+            rowIdx,
+            openRecord: (idx) => { setExpandWithComments(false); setExpandedRowIdx(idx); },
+            openComments: (idx) => { setExpandWithComments(true); setExpandedRowIdx(idx); },
+            deleteRecord: (id) => handleDeleteRowRef.current(id),
+          };
+          showMenu(toContextMenuItems(tableSurfaces.cellMenu, tableRowActionMap, rowCtx, t), e.clientX, e.clientY);
+          return;
+        }
+      }
+    };
+
+    // Mobile: long-press on cells/headers
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressTarget: HTMLElement | null = null;
+    let touchPos: { x: number; y: number } | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        return;
+      }
+      longPressTarget = e.target as HTMLElement;
+      const touch = e.touches[0];
+      touchPos = { x: touch.clientX, y: touch.clientY };
+      longPressTimer = setTimeout(() => {
+        if (!touchPos || !longPressTarget) return;
+        // Determine context from target
+        const th = longPressTarget.closest('th[data-col-id]') as HTMLElement | null;
+        if (th) {
+          const colId = th.getAttribute('data-col-id');
+          const col = sortedDisplayCols.find(c => c.column_id === colId);
+          if (col) {
+            const colCtx: TableColumnCtx = {
+              colKey: col.title,
+              sortColumn: (key, dir) => window.dispatchEvent(new CustomEvent('table:sort', { detail: { colKey: key, dir } })),
+              hideColumn: (key) => window.dispatchEvent(new CustomEvent('table:hide-column', { detail: { colKey: key } })),
+              deleteColumn: (key) => window.dispatchEvent(new CustomEvent('table:delete-column', { detail: { colKey: key } })),
+            };
+            showMenu(toContextMenuItems(tableSurfaces.headerMenu, tableColumnActionMap, colCtx, t, true), touchPos.x, touchPos.y);
+            return;
+          }
+        }
+        const td = longPressTarget.closest('td[data-col-title]') as HTMLElement | null;
+        const tr = longPressTarget.closest('tr[data-row-id]') as HTMLElement | null;
+        if (td && tr) {
+          const rowId = Number(tr.getAttribute('data-row-id'));
+          if (!isNaN(rowId)) {
+            const rowIdx = rows.findIndex(r => (r.Id as number) === rowId);
+            const rowCtx: TableRowCtx = {
+              rowId,
+              rowIdx,
+              openRecord: (idx) => { setExpandWithComments(false); setExpandedRowIdx(idx); },
+              openComments: (idx) => { setExpandWithComments(true); setExpandedRowIdx(idx); },
+              deleteRecord: (id) => handleDeleteRowRef.current(id),
+            };
+            showMenu(toContextMenuItems(tableSurfaces.cellMenu, tableRowActionMap, rowCtx, t, true), touchPos.x, touchPos.y);
+          }
+        }
+      }, 500);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (longPressTimer && touchPos) {
+        const touch = e.touches[0];
+        if (touch) {
+          const dx = touch.clientX - touchPos.x;
+          const dy = touch.clientY - touchPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      touchPos = null;
+      longPressTarget = null;
+    };
+
+    el.addEventListener('contextmenu', onContextMenu);
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+
+    return () => {
+      el.removeEventListener('contextmenu', onContextMenu);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+      if (longPressTimer) clearTimeout(longPressTimer);
+    };
+  }, [sortedDisplayCols, editingCell, rows, t, setExpandWithComments, setExpandedRowIdx]);
+
+  // ── handleDeleteRowRef: stable ref so context menu callbacks avoid stale closures ──
+  const handleDeleteRowRef = useRef<(rowId: number) => Promise<void>>(async () => {});
 
   // ── Column drag-over state for drop indicator ──
   const [colDragOver, setColDragOver] = useState<{ overId: string; side: 'left' | 'right' } | null>(null);
@@ -844,7 +779,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setShowCreateView(false);
       refreshMeta();
       setActiveViewId(view.view_id);
-    } catch (e) { console.error('Create view failed:', e); }
+    } catch (e) { showError('Create view failed', e); }
   };
 
   const handleRenameView = async (viewId: string) => {
@@ -852,7 +787,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     try {
       await br.renameView(viewId, viewTitleValue.trim());
       refreshMeta();
-    } catch (e) { console.error('Rename view failed:', e); }
+    } catch (e) { showError('Rename view failed', e); }
     setEditingViewTitle(null);
   };
 
@@ -861,7 +796,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.deleteView(viewId);
       refreshMeta();
       if (activeViewId === viewId) setActiveViewId(null);
-    } catch (e) { console.error('Delete view failed:', e); }
+    } catch (e) { showError('Delete view failed', e); }
     setViewMenu(null);
   };
 
@@ -873,7 +808,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refresh();
       setNewFilterCol('');
       setNewFilterVal('');
-    } catch (e) { console.error('Add filter failed:', e); }
+    } catch (e) { showError('Add filter failed', e); }
   };
 
   const handleDeleteFilter = async (filterId: string) => {
@@ -881,7 +816,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.deleteFilter(filterId);
       refreshFilters();
       refresh();
-    } catch (e) { console.error('Delete filter failed:', e); }
+    } catch (e) { showError('Delete filter failed', e); }
   };
 
   const handleUpdateFilter = async (filterId: string, updates: { fk_column_id?: string; comparison_op?: string; value?: string }) => {
@@ -889,7 +824,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.updateFilter(filterId, updates);
       refreshFilters();
       refresh();
-    } catch (e) { console.error('Update filter failed:', e); }
+    } catch (e) { showError('Update filter failed', e); }
   };
 
   const handleAddSort = async () => {
@@ -899,7 +834,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshSorts();
       refresh();
       setNewSortCol('');
-    } catch (e) { console.error('Add sort failed:', e); }
+    } catch (e) { showError('Add sort failed', e); }
   };
 
   // Sort from column header menu — syncs with toolbar sort via API
@@ -908,13 +843,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     // Remove existing sort on this column if any
     const existingSort = viewSorts?.find(s => s.fk_column_id === columnId);
     if (existingSort) {
-      try { await br.deleteSort(existingSort.sort_id); } catch (e) { console.error('Delete existing sort failed:', e); }
+      try { await br.deleteSort(existingSort.sort_id); } catch (e) { showError('Delete existing sort failed', e); }
     }
     try {
       await br.createSort(activeViewId, { fk_column_id: columnId, direction });
       refreshSorts();
       refresh();
-    } catch (e) { console.error('Create sort failed:', e); }
+    } catch (e) { showError('Create sort failed', e); }
   };
 
   const handleDeleteSort = async (sortId: string) => {
@@ -922,7 +857,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.deleteSort(sortId);
       refreshSorts();
       refresh();
-    } catch (e) { console.error('Delete sort failed:', e); }
+    } catch (e) { showError('Delete sort failed', e); }
   };
 
   const handleUpdateSort = async (sortId: string, updates: { fk_column_id?: string; direction?: string }) => {
@@ -930,7 +865,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.updateSort(sortId, updates);
       refreshSorts();
       refresh();
-    } catch (e) { console.error('Update sort failed:', e); }
+    } catch (e) { showError('Update sort failed', e); }
   };
 
   // ── Sort ──
@@ -953,10 +888,15 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if ((colType === 'Date' || colType === 'DateTime') && currentValue) {
       const d = new Date(String(currentValue));
       if (!isNaN(d.getTime())) {
+        const yy = String(d.getFullYear());
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
         if (colType === 'Date') {
-          setEditValue(d.toISOString().slice(0, 10)); // YYYY-MM-DD
+          setEditValue(`${yy}-${mo}-${dd}`);
         } else {
-          setEditValue(d.toISOString().slice(0, 16)); // YYYY-MM-DDTHH:MM
+          const hh = String(d.getHours()).padStart(2, '0');
+          const mm = String(d.getMinutes()).padStart(2, '0');
+          setEditValue(`${yy}-${mo}-${dd}T${hh}:${mm}`);
         }
         return;
       }
@@ -967,8 +907,17 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const saveEdit = useCallback(async () => {
     if (!editingCell) return;
     const { rowId, col } = editingCell;
-    const newVal = editValue;
     setEditingCell(null);
+
+    // Type-convert value based on column type
+    const colDef = meta?.columns?.find(c => c.title === col);
+    const colType = colDef?.type;
+    let newVal: unknown = editValue;
+    if (colType === 'Number' || colType === 'Decimal' || colType === 'AutoNumber' || colType === 'Duration') {
+      newVal = editValue === '' ? null : Number(editValue);
+      if (typeof newVal === 'number' && isNaN(newVal)) newVal = null;
+    }
+
     // Optimistic update: patch the cached data immediately
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       if (!old || typeof old !== 'object' || !('list' in (old as Record<string, unknown>))) return old;
@@ -983,10 +932,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.updateRow(tableId, rowId, { [col]: newVal });
       refresh(); // Sync with server. Row order is stable with numeric Id sort.
     } catch (e) {
-      console.error('Update failed:', e);
+      showError('Update failed', e);
       refresh(); // revert on error
     }
-  }, [editingCell, editValue, tableId, queryClient]);
+  }, [editingCell, editValue, tableId, queryClient, meta?.columns]);
 
   const toggleCheckbox = async (rowId: number, col: string, current: unknown) => {
     const newVal = !current;
@@ -997,10 +946,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
     });
     try {
-      // NocoDB/PostgreSQL requires boolean values, not integers (1/0 causes type error)
+      // PostgreSQL requires boolean values, not integers (1/0 causes type error)
       await br.updateRow(tableId, rowId, { [col]: newVal });
     } catch (e) {
-      console.error('Toggle failed:', e);
+      showError('Toggle failed', e);
       // Rollback optimistic update
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
@@ -1038,7 +987,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.updateRow(tableId, rowId, { [col]: value });
       refreshMeta();
     } catch (e) {
-      console.error('Set select failed:', e);
+      showError('Set select failed', e);
       refresh(); // revert optimistic update
     }
   };
@@ -1062,7 +1011,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refresh();
       refreshMeta();
     } catch (e) {
-      console.error('Toggle multi-select failed:', e);
+      showError('Toggle multi-select failed', e);
       refresh(); // revert optimistic update
     }
   };
@@ -1078,7 +1027,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.updateRow(tableId, rowId, { [col]: value });
       refresh();
     } catch (e) {
-      console.error('Set rating failed:', e);
+      showError('Set rating failed', e);
       refresh();
     }
   };
@@ -1090,10 +1039,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     try {
       const formData = new FormData();
       Array.from(files).forEach(f => formData.append('files', f));
-      const uploadRes = await fetch('/api/gateway/data/upload', { method: 'POST', body: formData });
+      const uploadRes = await fetch('/api/gateway/data/upload', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
       const uploaded = await uploadRes.json(); // array of { path, title, mimetype, size }
-      // Get existing attachments (NocoDB stores as array, not JSON string)
+      // Get existing attachments (stored as array, not JSON string)
       const row = rows.find(r => (r.Id as number) === rowId);
       let existing: unknown[] = [];
       if (row?.[colTitle]) {
@@ -1104,13 +1053,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         }
       }
       const merged = [...existing, ...uploaded];
-      // NocoDB expects array, not JSON string for Attachment columns
+      // Baserow expects array, not JSON string for Attachment columns
       await br.updateRow(tableId, rowId, { [colTitle]: merged });
       refresh();
       // Re-open attachment dropdown to show updated list
       setAttachmentDropdown({ rowId, col: colTitle });
     } catch (e) {
-      console.error('Attachment upload failed:', e);
+      showError('Attachment upload failed', e);
     } finally {
       setAttachmentUploading(null);
     }
@@ -1147,7 +1096,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.insertRow(tableId, {});
       refresh(); // Sync with server. Numeric Id sort keeps new row at the end.
     } catch (e) {
-      console.error('Insert failed:', e);
+      showError('Insert failed', e);
       // Revert optimistic row on error
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: { totalRows?: number } } | undefined;
@@ -1166,9 +1115,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await br.deleteRow(tableId, rowId);
       refresh();
     } catch (e) {
-      console.error('Delete failed:', e);
+      showError('Delete failed', e);
     }
   };
+  handleDeleteRowRef.current = handleDeleteRow;
 
   // ── Column operations ──
   const resetAddColState = () => {
@@ -1281,7 +1231,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
       refresh();
     } catch (e) {
-      console.error('Add column failed:', e);
+      showError('Add column failed', e);
     }
   };
 
@@ -1293,7 +1243,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
       refresh();
     } catch (e) {
-      console.error('Rename column failed:', e);
+      showError('Rename column failed', e);
     }
   };
 
@@ -1304,7 +1254,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
       refresh();
     } catch (e) {
-      console.error('Change column type failed:', e);
+      showError('Change column type failed', e);
     }
   };
 
@@ -1318,7 +1268,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
       refresh();
     } catch (e) {
-      console.error('Delete column failed:', e);
+      showError('Delete column failed', e);
     }
   };
 
@@ -1331,7 +1281,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       await gw.deleteContentItem(`table:${tableId}`);
       onDeleted?.();
     } catch (e) {
-      console.error('Delete table failed:', e);
+      showError('Delete table failed', e);
     }
   };
 
@@ -1352,7 +1302,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         offset += batchSize;
       }
       // Build CSV
-      const cols = displayCols.filter(c => !c.primary_key);
+      const cols = displayCols;
       const escapeCSV = (v: unknown) => {
         const s = v == null ? '' : String(v);
         return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
@@ -1371,7 +1321,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('Export CSV failed:', e);
+      showError('Export CSV failed', e);
     }
   };
 
@@ -1443,7 +1393,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setCsvColMap({});
       refresh();
     } catch (e) {
-      console.error('CSV import failed:', e);
+      showError('CSV import failed', e);
     } finally {
       setCsvImporting(false);
     }
@@ -1557,8 +1507,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         refreshMeta();
         refresh();
       } catch (e) {
-        console.error('Update field failed:', e);
-        alert(`Update field failed: ${e instanceof Error ? e.message : String(e)}`);
+        showError(t('dataTable.updateFieldFailed'), e);
       }
     } else {
       // Add new column
@@ -1599,7 +1548,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
       refresh();
     } catch (e) {
-      console.error('Duplicate column failed:', e);
+      showError('Duplicate column failed', e);
     }
   };
 
@@ -1695,7 +1644,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setSelectedRows(new Set());
       refresh();
     } catch (e) {
-      console.error('Bulk delete failed:', e);
+      showError('Bulk delete failed', e);
     }
   };
 
@@ -1710,7 +1659,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setBulkEditVal('');
       refresh();
     } catch (e) {
-      console.error('Bulk edit failed:', e);
+      showError('Bulk edit failed', e);
     }
   };
 
@@ -1818,13 +1767,36 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     );
   }
 
+  // ─── Mobile: Row detail replaces the entire table view ───
+  if (isMobile && expandedRowIdx != null && rows[expandedRowIdx]) {
+    return (
+      <RowDetailPanel
+        row={rows[expandedRowIdx]}
+        columns={displayCols}
+        tableId={tableId}
+        rowIndex={(page - 1) * pageSize + expandedRowIdx}
+        totalRows={totalRows}
+        onClose={() => { setExpandedRowIdx(null); setExpandWithComments(false); }}
+        onNavigate={(dir) => {
+          if (dir === 'prev' && expandedRowIdx > 0) setExpandedRowIdx(expandedRowIdx - 1);
+          if (dir === 'next' && expandedRowIdx < rows.length - 1) setExpandedRowIdx(expandedRowIdx + 1);
+        }}
+        onRefresh={refresh}
+        onDeleteRow={(rid) => { handleDeleteRow(rid); setExpandedRowIdx(null); }}
+        initialShowComments={expandWithComments}
+        onCommentChange={() => queryClient.invalidateQueries({ queryKey: ['commented-rows', tableId] })}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-card md:rounded-lg md:shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] md:overflow-hidden relative z-[1]">
       {/* Header */}
-      <div className="flex items-center border-b border-border bg-card shrink-0">
+      <div className="flex items-center border-b border-border bg-card shrink-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
         <ContentTopBar
           breadcrumb={breadcrumb}
+          onNavigate={onNavigate}
           onBack={onBack}
           docListVisible={docListVisible}
           onToggleDocList={onToggleDocList}
@@ -1835,73 +1807,48 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
               refreshMeta();
               queryClient.invalidateQueries({ queryKey: ['content-items'] });
             } catch (e) {
-              console.error('Rename table failed:', e);
+              showError('Rename table failed', e);
             }
           }}
           metaLine={
-            <div className="text-[11px] text-muted-foreground/50 flex items-center gap-2">
-              <span>{totalRows} {t('dataTable.rows')}</span>
-              {meta?.updated_at && (
-                <>
-                  <span>·</span>
-                  <span>{t('dataTable.lastEditedAt')} {new Date(meta.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                </>
-              )}
-            </div>
-          }
-          actions={<>
             <button
-              onClick={() => setShowTableComments(v => !v)}
-              className={cn('p-1.5 rounded transition-colors', showTableComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
-              title={t('content.comments')}
+              onClick={() => setShowHistory(true)}
+              className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
             >
-              <MessageSquare className="h-5 w-5 md:h-4 md:w-4" />
+              Last modified: {meta?.updated_at ? formatRelativeTime(meta.updated_at) : '—'}
+              {meta?.updated_by && <span> by {meta.updated_by}</span>}
             </button>
-            <div className="relative">
-              <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
-                <MoreHorizontal className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-              {showTableMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowTableMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
-                    <button
-                      onClick={() => { setShowTableMenu(false); setShowHistory(true); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.versionHistory')}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowTableMenu(false);
-                        if (onCopyLink) { onCopyLink(); }
-                        else {
-                          const url = new URL(window.location.href);
-                          url.searchParams.set('id', `table:${tableId}`);
-                          navigator.clipboard.writeText(url.toString());
-                        }
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.copyLink')}
-                    </button>
-                    <button
-                      onClick={handleExportCSV}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.download')}
-                    </button>
-                    <div className="border-t border-border my-1" />
-                    <button
-                      onClick={() => { setShowTableMenu(false); handleDeleteTable(); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> {t('content.delete')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+          }
+          onHistory={() => setShowHistory(true)}
+          onComments={() => setShowTableComments(v => !v)}
+          menuItems={[
+            { icon: Link2, label: 'Copy link', shortcut: '⌘⇧L', onClick: () => { if (onCopyLink) onCopyLink(); else { const url = new URL(window.location.href); url.searchParams.set('id', `table:${tableId}`); navigator.clipboard.writeText(url.toString()); } } },
+            { icon: Pin, label: 'Pin to top', onClick: () => {} },
+            { icon: Download, label: 'Download', onClick: () => handleExportCSV() },
+            { icon: Share2, label: 'Share', onClick: () => {} },
+            { icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleDeleteTable },
+            { icon: Clock, label: 'Version History', separator: true, shortcut: '⌘⇧H', onClick: () => setShowHistory(true) },
+            { icon: MessageSquare, label: 'Comments', shortcut: '⌘J', onClick: () => setShowTableComments(true) },
+            { icon: Search, label: 'Search', shortcut: '⌘F', onClick: () => {} },
+          ]}
+          actions={<>
+            {/* Search */}
+            <button className="p-2 text-black/70 dark:text-white/70 hover:text-foreground rounded transition-colors" title={t('toolbar.search')}>
+              <Search className="h-4 w-4" />
+            </button>
+            {/* Share button */}
+            <button className="flex items-center gap-1.5 h-8 px-3 ml-1 border border-black/20 dark:border-white/20 rounded-lg text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors">
+              <ExternalLink className="h-4 w-4" />
+              Share
+            </button>
+            {/* History */}
+            <button onClick={() => setShowHistory(v => !v)} className={cn('flex items-center justify-center w-8 h-8 ml-1 border border-black/20 dark:border-white/20 rounded-lg transition-colors', showHistory ? 'text-sidebar-primary bg-sidebar-primary/10 border-sidebar-primary/20' : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04]')} title={t('content.versionHistory')}>
+              <Clock className="h-4 w-4" />
+            </button>
+            {/* @ Comments */}
+            <button onClick={() => setShowTableComments(v => !v)} className={cn('flex items-center justify-center w-8 h-8 ml-1 rounded-lg transition-colors', showTableComments ? 'bg-sidebar-primary/80' : 'bg-sidebar-primary hover:bg-sidebar-primary/90')} title={t('content.comments')}>
+              <AtSign className="h-4 w-4 text-white" />
+            </button>
           </>}
         />
       </div>
@@ -1912,936 +1859,92 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       <div className="flex-1 flex flex-col min-w-0">
 
       {/* View tabs bar — hidden during history preview */}
-      {!previewSnapshot && <>
-      <div className="flex items-center gap-0 px-2 border-b border-border bg-card/50 shrink-0 overflow-x-auto">
-        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleViewDragEnd}>
-          <SortableContext items={orderedViews.map(v => v.view_id)} strategy={horizontalListSortingStrategy}>
-        {orderedViews.map(v => (
-          <SortableViewTab key={v.view_id} id={v.view_id}>
-          <div className="relative flex items-center">
-            {editingViewTitle === v.view_id ? (
-              <input
-                value={viewTitleValue}
-                onChange={e => setViewTitleValue(e.target.value)}
-                onBlur={() => handleRenameView(v.view_id)}
-                onKeyDown={e => { if (e.key === 'Enter') handleRenameView(v.view_id); if (e.key === 'Escape') setEditingViewTitle(null); }}
-                onPointerDown={e => e.stopPropagation()}
-                onMouseDown={e => e.stopPropagation()}
-                className="px-2 py-1 text-xs bg-transparent text-foreground outline-none border-b border-sidebar-primary"
-                autoFocus
-              />
-            ) : (
-              <button
-                onClick={() => { setActiveViewId(v.view_id); setPage(1); }}
-                onDoubleClick={() => { if (!v.is_default) { setEditingViewTitle(v.view_id); setViewTitleValue(v.title); } }}
-                className={cn(
-                  'flex items-center gap-1 px-3 py-1.5 text-xs whitespace-nowrap transition-colors border-b-2',
-                  activeViewId === v.view_id
-                    ? 'border-sidebar-primary text-foreground font-medium'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {(() => { const VIcon = getViewIcon(v.type); return <VIcon className="h-3 w-3" />; })()}
-                {lockedViews.has(v.view_id) && <Lock className="h-2.5 w-2.5 opacity-50" />}
-                {v.title}
-              </button>
-            )}
-            {activeViewId === v.view_id && (
-              <div className="relative">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setViewMenu(viewMenu === v.view_id ? null : v.view_id);
-                  }}
-                  className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded"
-                  data-view-menu-btn={v.view_id}
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </button>
-                {viewMenu === v.view_id && (() => {
-                  // Use fixed positioning to escape overflow:auto parent
-                  const btn = document.querySelector(`[data-view-menu-btn="${v.view_id}"]`);
-                  const rect = btn?.getBoundingClientRect();
-                  const top = rect ? rect.bottom + 4 : 0;
-                  const left = rect ? rect.left : 0;
-                  return (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setViewMenu(null)} />
-                    <div className="fixed z-40 bg-card border border-border rounded-lg shadow-xl py-1 w-44" style={{ top: `${top}px`, left: `${left}px` }}>
-                      <button
-                        onClick={() => {
-                          setViewMenu(null);
-                          // Move this view to first position
-                          setViewOrderIds(prev => {
-                            const ids = prev || orderedViews.map(vv => vv.view_id);
-                            const idx = ids.indexOf(v.view_id);
-                            if (idx > 0) {
-                              const next = [...ids];
-                              next.splice(idx, 1);
-                              next.unshift(v.view_id);
-                              return next;
-                            }
-                            return ids;
-                          });
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
-                      >
-                        <ArrowUp className="h-3 w-3" /> {t('dataTable.setAsFirstTab')}
-                      </button>
-                      <div className="border-t border-border my-1" />
-                      <button
-                        onClick={() => { setViewMenu(null); setEditingViewTitle(v.view_id); setViewTitleValue(v.title); }}
-                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
-                      >
-                        <Pencil className="h-3 w-3" /> {t('dataTable.renameView')}
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setViewMenu(null);
-                          try {
-                            const copyTitle = `${v.title} (copy)`;
-                            const newView = await br.createView(tableId, copyTitle, VIEW_TYPES.find(vt => vt.typeNum === v.type)?.type || 'grid');
-                            refreshMeta();
-                            setActiveViewId(newView.view_id);
-                          } catch (e) { console.error('Duplicate view failed:', e); }
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
-                      >
-                        <Copy className="h-3 w-3" /> {t('dataTable.duplicateView')}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setViewMenu(null);
-                          setLockedViews(prev => {
-                            const next = new Set(prev);
-                            if (next.has(v.view_id)) next.delete(v.view_id);
-                            else next.add(v.view_id);
-                            return next;
-                          });
-                        }}
-                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
-                      >
-                        <Lock className="h-3 w-3" /> {lockedViews.has(v.view_id) ? t('dataTable.unlockView') : t('dataTable.lockView')}
-                      </button>
-                      <div className="border-t border-border my-1" />
-                      <button
-                        onClick={() => handleDeleteView(v.view_id)}
-                        className="w-full flex items-center gap-2 px-3 py-1 text-xs text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="h-3 w-3" /> {t('dataTable.deleteView')}
-                      </button>
-                    </div>
-                  </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-          </SortableViewTab>
-        ))}
-          </SortableContext>
-        </DndContext>
-        {/* Create view — popup menu */}
-        <div className="relative ml-1 shrink-0">
-          <button
-            ref={createViewBtnRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              const rect = e.currentTarget.getBoundingClientRect();
-              setCreateViewMenuPos({ top: rect.bottom + 4, left: rect.left });
-              setShowCreateViewMenu(prev => !prev);
-            }}
-            className="p-1 text-muted-foreground hover:text-foreground"
-            title={t('dataTable.addView')}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Create view popup — rendered via portal to escape all overflow/stacking contexts */}
-      {showCreateViewMenu && createPortal(
-        <>
-          <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setShowCreateViewMenu(false)} />
-          <div
-            className="bg-card border border-border rounded-lg shadow-xl py-1 w-36"
-            style={{ position: 'fixed', zIndex: 9999, top: `${createViewMenuPos.top}px`, left: `${createViewMenuPos.left}px` }}
-          >
-            {VIEW_TYPES.map(vt => {
-              const VTIcon = vt.icon;
-              return (
-                <button
-                  key={vt.type}
-                  onClick={async () => {
-                    setShowCreateViewMenu(false);
-                    try {
-                      const existingCount = views.filter(v => v.type === vt.typeNum).length;
-                      const defaultName = `${t(`dataTable.viewTypes.${vt.key}`)}${t('dataTable.viewSuffix')}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`;
-                      const newView = await br.createView(tableId, defaultName, vt.type);
-                      if (vt.type === 'kanban') {
-                        const selectCol = displayCols.find(c => c.type === 'SingleSelect');
-                        if (selectCol) {
-                          await br.updateKanbanConfig(newView.view_id, { fk_grp_col_id: selectCol.column_id });
-                        }
-                      }
-                      refreshMeta();
-                      setActiveViewId(newView.view_id);
-                    } catch (e) { console.error('Create view failed:', e); }
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
-                >
-                  <VTIcon className="h-3 w-3" /> {t(`dataTable.viewTypes.${vt.key}`)}
-                </button>
-              );
-            })}
-          </div>
-        </>,
-        document.body
+      {!previewSnapshot && (
+        <ViewTabsBar
+          views={views}
+          activeViewId={activeViewId}
+          setActiveViewId={setActiveViewId}
+          orderedViews={orderedViews}
+          setViewOrderIds={setViewOrderIds}
+          displayCols={displayCols}
+          editingViewTitle={editingViewTitle}
+          setEditingViewTitle={setEditingViewTitle}
+          viewTitleValue={viewTitleValue}
+          setViewTitleValue={setViewTitleValue}
+          handleRenameView={handleRenameView}
+          handleDeleteView={handleDeleteView}
+          viewMenu={viewMenu}
+          setViewMenu={setViewMenu}
+          lockedViews={lockedViews}
+          setLockedViews={setLockedViews}
+          showCreateViewMenu={showCreateViewMenu}
+          setShowCreateViewMenu={setShowCreateViewMenu}
+          createViewMenuPos={createViewMenuPos}
+          setCreateViewMenuPos={setCreateViewMenuPos}
+          createViewBtnRef={createViewBtnRef}
+          dndSensors={dndSensors}
+          handleViewDragEnd={handleViewDragEnd}
+          tableId={tableId}
+          refreshMeta={refreshMeta}
+          setPage={setPage}
+          SortableViewTab={SortableViewTab}
+        />
       )}
-      </>}{/* end view tabs conditional */}
 
-      {/* Toolbar bar — NocoDB style, view-type aware — hidden during history preview and mobile preview */}
-      {!previewSnapshot && !mobilePreview && (() => {
-        const activeView = views.find(v => v.view_id === activeViewId);
-        const viewType = activeView?.type || 3;
-        const isForm = viewType === 1;
-        const isGallery = viewType === 2;
-        const isGrid = viewType === 3;
-        const isKanban = viewType === 4;
-
-        return (
-          <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border bg-card/30 shrink-0 relative">
-            {/* Add Record button — grid only */}
-            {isGrid && (
-              <button
-                onClick={handleAddRow}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-sidebar-primary hover:bg-sidebar-primary/10 rounded transition-colors font-medium mr-1"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {t('dataTable.addRecord')}
-              </button>
-            )}
-
-            {/* Customize Field — grid only */}
-            {isGrid && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('fields')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    (hiddenCols.size > 0 || activeToolbarPanel === 'fields')
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                  {t('dataTable.customizeField')}{hiddenCols.size > 0 ? ` (${hiddenCols.size})` : ''}
-                </button>
-                {activeToolbarPanel === 'fields' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
-                      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeField')}</span>
-                          <Info className="h-3 w-3 text-muted-foreground/60" />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => { displayCols.filter(c => !c.primary_key).forEach(c => toggleColVisibility(c.column_id, false)); }}
-                            className="text-[10px] text-sidebar-primary hover:opacity-80"
-                          >
-                            {t('dataTable.showAll')}
-                          </button>
-                          <button
-                            onClick={() => { displayCols.filter(c => !c.primary_key).forEach(c => toggleColVisibility(c.column_id, true)); }}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
-                          >
-                            {t('dataTable.hideAll')}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="py-1 max-h-72 overflow-y-auto">
-                        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleFieldDragEnd}>
-                          <SortableContext items={sortedDisplayCols.map(c => c.column_id)} strategy={verticalListSortingStrategy}>
-                            {sortedDisplayCols.map(col => {
-                              const ColIcon = getColIcon(col.type);
-                              const isHidden = hiddenCols.has(col.column_id);
-                              return (
-                                <SortableFieldRow key={col.column_id} id={col.column_id}>
-                                  {({ dragHandleProps }) => (
-                                    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent/50 group">
-                                      <span {...dragHandleProps} className="shrink-0 cursor-grab">
-                                        <GripVertical className="h-3 w-3 text-muted-foreground/30" />
-                                      </span>
-                                      <ColIcon className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                                      <span className={cn('text-xs flex-1 truncate', isHidden ? 'text-muted-foreground' : 'text-foreground')}>
-                                        {col.title}
-                                      </span>
-                                      {col.primary_key ? (
-                                        <Lock className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                                      ) : (
-                                        <button
-                                          onClick={() => toggleColVisibility(col.column_id)}
-                                          className={cn('p-0.5 rounded transition-colors shrink-0',
-                                            isHidden ? 'text-muted-foreground/50 hover:text-foreground' : 'text-sidebar-primary hover:opacity-80'
-                                          )}
-                                        >
-                                          {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                        </button>
-                                      )}
-                                    </div>
-                                  )}
-                                </SortableFieldRow>
-                              );
-                            })}
-                          </SortableContext>
-                        </DndContext>
-                      </div>
-                      <div className="px-3 py-2 border-t border-border">
-                        <button
-                          onClick={() => { setActiveToolbarPanel(null); setInsertColPosition(null); openAddField(); }}
-                          className="flex items-center gap-1.5 text-xs text-sidebar-primary hover:opacity-80"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> {t('dataTable.newField')}
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Kanban: Group by button */}
-            {isKanban && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('kanban-group')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    activeToolbarPanel === 'kanban-group'
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <Group className="h-3.5 w-3.5" />
-                  {t('dataTable.groupBy')} {activeView?.fk_grp_col_id ? displayCols.find(c => c.column_id === activeView.fk_grp_col_id)?.title : ''}
-                </button>
-                {activeToolbarPanel === 'kanban-group' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-64">
-                      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">{t('dataTable.groupByFields')}</span>
-                        <Info className="h-3 w-3 text-muted-foreground/60" />
-                      </div>
-                      <div className="p-3">
-                        <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.selectGroupCondition')}</div>
-                        <div className="space-y-0.5">
-                          {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(c => {
-                            const ColIcon = getColIcon(c.type);
-                            const isActive = activeView?.fk_grp_col_id === c.column_id;
-                            return (
-                              <button
-                                key={c.column_id}
-                                onClick={async () => {
-                                  if (activeView) {
-                                    await br.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });
-                                    refreshMeta();
-                                    setActiveToolbarPanel(null);
-                                  }
-                                }}
-                                className={cn(
-                                  'w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded transition-colors',
-                                  isActive ? 'text-sidebar-primary bg-sidebar-primary/10 font-medium' : 'text-foreground hover:bg-accent'
-                                )}
-                              >
-                                <ColIcon className="h-3.5 w-3.5 shrink-0" />
-                                {c.title}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Kanban: {t('dataTable.customizeCard')} */}
-            {isKanban && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('kanban-card')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    activeToolbarPanel === 'kanban-card'
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <CreditCard className="h-3.5 w-3.5" />
-                  {t('dataTable.customizeCard')}
-                </button>
-                {activeToolbarPanel === 'kanban-card' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
-                      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeCard')}</span>
-                      </div>
-                      <div className="p-3 space-y-3">
-                        <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
-                          <select
-                            value={activeView?.fk_cover_image_col_id || ''}
-                            onChange={async e => { if (activeView) { await br.updateKanbanConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
-                            className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
-                          >
-                            <option value="">{t('dataTable.none')}</option>
-                            {displayCols.filter(c => c.type === 'Attachment').map(c => (
-                              <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.fields')}</div>
-                          {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(col => {
-                            const ColIcon = getColIcon(col.type);
-                            const isHidden = hiddenCols.has(col.column_id);
-                            return (
-                              <div key={col.column_id} className="flex items-center gap-2 py-1 hover:bg-accent/50 rounded px-1">
-                                <ColIcon className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-                                <span className="text-xs flex-1 text-foreground truncate">{col.title}</span>
-                                <button
-                                  onClick={() => toggleColVisibility(col.column_id)}
-                                  className={cn('p-0.5 shrink-0', isHidden ? 'text-muted-foreground/40' : 'text-sidebar-primary')}
-                                >
-                                  {isHidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Gallery: {t('dataTable.customizeCard')} */}
-            {isGallery && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('gallery-card')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    activeToolbarPanel === 'gallery-card'
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <Image className="h-3.5 w-3.5" />
-                  {t('dataTable.customizeCard')}
-                </button>
-                {activeToolbarPanel === 'gallery-card' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-72">
-                      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">{t('dataTable.customizeCard')}</span>
-                      </div>
-                      <div className="p-3 space-y-3">
-                        <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
-                          <select
-                            value={activeView?.fk_cover_image_col_id || ''}
-                            onChange={async e => { if (activeView) { await br.updateGalleryConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
-                            className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
-                          >
-                            <option value="">{t('dataTable.none')}</option>
-                            {displayCols.filter(c => c.type === 'Attachment').map(c => (
-                              <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.fields')}</div>
-                          {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(col => {
-                            const ColIcon = getColIcon(col.type);
-                            const isHidden = hiddenCols.has(col.column_id);
-                            return (
-                              <div key={col.column_id} className="flex items-center gap-2 py-1 hover:bg-accent/50 rounded px-1">
-                                <ColIcon className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-                                <span className="text-xs flex-1 text-foreground truncate">{col.title}</span>
-                                <button
-                                  onClick={() => toggleColVisibility(col.column_id)}
-                                  className={cn('p-0.5 shrink-0', isHidden ? 'text-muted-foreground/40' : 'text-sidebar-primary')}
-                                >
-                                  {isHidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Group By — grid only */}
-            {isGrid && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('groupby')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    (groupByCol || activeToolbarPanel === 'groupby')
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <Group className="h-3.5 w-3.5" />
-                  {t('dataTable.groupBy')}{groupByCol ? ` (${groupByCol})` : ''}
-                </button>
-                {activeToolbarPanel === 'groupby' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-64">
-                      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">{t('dataTable.groupByFields')}</span>
-                        <Info className="h-3 w-3 text-muted-foreground/60" />
-                      </div>
-                      <div className="p-3">
-                        <select
-                          value={groupByCol || ''}
-                          onChange={e => setGroupByCol(e.target.value || null)}
-                          className="w-full bg-muted rounded-lg px-3 py-2 text-xs text-foreground outline-none"
-                        >
-                          <option value="">{t('dataTable.chooseField')}</option>
-                          {displayCols.filter(c => !c.primary_key && !READONLY_TYPES.has(c.type)).map(c => {
-                            const ColIcon = getColIcon(c.type);
-                            return (
-                              <option key={c.column_id} value={c.title}>{c.title}</option>
-                            );
-                          })}
-                        </select>
-                        {groupByCol && (
-                          <button
-                            onClick={() => { setGroupByCol(null); }}
-                            className="mt-2 flex items-center gap-1 text-xs text-destructive hover:opacity-80"
-                          >
-                            <X className="h-3 w-3" /> {t('dataTable.removeGrouping')}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Filter — grid, kanban, gallery */}
-            {!isForm && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('filter')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    (viewFilters?.length || activeToolbarPanel === 'filter')
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                  {viewFilters?.length ? `${viewFilters.length} ${t('dataTable.filter')}` : t('dataTable.filter')}
-                </button>
-                {activeToolbarPanel === 'filter' && activeViewId && (() => {
-                  const filterContent = (
-                    <>
-                      <div className="p-3 space-y-2">
-                        {viewFilters?.map(f => {
-                          const col = displayCols.find(c => c.column_id === f.fk_column_id);
-                          const filterOps = getFilterOpsForType(col?.type);
-                          return (
-                            <div key={f.filter_id} className="flex items-center gap-2">
-                              <select
-                                value={f.fk_column_id}
-                                onChange={e => handleUpdateFilter(f.filter_id, { fk_column_id: e.target.value })}
-                                className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
-                              >
-                                {displayCols.map(c => (
-                                  <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                                ))}
-                              </select>
-                              <select
-                                value={f.comparison_op}
-                                onChange={e => handleUpdateFilter(f.filter_id, { comparison_op: e.target.value })}
-                                className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none w-24"
-                              >
-                                {filterOps.map(op => <option key={op.value} value={op.value}>{t(`dataTable.filterOps.${op.key}`)}</option>)}
-                              </select>
-                              {(col?.type === 'SingleSelect' || col?.type === 'MultiSelect') && col?.options?.length ? (
-                                <select
-                                  value={f.value || ''}
-                                  onChange={e => handleUpdateFilter(f.filter_id, { value: e.target.value })}
-                                  className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
-                                >
-                                  <option value="">{t('dataTable.valuePlaceholder')}</option>
-                                  {col.options.map(opt => <option key={opt.title} value={opt.title}>{opt.title}</option>)}
-                                </select>
-                              ) : (f.comparison_op === 'is' || f.comparison_op === 'isnot' || f.comparison_op === 'checked' || f.comparison_op === 'notchecked') ? (
-                                <span className="flex-1" />
-                              ) : (
-                                <input
-                                  defaultValue={f.value}
-                                  onBlur={e => { if (e.target.value !== f.value) handleUpdateFilter(f.filter_id, { value: e.target.value }); }}
-                                  onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                  className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
-                                />
-                              )}
-                              <button onClick={() => handleDeleteFilter(f.filter_id)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                        <div className="flex items-center gap-2">
-                          <select value={newFilterCol} onChange={e => setNewFilterCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0">
-                            <option value="">{t('dataTable.fieldPlaceholder')}</option>
-                            {displayCols.map(c => (
-                              <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                            ))}
-                          </select>
-                          <select value={newFilterOp} onChange={e => setNewFilterOp(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none w-24">
-                            {getFilterOpsForType(displayCols.find(c => c.column_id === newFilterCol)?.type).map(op => <option key={op.value} value={op.value}>{t(`dataTable.filterOps.${op.key}`)}</option>)}
-                          </select>
-                          {(() => {
-                            const selCol = displayCols.find(c => c.column_id === newFilterCol);
-                            if ((selCol?.type === 'SingleSelect' || selCol?.type === 'MultiSelect') && selCol?.options?.length) {
-                              return (
-                                <select value={newFilterVal} onChange={e => setNewFilterVal(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0">
-                                  <option value="">{t('dataTable.valuePlaceholder')}</option>
-                                  {selCol.options.map(opt => <option key={opt.title} value={opt.title}>{opt.title}</option>)}
-                                </select>
-                              );
-                            }
-                            if (newFilterOp === 'is' || newFilterOp === 'isnot' || newFilterOp === 'checked' || newFilterOp === 'notchecked') return <span className="flex-1" />;
-                            return (
-                              <input
-                                value={newFilterVal}
-                                onChange={e => setNewFilterVal(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter') handleAddFilter(); }}
-                                placeholder={t('dataTable.valuePlaceholder')}
-                                className="bg-muted rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none flex-1 min-w-0"
-                              />
-                            );
-                          })()}
-                          <button onClick={handleAddFilter} disabled={!newFilterCol} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30 shrink-0">
-                            <X className="h-3.5 w-3.5 rotate-45" />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="px-3 py-2 border-t border-border">
-                        <button
-                          onClick={handleAddFilter}
-                          disabled={!newFilterCol}
-                          className="flex items-center gap-1.5 text-xs text-sidebar-primary hover:opacity-80 disabled:opacity-40"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> {t('dataTable.addCondition')}
-                        </button>
-                      </div>
-                    </>
-                  );
-
-                  if (isMobile) {
-                    return (
-                      <BottomSheet
-                        open={true}
-                        onClose={() => setActiveToolbarPanel(null)}
-                        title={t('dataTable.filterRecords')}
-                        initialHeight="half"
-                      >
-                        {filterContent}
-                      </BottomSheet>
-                    );
-                  }
-
-                  return (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                      <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-[420px]">
-                        <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                          <span className="text-xs font-semibold text-foreground">{t('dataTable.filterRecords')}</span>
-                          <Info className="h-3 w-3 text-muted-foreground/60" />
-                        </div>
-                        {filterContent}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Sort — grid, kanban, gallery */}
-            {!isForm && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('sort')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    (viewSorts?.length || activeToolbarPanel === 'sort')
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                  {viewSorts?.length ? `${viewSorts.length} ${t('dataTable.sort')}` : t('dataTable.sort')}
-                </button>
-                {activeToolbarPanel === 'sort' && activeViewId && (() => {
-                  const sortContent = (
-                    <div className="p-3 space-y-2">
-                      {viewSorts?.map(s => {
-                        const col = displayCols.find(c => c.column_id === s.fk_column_id);
-                        return (
-                          <div key={s.sort_id} className="flex items-center gap-2">
-                            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 cursor-grab" />
-                            <select
-                              value={s.fk_column_id}
-                              onChange={e => handleUpdateSort(s.sort_id, { fk_column_id: e.target.value })}
-                              className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
-                            >
-                              {displayCols.map(c => (
-                                <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                              ))}
-                            </select>
-                            <div className="flex rounded overflow-hidden border border-border shrink-0">
-                              <button
-                                onClick={() => handleUpdateSort(s.sort_id, { direction: 'asc' })}
-                                className={cn('px-2 py-1 text-xs transition-colors',
-                                  s.direction === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                A→Z
-                              </button>
-                              <button
-                                onClick={() => handleUpdateSort(s.sort_id, { direction: 'desc' })}
-                                className={cn('px-2 py-1 text-xs transition-colors border-l border-border',
-                                  s.direction === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                                )}
-                              >
-                                Z→A
-                              </button>
-                            </div>
-                            <button onClick={() => handleDeleteSort(s.sort_id)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                      <div className="flex items-center gap-2">
-                        <select value={newSortCol} onChange={e => setNewSortCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1">
-                          <option value="">{t('dataTable.chooseField')}</option>
-                          {displayCols.map(c => (
-                            <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                          ))}
-                        </select>
-                        <div className="flex rounded overflow-hidden border border-border shrink-0">
-                          <button
-                            onClick={() => setNewSortDir('asc')}
-                            className={cn('px-2 py-1.5 text-xs transition-colors',
-                              newSortDir === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            A→Z
-                          </button>
-                          <button
-                            onClick={() => setNewSortDir('desc')}
-                            className={cn('px-2 py-1.5 text-xs transition-colors border-l border-border',
-                              newSortDir === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                            )}
-                          >
-                            Z→A
-                          </button>
-                        </div>
-                        <button onClick={handleAddSort} disabled={!newSortCol} className="p-1 text-muted-foreground hover:text-sidebar-primary disabled:opacity-30 shrink-0">
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-
-                  if (isMobile) {
-                    return (
-                      <BottomSheet
-                        open={true}
-                        onClose={() => setActiveToolbarPanel(null)}
-                        title={t('dataTable.sortByFields')}
-                        initialHeight="half"
-                      >
-                        {sortContent}
-                      </BottomSheet>
-                    );
-                  }
-
-                  return (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                      <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-80">
-                        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-foreground">{t('dataTable.sortByFields')}</span>
-                            <Info className="h-3 w-3 text-muted-foreground/60" />
-                          </div>
-                        </div>
-                        {sortContent}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* Row Height — grid only */}
-            {isGrid && (
-              <div className="relative">
-                <button
-                  onClick={() => toggleToolbarPanel('rowheight')}
-                  className={cn('flex items-center gap-1.5 px-2.5 py-1 text-xs rounded transition-colors',
-                    (rowHeight !== 'short' || activeToolbarPanel === 'rowheight')
-                      ? 'text-sidebar-primary bg-sidebar-primary/8'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                >
-                  <AlignVerticalSpaceAround className="h-3.5 w-3.5" />
-                  {t('dataTable.rowHeight')}
-                </button>
-                {activeToolbarPanel === 'rowheight' && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-44 py-1">
-                      {([
-                        { key: 'short' as const, labelKey: 'dataTable.rowHeightShort', icon: '▤' },
-                        { key: 'medium' as const, labelKey: 'dataTable.rowHeightMedium', icon: '▥' },
-                        { key: 'tall' as const, labelKey: 'dataTable.rowHeightTall', icon: '▦' },
-                        { key: 'extra' as const, labelKey: 'dataTable.rowHeightExtra', icon: '▧' },
-                      ]).map(opt => (
-                        <button
-                          key={opt.key}
-                          onClick={() => { setRowHeight(opt.key); setActiveToolbarPanel(null); }}
-                          className={cn(
-                            'w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-accent transition-colors',
-                            rowHeight === opt.key ? 'text-sidebar-primary font-medium' : 'text-foreground'
-                          )}
-                        >
-                          <span className="text-sm leading-none opacity-60">{opt.icon}</span>
-                          {t(opt.labelKey)}
-                          {rowHeight === opt.key && <span className="ml-auto text-sidebar-primary">✓</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Spacer to push right */}
-            <div className="flex-1" />
-          </div>
-        );
-      })()}
+      {/* Toolbar bar — view-type aware — hidden during history preview and mobile preview */}
+      {!previewSnapshot && !mobilePreview && (
+        <TableToolbar
+          views={views}
+          activeViewId={activeViewId}
+          displayCols={displayCols}
+          sortedDisplayCols={sortedDisplayCols}
+          activeToolbarPanel={activeToolbarPanel}
+          setActiveToolbarPanel={setActiveToolbarPanel}
+          toggleToolbarPanel={toggleToolbarPanel}
+          hiddenCols={hiddenCols}
+          toggleColVisibility={toggleColVisibility}
+          dndSensors={dndSensors}
+          handleFieldDragEnd={handleFieldDragEnd}
+          openAddField={openAddField}
+          setInsertColPosition={setInsertColPosition}
+          groupByCol={groupByCol}
+          setGroupByCol={setGroupByCol}
+          viewFilters={viewFilters}
+          handleAddFilter={handleAddFilter}
+          handleDeleteFilter={handleDeleteFilter}
+          handleUpdateFilter={handleUpdateFilter}
+          newFilterCol={newFilterCol}
+          setNewFilterCol={setNewFilterCol}
+          newFilterOp={newFilterOp}
+          setNewFilterOp={setNewFilterOp}
+          newFilterVal={newFilterVal}
+          setNewFilterVal={setNewFilterVal}
+          viewSorts={viewSorts}
+          handleAddSort={handleAddSort}
+          handleDeleteSort={handleDeleteSort}
+          handleUpdateSort={handleUpdateSort}
+          newSortCol={newSortCol}
+          setNewSortCol={setNewSortCol}
+          newSortDir={newSortDir}
+          setNewSortDir={setNewSortDir}
+          rowHeight={rowHeight}
+          setRowHeight={setRowHeight}
+          handleAddRow={handleAddRow}
+          refreshMeta={refreshMeta}
+          isMobile={isMobile}
+          SortableFieldRow={SortableFieldRow}
+        />
+      )}
 
       {/* History version preview — replaces content area when a snapshot is selected */}
       {previewSnapshot && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {/* Preview banner */}
-          <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 shrink-0">
-            <div className="flex items-center gap-2 text-sm">
-              <Clock size={14} className="text-amber-600 dark:text-amber-400" />
-              <span className="font-medium text-amber-800 dark:text-amber-200">
-                {t('dataTableHistory.previewingVersion')}
-              </span>
-              <span className="text-amber-600 dark:text-amber-400">
-                — {(() => {
-                  const d = new Date(previewSnapshot.createdAt);
-                  const now = new Date();
-                  const diff = now.getTime() - d.getTime();
-                  const mins = Math.floor(diff / 60000);
-                  const hours = Math.floor(diff / 3600000);
-                  const days = Math.floor(diff / 86400000);
-                  if (mins < 1) return t('time.justNow');
-                  if (mins < 60) return t('time.minutesAgo', { n: mins });
-                  if (hours < 24) return t('time.hoursAgo', { n: hours });
-                  if (days < 7) return t('time.daysAgo', { n: days });
-                  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                })()}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  if (!confirm(t('dataTableHistory.restoreConfirm'))) return;
-                  try {
-                    const result = await gw.restoreTableSnapshot(tableId, previewSnapshot.snapshotId);
-                    console.log('[TableEditor] Restore success:', result);
-                    setPreviewSnapshot(null);
-                    setShowHistory(false);
-                    setPage(1);
-                    // Force refetch all data so restored content is visible immediately
-                    queryClient.removeQueries({ queryKey: ['nc-rows', tableId] });
-                    queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
-                  } catch (e: unknown) {
-                    console.error('[TableEditor] Restore error:', e);
-                    alert(e instanceof Error ? e.message : 'Restore failed');
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-              >
-                <RotateCcw size={12} />
-                {t('dataTableHistory.restoreVersion')}
-              </button>
-              <button
-                onClick={() => { setPreviewSnapshot(null); setShowHistory(false); }}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
-              >
-                <X size={12} />
-                {t('dataTableHistory.exitPreview')}
-              </button>
-            </div>
-          </div>
-          {/* Read-only snapshot table — horizontal scroll like link picker */}
-          <div className="flex-1 overflow-auto bg-amber-50/30 dark:bg-amber-950/10">
-            {previewSnapshot.rows.length === 0 ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">{t('dataTable.emptyTable')}</div>
-            ) : (() => {
-              const HIDDEN_SNAPSHOT_UIDTS = new Set(['ID', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'Count']);
-              const snapshotCols = previewSnapshot.schema.filter((c: { uidt: string }) => !HIDDEN_SNAPSHOT_UIDTS.has(c.uidt));
-              return (
-                <table className="text-xs" style={{ minWidth: '100%' }}>
-                  <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-[5]">
-                    <tr>
-                      <th className="w-10 min-w-[40px] px-2 py-2 text-center text-[10px] font-normal text-muted-foreground/50 border-r border-border sticky left-0 bg-muted/80 z-10">#</th>
-                      {snapshotCols.map((col: { title: string; uidt: string }, i: number) => (
-                        <th key={i} className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap min-w-[120px]">
-                          {col.title}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewSnapshot.rows.map((row: Record<string, unknown>, ri: number) => (
-                      <tr key={ri} className="border-b border-border/30 hover:bg-accent/20">
-                        <td className="w-10 min-w-[40px] px-2 py-1.5 text-center text-[10px] text-muted-foreground/50 border-r border-border sticky left-0 bg-amber-50/30 dark:bg-amber-950/10 z-10">{ri + 1}</td>
-                        {snapshotCols.map((col: { title: string; uidt: string }, ci: number) => (
-                          <td key={ci} className="px-3 py-1.5 text-foreground max-w-[250px]">
-                            <SnapshotCellValue value={row[col.title]} colType={col.uidt} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              );
-            })()}
-          </div>
-        </div>
+        <SnapshotPreviewPanel
+          previewSnapshot={previewSnapshot}
+          tableId={tableId}
+          onRestore={() => { setPreviewSnapshot(null); setShowHistory(false); setPage(1); }}
+          onClose={() => { setPreviewSnapshot(null); setShowHistory(false); }}
+          queryClient={queryClient}
+        />
       )}
 
       {/* Content area — view type determines rendering — hidden during history preview */}
@@ -2884,7 +1987,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             onSubmit={async (data) => { await br.insertRow(tableId, data); refresh(); }}
           />
         );
-        // Calendar view (frontend-only, NocoDB doesn't support it)
+        // Calendar view (frontend-only)
         if (viewType === 5) return (
           <CalendarView
             rows={rows}
@@ -3148,13 +2251,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   );
                 })}
                   </SortableContext>
-                {!mobilePreview && (
                 <th className="px-2 py-1.5 border-r border-border">
                   <button onClick={(e) => { const rect = (e.target as HTMLElement).getBoundingClientRect(); setEditFieldAnchor({ x: rect.right - 384, y: rect.bottom + 4 }); setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title={t('dataTable.addCol')}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -3163,7 +2264,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                 const renderRow = (row: Record<string, unknown>, rowIdx: number) => {
                 const rowId = row.Id as number;
                 return (
-                  <tr key={rowId ?? rowIdx} className="border-b border-border hover:bg-accent/10 transition-colors group/row">
+                  <tr key={rowId ?? rowIdx} data-row-id={rowId} className="border-b border-border hover:bg-accent/10 transition-colors group/row">
                     <td className="py-0 text-center text-[10px] text-muted-foreground/40 relative overflow-hidden sticky left-0 z-[3] bg-card after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }}>
                       {/* Number always present for layout; checkbox overlays on hover */}
                       <span className={cn('inline-block', (selectedRows.has(rowId)) && 'invisible')}>
@@ -3194,6 +2295,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                       return (
                         <td
                           key={col.column_id}
+                          data-col-title={col.title}
                           className={cn(
                             'px-2 relative',
                             isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-border' : 'border-r border-border',
@@ -3315,7 +2417,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                 const updated = (attachments as any[]).filter((_: any, i: number) => i !== idx);
                                 await br.updateRow(tableId, rowId, { [col.title]: updated });
                                 refresh();
-                              } catch (e) { console.error('Delete attachment failed:', e); }
+                              } catch (e) { showError('Delete attachment failed', e); }
                             } : undefined} />
                           )}
                           {/* Select dropdown */}
@@ -3536,14 +2638,14 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                         });
                                         try {
                                           await br.updateRow(tableId, rowId, { [col.title]: reordered });
-                                        } catch (e) { console.error('Reorder failed:', e); refresh(); }
+                                        } catch (e) { showError('Reorder failed', e); refresh(); }
                                       }}
                                     >
                                     <SortableContext items={attachments.map((_: any, i: number) => i)} strategy={verticalListSortingStrategy}>
                                     <div className="overflow-y-auto flex-1 py-1">
                                       {attachments.map((att: any, idx: number) => {
                                         const isImage = att.mimetype?.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(att.title || att.path || '');
-                                        const thumbUrl = att.path ? ncAttachmentUrl(att) : '';
+                                        const thumbUrl = att.path ? attachmentUrl(att) : '';
                                         return (
                                           <SortableAttachmentItem key={idx} id={idx}>
                                             <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent group/att">
@@ -3557,7 +2659,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                               )}
                                               <span className="flex-1 text-xs text-foreground truncate">{att.title || att.path?.split('/').pop() || 'file'}</span>
                                               <a
-                                                href={ncAttachmentUrl(att)}
+                                                href={attachmentUrl(att)}
                                                 download={att.title || att.path?.split('/').pop() || 'file'}
                                                 onClick={e => e.stopPropagation()}
                                                 className="hidden group-hover/att:block p-0.5 text-muted-foreground hover:text-sidebar-primary shrink-0"
@@ -3621,7 +2723,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                   return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: dateStr || null } : r) };
                                 });
                                 try { await br.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
+<<<<<<< Updated upstream
                                 catch (e) { console.error('Date update failed:', e); refresh(); }
+=======
+                                catch (e) { showError('Date update failed', e); refresh(); }
+>>>>>>> Stashed changes
                               }}
                               onClose={() => setDatePicker(null)}
                             />
@@ -3633,6 +2739,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   </tr>
                 );
                 };
+<<<<<<< Updated upstream
 
                 if (groupByCol) {
                   // Group rows by the specified column
@@ -5397,250 +4504,290 @@ function GalleryView({ rows, columns, activeView, isLoading, onAddRow, hiddenCol
       </div>
     );
   }
+=======
+>>>>>>> Stashed changes
 
-  return (
-    <div className="flex-1 overflow-auto p-4">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {rows.map((row, i) => {
-          const rowId = row.Id as number;
-          return (
-            <div
-              key={rowId ?? i}
-              className="bg-card border border-border rounded-lg overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
-              onClick={() => onExpandRow?.(rowId)}
-            >
-              {coverCol && (() => {
-                const coverVal = row[coverCol.title];
-                if (!coverVal) return <div className="w-full h-32 bg-muted/60" />;
-                try {
-                  const arr = Array.isArray(coverVal) ? coverVal : JSON.parse(String(coverVal));
-                  const img = arr.find((a: any) => a.mimetype?.startsWith('image/'));
-                  if (!img) return <div className="w-full h-32 bg-muted/60" />;
-                  return <img src={ncAttachmentUrl(img)} className="w-full h-32 object-cover" alt="" />;
-                } catch { return <div className="w-full h-32 bg-muted/60" />; }
+                if (groupByCol) {
+                  // Group rows by the specified column
+                  const groups = new Map<string, { rows: Record<string, unknown>[]; indices: number[] }>();
+                  rows.forEach((row, idx) => {
+                    const val = row[groupByCol] == null ? '' : String(row[groupByCol]);
+                    const key = val || '(empty)';
+                    if (!groups.has(key)) groups.set(key, { rows: [], indices: [] });
+                    groups.get(key)!.rows.push(row);
+                    groups.get(key)!.indices.push(idx);
+                  });
+                  return Array.from(groups.entries()).map(([groupKey, group]) => (
+                    <GroupRows key={groupKey} groupKey={groupKey} count={group.rows.length} colSpan={visibleCols.length + 2}>
+                      {group.rows.map((row, i) => renderRow(row, group.indices[i]))}
+                    </GroupRows>
+                  ));
+                }
+                return rows.map((row, rowIdx) => renderRow(row, rowIdx));
               })()}
-              <div className="p-4 space-y-2">
-              <div className="text-sm font-semibold text-foreground truncate">
-                {titleCol ? String(row[titleCol.title] ?? '') : `#${rowId}`}
-              </div>
-              {detailCols.map(c => {
-                const val = row[c.title];
-                if (val == null || val === '') return null;
-                const ColIcon = getColIcon(c.type);
-                return (
-                  <div key={c.column_id} className="flex items-start gap-1.5">
-                    <ColIcon className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] text-muted-foreground">{c.title}</div>
-                      <CompactCellDisplay value={val} col={c} />
-                    </div>
-                  </div>
-                );
-              })}
-              </div>
-            </div>
-          );
-        })}
-        <button
-          onClick={onAddRow}
-          className="border-2 border-dashed border-border rounded-lg p-4 flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-        >
-          <Plus className="h-5 w-5 mr-1" /> {t('dataTable.newRecord')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Form View ──
-
-function FormView({ columns, tableId, onSubmit }: {
-  columns: br.BRColumn[];
-  tableId: string;
-  onSubmit: (data: Record<string, unknown>) => Promise<void>;
-}) {
-  const { t } = useT();
-  const [formData, setFormData] = useState<Record<string, string>>({});
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      await onSubmit(formData);
-      setFormData({});
-      setSubmitted(true);
-      setTimeout(() => setSubmitted(false), 2000);
-    } catch (e) { console.error('Form submit failed:', e); }
-    setSubmitting(false);
-  };
-
-  return (
-    <div className="flex-1 overflow-auto flex justify-center py-8">
-      <div className="w-full max-w-lg space-y-4 px-4">
-        <h3 className="text-lg font-semibold text-foreground">{t('dataTable.newRecordTitle')}</h3>
-        {columns.map(col => {
-          const ColIcon = getColIcon(col.type);
-          return (
-            <div key={col.column_id} className="space-y-1">
-              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <ColIcon className="h-3 w-3" />
-                {col.title}
-                {col.required && <span className="text-destructive">*</span>}
-              </label>
-              {col.type === 'LongText' ? (
-                <textarea
-                  value={formData[col.title] || ''}
-                  onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.value }))}
-                  rows={3}
-                  className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none resize-none"
-                  placeholder={col.title}
-                />
-              ) : col.type === 'Checkbox' ? (
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData[col.title] === 'true'}
-                    onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.checked ? 'true' : '' }))}
-                    className="rounded border-border"
-                  />
-                  <span className="text-xs text-foreground">{t('dataTable.yes')}</span>
-                </label>
-              ) : col.type === 'SingleSelect' && col.options?.length ? (
-                <select
-                  value={formData[col.title] || ''}
-                  onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.value }))}
-                  className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground outline-none"
-                >
-                  <option value="">{t('dataTable.selectPlaceholder')}</option>
-                  {col.options.map(o => <option key={o.title} value={o.title}>{o.title}</option>)}
-                </select>
-              ) : (
-                <input
-                  value={formData[col.title] || ''}
-                  onChange={e => setFormData(d => ({ ...d, [col.title]: e.target.value }))}
-                  className="w-full bg-muted rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none"
-                  placeholder={col.title}
-                  type={col.type === 'Email' ? 'email' : col.type === 'URL' ? 'url' : 'text'}
-                  inputMode={['Number', 'Decimal', 'Currency', 'Percent'].includes(col.type) ? 'decimal' : undefined}
-                />
+              {!mobilePreview && (
+              <tr className="border-b border-border">
+                <td className="px-2 py-1 sticky left-0 z-[3] bg-card relative after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }} />
+                <td className="px-2 py-1 sticky left-[32px] z-[3] bg-card">
+                  <button onClick={handleAddRow} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground py-0.5">
+                    <Plus className="h-3 w-3" /> {t('dataTable.addRecord')}
+                  </button>
+                </td>
+                <td colSpan={displayCols.length} />
+              </tr>
               )}
-            </div>
-          );
-        })}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="px-6 py-2 bg-sidebar-primary text-sidebar-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-50"
-          >
-            {submitting ? t('dataTable.submitting') : t('dataTable.submit')}
-          </button>
-          {submitted && <span className="text-xs text-green-500">{t('dataTable.submitted')}</span>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Calendar View ──
-
-function CalendarView({ rows, columns, isLoading }: {
-  rows: Record<string, unknown>[];
-  columns: br.BRColumn[];
-  isLoading: boolean;
-}) {
-  const { t } = useT();
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
-
-  // Find date/datetime columns
-  const dateCol = columns.find(c => c.type === 'Date' || c.type === 'DateTime');
-  const titleCol = columns.find(c => c.primary_key) || columns[0];
-
-  if (!dateCol) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="bg-card border border-border rounded-xl p-6 max-w-sm text-center space-y-3">
-          <CalendarDays className="h-8 w-8 mx-auto text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">{t('dataTable.needDateField')}</h3>
-          <p className="text-xs text-muted-foreground">{t('dataTable.needDateFieldHint')}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const year = currentMonth.getFullYear();
-  const month = currentMonth.getMonth();
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-  // Group rows by date
-  const rowsByDate: Record<string, Record<string, unknown>[]> = {};
-  for (const row of rows) {
-    const dateVal = row[dateCol.title];
-    if (!dateVal) continue;
-    const dateStr = String(dateVal).slice(0, 10); // YYYY-MM-DD
-    if (!rowsByDate[dateStr]) rowsByDate[dateStr] = [];
-    rowsByDate[dateStr].push(row);
-  }
-
-  const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
-  const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
-
-  const weekDaysRaw = t('dataTable.weekdays', { returnObjects: true });
-  const weekDays = Array.isArray(weekDaysRaw) ? weekDaysRaw as string[] : ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-
-  if (isLoading) {
-    return <div className="flex-1 p-4"><div className="h-full rounded bg-muted/50 animate-pulse" /></div>;
-  }
-
-  return (
-    <div className="flex-1 overflow-auto p-4 flex flex-col">
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={prevMonth} className="p-1 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-        <h3 className="text-sm font-semibold text-foreground">{t('dataTable.yearMonth', { year, month: month + 1 })}</h3>
-        <button onClick={nextMonth} className="p-1 text-muted-foreground hover:text-foreground"><ChevronRight className="h-4 w-4" /></button>
-      </div>
-      <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden flex-1">
-        {weekDays.map(d => (
-          <div key={d} className="bg-muted/30 px-1 py-1.5 text-center text-[10px] text-muted-foreground font-medium">{d}</div>
-        ))}
-        {Array.from({ length: firstDay }, (_, i) => (
-          <div key={`pad-${i}`} className="bg-card/50 min-h-[80px]" />
-        ))}
-        {Array.from({ length: daysInMonth }, (_, i) => {
-          const day = i + 1;
-          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          const dayRows = rowsByDate[dateStr] || [];
-          const isToday = dateStr === todayStr;
-          return (
-            <div key={day} className={cn('bg-card min-h-[80px] p-1', isToday && 'ring-1 ring-sidebar-primary ring-inset')}>
-              <div className={cn('text-[10px] mb-0.5', isToday ? 'text-sidebar-primary font-bold' : 'text-muted-foreground')}>
-                {day}
-              </div>
-              <div className="space-y-0.5">
-                {dayRows.slice(0, 3).map((row, ri) => (
-                  <div
-                    key={ri}
-                    className="text-[9px] px-1 py-0.5 rounded bg-sidebar-primary/10 text-sidebar-primary truncate"
-                    title={String(row[titleCol.title] ?? '')}
-                  >
-                    {String(row[titleCol.title] ?? '')}
+            </tbody>
+          </table>
+          {/* Drag overlay — semi-transparent column preview */}
+          <DragOverlay dropAnimation={null}>
+            {colDragActiveId && (() => {
+              const dragCol = visibleCols.find(c => c.column_id === colDragActiveId);
+              if (!dragCol) return null;
+              const DragColIcon = getColIcon(dragCol.type);
+              const w = colWidths[dragCol.column_id] || 180;
+              return (
+                <div style={{ width: w, opacity: 0.8, pointerEvents: 'none' }} className="bg-sidebar-primary/10 border border-sidebar-primary/30 rounded shadow-lg">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-foreground bg-muted/80 border-b border-border">
+                    <DragColIcon className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    <span className="truncate">{dragCol.title}</span>
                   </div>
-                ))}
-                {dayRows.length > 3 && (
-                  <div className="text-[9px] text-muted-foreground px-1">+{dayRows.length - 3}</div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+                  {rows.slice(0, 4).map((row, i) => (
+                    <div key={i} className="px-2 py-1 text-xs text-muted-foreground border-b border-border/50 truncate">
+                      {row[dragCol.title] != null ? String(row[dragCol.title]) : ''}
+                    </div>
+                  ))}
+                  {rows.length > 4 && <div className="px-2 py-0.5 text-[10px] text-muted-foreground/50">...</div>}
+                </div>
+              );
+            })()}
+          </DragOverlay>
+          </DndContext>
+        )}
       </div>
+      ))}
+
+      {/* Edit Field dialog (unified for add & edit) */}
+      {showAddCol && (
+        <AddFieldDialog
+          newColTitle={newColTitle} setNewColTitle={setNewColTitle}
+          newColType={newColType} setNewColType={setNewColType}
+          showTypeSelector={showTypeSelector} setShowTypeSelector={setShowTypeSelector}
+          newColOptionsList={newColOptionsList} setNewColOptionsList={setNewColOptionsList}
+          newColFormula={newColFormula} setNewColFormula={setNewColFormula}
+          newColRelTable={newColRelTable} setNewColRelTable={setNewColRelTable}
+          newColRelMulti={newColRelMulti} setNewColRelMulti={setNewColRelMulti}
+          newColRelCol={newColRelCol} setNewColRelCol={setNewColRelCol}
+          newColLookupCol={newColLookupCol} setNewColLookupCol={setNewColLookupCol}
+          newColRollupCol={newColRollupCol} setNewColRollupCol={setNewColRollupCol}
+          newColRollupFn={newColRollupFn} setNewColRollupFn={setNewColRollupFn}
+          decimalPrecision={decimalPrecision} setDecimalPrecision={setDecimalPrecision}
+          currencySymbol={currencySymbol} setCurrencySymbol={setCurrencySymbol}
+          ratingMax={ratingMax} setRatingMax={setRatingMax}
+          ratingIcon={ratingIcon} setRatingIcon={setRatingIcon}
+          dateFormat={dateFormat} setDateFormat={setDateFormat}
+          editFieldColId={editFieldColId} editFieldAnchor={editFieldAnchor}
+          meta={meta} displayCols={displayCols} allTables={allTables} relatedMeta={relatedMeta}
+          tableId={tableId} newColRef={newColRef}
+          onSave={handleSaveField}
+          onClose={() => { resetAddColState(); setEditFieldColId(null); setEditFieldAnchor(null); setShowTypeSelector(false); setInsertColPosition(null); }}
+        />
+      )}
+
+      {/* Bulk action bar */}
+      {selectedRows.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-1.5 border-t border-border bg-sidebar-primary/5 shrink-0">
+          <span className="text-xs text-foreground font-medium">{t('dataTable.selectedRows', { n: selectedRows.size })}</span>
+          <button
+            onClick={handleBulkDelete}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 rounded"
+          >
+            <Trash2 className="h-3 w-3" /> {t('dataTable.batchDelete')}
+          </button>
+          <button
+            onClick={() => setShowBulkEdit(true)}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-sidebar-primary hover:bg-sidebar-primary/10 rounded"
+          >
+            <Pencil className="h-3 w-3" /> {t('dataTable.batchEdit')}
+          </button>
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="text-xs text-muted-foreground hover:text-foreground ml-auto"
+          >
+            {t('dataTable.cancelSelection')}
+          </button>
+        </div>
+      )}
+
+      {/* Bulk edit dialog */}
+      {showBulkEdit && (
+        <BulkEditDialog
+          selectedCount={selectedRows.size}
+          editableCols={editableCols}
+          bulkEditCol={bulkEditCol}
+          setBulkEditCol={setBulkEditCol}
+          bulkEditVal={bulkEditVal}
+          setBulkEditVal={setBulkEditVal}
+          onClose={() => { setShowBulkEdit(false); setBulkEditCol(''); setBulkEditVal(''); }}
+          onSubmit={handleBulkEdit}
+        />
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-1.5 border-t border-border bg-card shrink-0 text-xs text-muted-foreground">
+          <span>{totalRows} {t('dataTable.rows')}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="p-1 hover:text-foreground disabled:opacity-30">
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span>{page} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="p-1 hover:text-foreground disabled:opacity-30">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden CSV file input */}
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv,.tsv,.txt"
+        className="hidden"
+        onChange={handleCSVFileSelect}
+      />
+
+      {/* CSV Import Mapping Dialog */}
+      {csvImportData && (
+        <CSVImportDialog
+          csvImportData={csvImportData}
+          csvColMap={csvColMap}
+          setCsvColMap={setCsvColMap}
+          csvImporting={csvImporting}
+          editableCols={editableCols}
+          onClose={() => { setCsvImportData(null); setCsvColMap({}); }}
+          onImport={handleCSVImport}
+        />
+      )}
+
+      {/* Link Record Picker */}
+      {linkPicker && (
+        <LinkRecordPicker
+          tableId={tableId}
+          rowId={linkPicker.rowId}
+          column={linkPicker.column}
+          onClose={() => setLinkPicker(null)}
+          onRefresh={refresh}
+        />
+      )}
+
+      {/* Mobile: bottom comment bar + add row FAB (no editing on list view per design) */}
+      {isMobile && !expandedRowIdx && (
+        <MobileCommentBar
+          targetType="table"
+          targetId={tableId}
+          rightSlot={
+            <button
+              onClick={handleAddRow}
+              className="flex items-center justify-center w-16 h-16 rounded-full bg-card text-foreground shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] border border-border shrink-0"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          }
+        />
+      )}
+
+      {/* Row Detail Panel */}
+      {expandedRowIdx != null && rows[expandedRowIdx] && (
+        <RowDetailPanel
+          row={rows[expandedRowIdx]}
+          columns={displayCols}
+          tableId={tableId}
+          rowIndex={(page - 1) * pageSize + expandedRowIdx}
+          totalRows={totalRows}
+          onClose={() => { setExpandedRowIdx(null); setExpandWithComments(false); }}
+          onNavigate={(dir) => {
+            if (dir === 'prev' && expandedRowIdx > 0) setExpandedRowIdx(expandedRowIdx - 1);
+            if (dir === 'next' && expandedRowIdx < rows.length - 1) setExpandedRowIdx(expandedRowIdx + 1);
+          }}
+          onRefresh={refresh}
+          onDeleteRow={(rid) => { handleDeleteRow(rid); setExpandedRowIdx(null); }}
+          initialShowComments={expandWithComments}
+          onCommentChange={() => queryClient.invalidateQueries({ queryKey: ['commented-rows', tableId] })}
+        />
+      )}
+      {/* Hidden file input for attachments */}
+      <input
+        ref={attachmentInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => {
+          const target = attachmentTargetRef.current;
+          if (e.target.files && target) {
+            setAttachmentUploading(target);
+            handleAttachmentUpload(target.rowId, target.col, e.target.files);
+            attachmentTargetRef.current = null;
+          }
+          e.target.value = ''; // reset so same file can be re-selected
+        }}
+      />
+
+      </div>{/* end main table content */}
+
+      </div>
+      </div>{/* end left column */}
+
+      {/* Sidebar — full height, independent column */}
+      {showTableComments && !showHistory && (
+        <>
+          <div className="w-[304px] bg-sidebar hidden md:flex flex-col shrink-0 overflow-hidden h-full">
+            <CommentPanel
+              targetType="table"
+              targetId={tableId}
+              onClose={() => setShowTableComments(false)}
+            />
+          </div>
+          {isMobile && (
+            <BottomSheet open={showTableComments} onClose={() => setShowTableComments(false)} title={t('content.comments')} initialHeight="full">
+              <CommentPanel
+                targetType="table"
+                targetId={tableId}
+                onClose={() => setShowTableComments(false)}
+              />
+            </BottomSheet>
+          )}
+        </>
+      )}
+
+      {showHistory && (
+        <>
+          <div className="w-[304px] bg-sidebar hidden md:flex flex-col shrink-0 overflow-hidden h-full">
+            <TableHistory
+              tableId={tableId}
+              onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+              onRestored={() => { setPreviewSnapshot(null); refresh(); }}
+              onSelectVersion={(preview) => setPreviewSnapshot(preview)}
+              selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+            />
+          </div>
+          {isMobile && (
+            <BottomSheet open={showHistory} onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }} title={t('dataTableHistory.title')} initialHeight="full">
+              <TableHistory
+                tableId={tableId}
+                onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+                onRestored={() => { setPreviewSnapshot(null); refresh(); }}
+                onSelectVersion={(preview) => setPreviewSnapshot(preview)}
+                selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+              />
+            </BottomSheet>
+          )}
+        </>
+      )}
+
+      {/* Mobile: More menu is now handled by ContentTopBar via menuItems */}
+
     </div>
   );
 }
+

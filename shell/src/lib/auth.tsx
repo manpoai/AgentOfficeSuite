@@ -16,11 +16,12 @@ interface AuthContextType {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshActor: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   actor: null, token: null, loading: true,
-  login: async () => {}, logout: () => {},
+  login: async () => {}, logout: () => {}, refreshActor: async () => {},
 });
 
 export function useAuth() { return useContext(AuthContext); }
@@ -70,6 +71,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActor(data.actor);
   }, []);
 
+  const refreshActor = useCallback(async () => {
+    const stored = localStorage.getItem('asuite_token');
+    if (!stored) return;
+    try {
+      const res = await fetch('/api/gateway/auth/me', {
+        headers: { Authorization: `Bearer ${stored}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActor(data);
+      }
+    } catch {}
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem('asuite_token');
     setToken(null);
@@ -77,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ actor, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ actor, token, loading, login, logout, refreshActor }}>
       {children}
     </AuthContext.Provider>
   );

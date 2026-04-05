@@ -10,6 +10,7 @@ import {
   LayoutGrid, GitBranch, Minus, Plus as PlusIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import {
   ReactFlow,
@@ -71,7 +72,7 @@ function FlowchartNode({ data, selected }: { data: any; selected?: boolean }) {
     return (
       <div className="relative" style={{ width: 120, height: 80 }}>
         <div
-          className={cn('absolute inset-0 border-2', selected && 'ring-2 ring-blue-500')}
+          className={cn('absolute inset-0 border-2', selected && 'ring-2 ring-sidebar-primary')}
           style={{
             backgroundColor: bgColor,
             borderColor,
@@ -96,7 +97,7 @@ function FlowchartNode({ data, selected }: { data: any; selected?: boolean }) {
         shapeClasses[shape] || 'rounded-lg',
         shape === 'mindmap-root' && 'px-6 py-3 text-base font-bold',
         shape === 'mindmap' && 'px-3 py-1.5 text-sm border',
-        selected && 'ring-2 ring-blue-500',
+        selected && 'ring-2 ring-sidebar-primary',
       )}
       style={{
         backgroundColor: bgColor,
@@ -244,7 +245,7 @@ function DiagramEditorInner({
         edges: edges.map(e => ({ ...e, selected: undefined })),
         viewport,
       }).catch((err: Error) => {
-        console.error('Diagram auto-save failed:', err);
+        showError('Diagram auto-save failed', err);
       });
     }, 1000);
   }, [diagramId, nodes, edges, reactFlowInstance]);

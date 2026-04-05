@@ -5,15 +5,26 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listContentItems, createContentItem, type ContentItem } from '@/lib/api/gateway';
 import { Plus, Search, X } from 'lucide-react';
+<<<<<<< Updated upstream
 import { useT } from '@/lib/i18n';
+=======
+import { showError } from '@/lib/utils/error';
+import { formatRelativeTime } from '@/lib/utils/time';
+>>>>>>> Stashed changes
 
 interface DiagramPickerProps {
   onSelect: (diagramId: string, item: ContentItem) => void;
   onCancel: () => void;
+  /** When true, newly created diagrams won't appear in the file list */
+  embedded?: boolean;
 }
 
+<<<<<<< Updated upstream
 export function DiagramPicker({ onSelect, onCancel }: DiagramPickerProps) {
   const { t } = useT();
+=======
+export function DiagramPicker({ onSelect, onCancel, embedded }: DiagramPickerProps) {
+>>>>>>> Stashed changes
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -56,10 +67,11 @@ export function DiagramPicker({ onSelect, onCancel }: DiagramPickerProps) {
       const item = await createContentItem({
         type: 'diagram',
         title: query || 'Untitled Diagram',
+        embedded,
       });
       onSelect(item.id, item);
     } catch (err) {
-      console.error('Failed to create diagram:', err);
+      showError('Failed to create diagram', err);
     } finally {
       setCreating(false);
     }
@@ -86,12 +98,7 @@ export function DiagramPicker({ onSelect, onCancel }: DiagramPickerProps) {
     }
   }, [diagrams, selectedIndex, onSelect, onCancel, handleCreateNew]);
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts);
-    const now = new Date();
-    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  };
+  const formatTime = (ts: number) => formatRelativeTime(ts);
 
   return (
     <div

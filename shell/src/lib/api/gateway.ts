@@ -4,8 +4,21 @@
 
 const BASE = '/api/gateway';
 
+/** Get auth headers for direct fetch calls to /api/gateway/* */
+export function gwAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function gwFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`Gateway API ${path}: ${res.status}`);
   return res.json();
 }
@@ -22,6 +35,34 @@ export interface Agent {
   capabilities?: string[];
   registered_at?: string;
   last_seen_at?: number | null;
+  pending_approval?: boolean;
+}
+
+// ── User Profile ──
+
+/** Update own human profile (name syncs username + display_name) */
+export async function updateProfile(fields: { name?: string }): Promise<any> {
+  return gwFetch('/auth/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+}
+
+/** Upload own avatar (human) */
+export async function uploadUserAvatar(file: File): Promise<{ avatar_url: string }> {
+  const form = new FormData();
+  form.append('avatar', file);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/auth/avatar`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload avatar: ${res.status}`);
+  return res.json();
 }
 
 // ── Agents ──
@@ -29,6 +70,17 @@ export interface Agent {
 export async function listAgents(): Promise<Agent[]> {
   const data = await gwFetch<{ agents: Agent[] }>('/agents');
   return data.agents;
+}
+
+/** Admin: list all agents including pending approval */
+export async function listAllAgents(): Promise<Agent[]> {
+  const data = await gwFetch<{ agents: Agent[] }>('/admin/agents');
+  return data.agents;
+}
+
+/** Admin: approve a pending agent */
+export async function approveAgent(agentId: string): Promise<void> {
+  await gwFetch(`/admin/agents/${agentId}/approve`, { method: 'POST' });
 }
 
 export async function getAgent(name: string): Promise<Agent> {
@@ -49,8 +101,12 @@ export async function updateAgentProfile(name: string, fields: {
 export async function uploadAgentAvatar(name: string, file: File): Promise<{ avatar_url: string }> {
   const form = new FormData();
   form.append('avatar', file);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/agents/${name}/avatar`, {
     method: 'POST',
+    headers,
     body: form,
   });
   if (!res.ok) throw new Error(`Upload avatar: ${res.status}`);
@@ -175,6 +231,7 @@ export async function createContentItem(opts: {
   parent_id?: string | null;
   collection_id?: string;
   columns?: { title: string; uidt: string }[];
+  embedded?: boolean;
 }): Promise<ContentItem> {
   const data = await gwFetch<{ item: ContentItem }>('/content-items', {
     method: 'POST',

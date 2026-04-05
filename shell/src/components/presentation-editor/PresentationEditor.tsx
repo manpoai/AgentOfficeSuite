@@ -1,64 +1,82 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
 import {
-  ArrowLeft, ArrowLeftToLine, ArrowRightToLine,
-  MoreHorizontal, Link2, Download, Trash2, ChevronRight,
-  Plus, Type, Hexagon,
-  Image as ImageIcon, Play, Copy, ChevronUp, ChevronDown,
-  Minus,
-  MousePointer2, Bold, Italic, Underline, Strikethrough,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  ArrowUpToLine, ArrowDownToLine, MoveUp, MoveDown,
-  FlipHorizontal2, FlipVertical2, RotateCcw,
-  Replace, PanelRightClose, PanelRight, X,
-  Table2, Trash, MessageSquare, Clock, Workflow,
+  Link2, Download, Trash2,
+  Play,
+  MessageSquare, Clock,
+  ExternalLink, AtSign, Share2, Pin, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { ColorPicker } from '@/components/ui/color-picker';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
 import { BottomSheet } from '@/components/shared/BottomSheet';
 import { usePinchZoom } from '@/lib/hooks/use-pinch-zoom';
 import { SlidePreviewList } from '@/components/shared/SlidePreviewList';
-import { EditFAB } from '@/components/shared/EditFAB';
-import { ShapePicker } from '@/components/shared/ShapeSet';
+import { MobileCommentBar } from '@/components/shared/MobileCommentBar';
 import type { ShapeType } from '@/components/shared/ShapeSet/shapes';
 import { renderCellsToSVG } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
+import { pickFile } from '@/lib/utils/pick-file';
 import { DiagramPicker } from '@/components/shared/EmbeddedDiagram/DiagramPicker';
 import { DiagramEditorDialog } from '@/components/shared/EmbeddedDiagram/DiagramEditorDialog';
 import { createFabricShape } from '@/components/shared/ShapeSet/adapters/FabricShape';
-import { RichTable } from '@/components/shared/RichTable';
-import { FloatingToolbar } from '@/components/shared/FloatingToolbar';
-import { PPT_TEXT_ITEMS, PPT_IMAGE_ITEMS, PPT_SHAPE_ITEMS, DOCS_TABLE_ITEMS } from '@/components/shared/FloatingToolbar/presets';
-import { createPPTTextHandler, createPPTImageHandler, createPPTShapeHandler } from './ppt-toolbar-handler';
-import { createDocsTableHandler } from '@/components/editor/docs-toolbar-handler';
+import { pptObjectActions, pptCanvasActions, type PPTObjectCtx, type PPTCanvasCtx } from '@/actions/ppt-object.actions';
+import { pptSlideActions, type PPTSlideCtx } from '@/actions/ppt-slide.actions';
+import { pptSurfaces } from '@/surfaces/ppt.surfaces';
+import { toContextMenuItems } from '@/surfaces/bridge';
+import { buildActionMap } from '@/actions/types';
+import { useKeyboardScope } from '@/lib/keyboard';
+import type { ShortcutRegistration } from '@/lib/keyboard';
+import {
+  type SlideData,
+  SLIDE_WIDTH, SLIDE_HEIGHT, DEFAULT_SLIDE,
+  fitCanvasToContainer, getObjType, formatRelativeTime,
+} from './types';
+import { SlidePanel } from './SlidePanel';
+import { SlideCanvas } from './SlideCanvas';
+import { PropertyPanel } from './PropertyPanel';
+import { PresenterMode } from './PresenterMode';
 
-// ─── Types ──────────────────────────────────────────
-interface SlideData {
-  elements: any[];
-  background: string;
-  backgroundImage?: string;
-  notes: string;
-}
+const pptObjectActionMap = buildActionMap(pptObjectActions);
+const pptCanvasActionMap = buildActionMap(pptCanvasActions);
+const pptSlideActionMap = buildActionMap(pptSlideActions);
 
-interface PresentationData {
-  slides: SlideData[];
-}
-
-interface PresentationEditorProps {
-  presentationId: string;
-  breadcrumb?: { id: string; title: string }[];
-  onBack?: () => void;
-  onDeleted?: () => void;
-  onCopyLink?: () => void;
-  docListVisible?: boolean;
-  onToggleDocList?: () => void;
-}
+const PPT_SHORTCUTS: ShortcutRegistration[] = [
+  {
+    id: 'ppt-duplicate',
+    key: 'd',
+    modifiers: { meta: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:duplicate')),
+    label: 'Duplicate',
+    category: 'Presentation',
+    priority: 5,
+  },
+  {
+    id: 'ppt-group',
+    key: 'g',
+    modifiers: { meta: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:group')),
+    label: 'Group',
+    category: 'Presentation',
+    priority: 5,
+  },
+  {
+    id: 'ppt-ungroup',
+    key: 'g',
+    modifiers: { meta: true, shift: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:ungroup')),
+    label: 'Ungroup',
+    category: 'Presentation',
+    priority: 6,
+  },
+];
+// NOTE: ⌘C/⌘X/⌘V/Delete/Backspace are handled in onKeyDown (capture phase)
+// via action maps — not registered here because they require canvasRef.
 
 // ─── Fabric.js Dynamic Import ───────────────────────
 let fabricModule: any = null;
@@ -72,89 +90,6 @@ function loadFabric() {
   });
 }
 
-// ─── Constants ──────────────────────────────────────
-const SLIDE_WIDTH = 960;
-const SLIDE_HEIGHT = 540;
-const THUMB_WIDTH = 180;
-const THUMB_HEIGHT = Math.round(THUMB_WIDTH * (SLIDE_HEIGHT / SLIDE_WIDTH));
-
-const DEFAULT_SLIDE: SlideData = {
-  elements: [],
-  background: '#ffffff',
-  notes: '',
-};
-
-const FONT_FAMILIES = [
-  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
-  { label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
-  { label: '\u601D\u6E90\u9ED1\u4F53', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
-  { label: '\u601D\u6E90\u5B8B\u4F53', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
-  { label: '\u5FAE\u8F6F\u96C5\u9ED1', value: '"Microsoft YaHei", sans-serif' },
-  { label: '\u82F9\u679C\u82F9\u65B9', value: '"PingFang SC", sans-serif' },
-];
-
-const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 96];
-
-const STROKE_DASH_STYLES: { label: string; value: number[] | undefined }[] = [
-  { label: 'Solid', value: undefined },
-  { label: 'Dashed', value: [8, 4] },
-  { label: 'Dotted', value: [2, 4] },
-];
-
-function formatRelativeTime(ts: number): string {
-  const now = Date.now();
-  const diff = now - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} minutes ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} days ago`;
-}
-
-// ─── Fit canvas to container using Fabric.js zoom ────
-function fitCanvasToContainer(canvas: any, container: HTMLElement | null) {
-  if (!canvas || !container) return;
-  const rect = container.getBoundingClientRect();
-  const { width, height } = rect;
-  if (width < 50 || height < 50) return;
-  const padding = 40;
-  const scale = Math.min((width - padding) / SLIDE_WIDTH, (height - padding) / SLIDE_HEIGHT);
-  if (scale <= 0 || !isFinite(scale)) return;
-
-  const canvasW = Math.round(SLIDE_WIDTH * scale);
-  const canvasH = Math.round(SLIDE_HEIGHT * scale);
-
-  canvas.setDimensions({ width: canvasW, height: canvasH });
-  canvas.setZoom(scale);
-  canvas.renderAll();
-
-  const wrapper = container.querySelector('.canvas-wrapper') as HTMLElement;
-  if (wrapper) {
-    wrapper.style.marginLeft = `${Math.max(0, Math.round((width - canvasW) / 2))}px`;
-    wrapper.style.marginTop = `${Math.max(0, Math.round((height - canvasH) / 2))}px`;
-  }
-}
-
-// ─── Helper: get object type normalized ──────────────
-function getObjType(obj: any): string {
-  if (obj?.__isTable) return 'table';
-  const t = (obj?.type || '').toLowerCase();
-  if (t === 'textbox') return 'textbox';
-  if (t === 'rect') return 'rect';
-  if (t === 'circle') return 'circle';
-  if (t === 'triangle') return 'triangle';
-  if (t === 'image') return 'image';
-  return t;
-}
-
 // ─── Main Component ─────────────────────────────────
 export function PresentationEditor({
   presentationId,
@@ -164,13 +99,16 @@ export function PresentationEditor({
   onCopyLink,
   docListVisible,
   onToggleDocList,
+  onNavigate,
 }: PresentationEditorProps) {
   const { t } = useT();
+
+  // Register presentation keyboard scope + context shortcuts
+  useKeyboardScope('presentation', PPT_SHORTCUTS);
   const queryClient = useQueryClient();
 
   // State
   const [ready, setReady] = useState(fabricLoaded);
-  const [showMenu, setShowMenu] = useState(false);
   // Title editing now handled by ContentTopBar
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -179,9 +117,11 @@ export function PresentationEditor({
   const [selectedObj, setSelectedObj] = useState<any>(null);
   // Counter to force property panel re-render when object properties change
   const [propVersion, setPropVersion] = useState(0);
-  const [showPropertyPanel, setShowPropertyPanel] = useState(true);
+  const [showPropertyPanel, setShowPropertyPanel] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedSlideIndices, setSelectedSlideIndices] = useState<Set<number>>(new Set([0]));
+  const slideClipboardRef = useRef<SlideData[]>([]);
   const [mobileEditMode, setMobileEditMode] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   // All table objects on the current slide (for DOM RichTable overlays)
@@ -210,9 +150,81 @@ export function PresentationEditor({
   // titleInputRef removed — title editing handled by ContentTopBar
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
+  const [undoVersion, setUndoVersion] = useState(0); // triggers re-render for canUndo/canRedo
+  const UNDO_LIMIT = 50;
   const isLoadingSlideRef = useRef(false);
+  const isUndoingRef = useRef(false); // prevent pushSnapshot during undo/redo load
   const saveCurrentSlideToStateRef = useRef<() => void>(() => {});
   const modifiedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSnapshotRef = useRef<string | null>(null); // last pushed snapshot to avoid duplicates
+  const clipboardRef = useRef<any>(null); // fabric.js object clipboard for Cmd+C/V
+
+  // ─── Undo / Redo ──────────────────────────────────
+  const pushSnapshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || isLoadingSlideRef.current || isUndoingRef.current) return;
+    const serialized = canvasRef.current ? JSON.stringify(canvas.toJSON()) : null;
+    if (!serialized) return;
+    // Skip if identical to last snapshot (e.g. redundant triggers)
+    if (serialized === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = serialized;
+    undoStackRef.current.push(serialized);
+    if (undoStackRef.current.length > UNDO_LIMIT) {
+      undoStackRef.current.shift();
+    }
+    redoStackRef.current = [];
+    setUndoVersion(v => v + 1);
+    console.log('[PPT Undo] pushSnapshot, stack size:', undoStackRef.current.length);
+  }, []);
+
+  const pptUndo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    console.log('[PPT Undo] pptUndo called, stack size:', undoStackRef.current.length);
+    if (!canvas || undoStackRef.current.length === 0) {
+      console.log('[PPT Undo] pptUndo SKIPPED — canvas:', !!canvas, 'stack:', undoStackRef.current.length);
+      return;
+    }
+    // Save current state to redo stack
+    const currentJson = JSON.stringify(canvas.toJSON());
+    redoStackRef.current.push(currentJson);
+    // Pop previous state
+    const prev = undoStackRef.current.pop()!;
+    lastSnapshotRef.current = prev;
+    // Load it (fabric.js v6 uses Promise API)
+    isUndoingRef.current = true;
+    try {
+      await canvas.loadFromJSON(prev);
+      canvas.renderAll();
+      console.log('[PPT Undo] loadFromJSON complete, remaining stack:', undoStackRef.current.length);
+    } finally {
+      isUndoingRef.current = false;
+      saveCurrentSlideToStateRef.current();
+      setPropVersion(v => v + 1);
+    }
+    setUndoVersion(v => v + 1);
+  }, []);
+
+  const pptRedo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || redoStackRef.current.length === 0) return;
+    // Save current state to undo stack
+    const currentJson = JSON.stringify(canvas.toJSON());
+    undoStackRef.current.push(currentJson);
+    lastSnapshotRef.current = currentJson;
+    // Pop redo state
+    const next = redoStackRef.current.pop()!;
+    // Load it (fabric.js v6 uses Promise API)
+    isUndoingRef.current = true;
+    try {
+      await canvas.loadFromJSON(next);
+      canvas.renderAll();
+    } finally {
+      isUndoingRef.current = false;
+      saveCurrentSlideToStateRef.current();
+      setPropVersion(v => v + 1);
+    }
+    setUndoVersion(v => v + 1);
+  }, []);
 
   // ─── Pinch-to-zoom & touch pan for mobile ──────────
   usePinchZoom(canvasContainerRef, {
@@ -260,7 +272,7 @@ export function PresentationEditor({
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       gw.savePresentation(presentationId, { slides: updatedSlides }).catch((err) => {
-        console.error('Presentation auto-save failed:', err);
+        showError('Presentation auto-save failed', err);
       });
       // Auto-create revision every 5 minutes
       const now = Date.now();
@@ -299,7 +311,38 @@ export function PresentationEditor({
       setTableObjects([...tables]); // new array ref to trigger re-render
     };
 
-    // Track changes for undo and auto-save
+    // ── Undo: capture canvas state BEFORE each interaction ──
+    // pushSnapshotRef avoids stale closure — always calls latest pushSnapshot
+    const pushSnapshotRef = { current: pushSnapshot };
+
+    // Capture state before a transform (drag/scale/rotate) begins
+    const handleBeforeTransform = () => {
+      if (isLoadingSlideRef.current || isUndoingRef.current) return;
+      pushSnapshotRef.current();
+    };
+
+    // Coalesced snapshot for programmatic changes (PropertyPanel sliders, color pickers)
+    // Groups rapid consecutive changes into a single undo step (300ms window)
+    let lastBeforeModifiedAt = 0;
+    const handleBeforeModified = () => {
+      console.log('[PPT Undo] before:modified fired, isLoading:', isLoadingSlideRef.current, 'isUndoing:', isUndoingRef.current);
+      if (isLoadingSlideRef.current || isUndoingRef.current) return;
+      const now = Date.now();
+      if (now - lastBeforeModifiedAt < 300) { console.log('[PPT Undo] before:modified COALESCED (within 300ms)'); return; }
+      lastBeforeModifiedAt = now;
+      pushSnapshotRef.current();
+    };
+
+    canvas.on('before:transform', handleBeforeTransform);
+    // Capture state before programmatic property changes (PropertyPanel, toolbar handlers)
+    canvas.on('before:modified', handleBeforeModified);
+    // Text editing: capture state when entering/exiting text edit mode
+    canvas.on('text:editing:entered', handleBeforeTransform);
+    canvas.on('text:editing:exited', handleBeforeTransform);
+    // Note: object:added/removed snapshots are handled via before:modified at call sites
+    // (object:added fires AFTER the object is on canvas, capturing wrong state)
+
+    // Track changes for auto-save
     const handleModified = () => {
       if (isLoadingSlideRef.current) return;
       if (modifiedDebounceRef.current) clearTimeout(modifiedDebounceRef.current);
@@ -364,6 +407,251 @@ export function PresentationEditor({
       canvasRef.current = null;
     };
   }, [ready, isLoading]);
+
+  // ─── Context menu: desktop right-click + mobile long-press ──
+  useEffect(() => {
+    const showMenu = (x: number, y: number) => {
+      const canvas = canvasRef.current;
+      const activeObj = canvas?.getActiveObject();
+      let items;
+      if (activeObj) {
+        const ctx: PPTObjectCtx = {
+          canvas,
+          activeObject: activeObj,
+          clipboardRef,
+          setShowComments: (v) => setShowComments(v),
+        };
+        items = toContextMenuItems(pptSurfaces.canvasObject, pptObjectActionMap, ctx, t);
+      } else {
+        const ctx: PPTCanvasCtx = {
+          canvas,
+          clipboardRef,
+          setShowComments: (v) => setShowComments(v),
+          openBackground: () => {
+            canvas?.discardActiveObject();
+            canvas?.renderAll();
+            setShowPropertyPanel(true);
+            setPropVersion(v => v + 1);
+          },
+        };
+        items = toContextMenuItems(pptSurfaces.canvasEmpty, pptCanvasActionMap, ctx, t);
+      }
+      if (items.length > 0) {
+        window.dispatchEvent(new CustomEvent('show-context-menu', { detail: { items, x, y } }));
+      }
+    };
+
+    // Desktop: right-click — register on document (capture) so it fires even
+    // after canvasContainerRef mounts (which happens after isLoading clears).
+    const onContextMenu = (e: MouseEvent) => {
+      const container = canvasContainerRef.current;
+      if (!container || !container.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const target = canvas.findTarget(e as any);
+        if (target && target !== canvas.getActiveObject()) {
+          canvas.setActiveObject(target);
+          canvas.renderAll();
+        }
+      }
+      showMenu(e.clientX, e.clientY);
+    };
+    document.addEventListener('contextmenu', onContextMenu, true);
+
+    // Mobile: long-press
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let touchStartPos: { x: number; y: number } | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        return;
+      }
+      const touch = e.touches[0];
+      touchStartPos = { x: touch.clientX, y: touch.clientY };
+      longPressTimer = setTimeout(() => {
+        if (touchStartPos) showMenu(touchStartPos.x, touchStartPos.y);
+      }, 500);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (longPressTimer && touchStartPos) {
+        const touch = e.touches[0];
+        if (touch) {
+          const dx = touch.clientX - touchStartPos.x;
+          const dy = touch.clientY - touchStartPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      touchStartPos = null;
+    };
+
+    const touchContainer = canvasContainerRef.current;
+    if (touchContainer) {
+      touchContainer.addEventListener('touchstart', onTouchStart, { passive: true });
+      touchContainer.addEventListener('touchmove', onTouchMove, { passive: true });
+      touchContainer.addEventListener('touchend', onTouchEnd);
+      touchContainer.addEventListener('touchcancel', onTouchEnd);
+    }
+
+    return () => {
+      document.removeEventListener('contextmenu', onContextMenu, true);
+      if (touchContainer) {
+        touchContainer.removeEventListener('touchstart', onTouchStart);
+        touchContainer.removeEventListener('touchmove', onTouchMove);
+        touchContainer.removeEventListener('touchend', onTouchEnd);
+        touchContainer.removeEventListener('touchcancel', onTouchEnd);
+      }
+      if (longPressTimer) clearTimeout(longPressTimer);
+    };
+  }, [ready]);
+
+  // ─── Keyboard shortcuts: Undo/Redo (⌘Z/⌘⇧Z), Copy/Paste (⌘C/⌘V) ──
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      // Read canvas inside handler to avoid stale closure
+      const canvas = canvasRef.current;
+      // Don't intercept if inside a ProseMirror editor or text input
+      const el = e.target as HTMLElement;
+      if (el?.closest?.('.ProseMirror')) return;
+      // Allow fabric.js textarea (text editing) to handle its own Cmd+C/V/Z/Delete
+      const activeObj = canvas?.getActiveObject();
+      const isFabricTextEditing = !!(activeObj as any)?.isEditing;
+
+      // Delete / Backspace — remove selected canvas object
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const deleteCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-delete'].execute(deleteCtx);
+        return;
+      }
+
+      if (!meta) return;
+
+      if (e.key === 'z' && !isFabricTextEditing) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        console.log('[PPT Undo] keydown Cmd+Z caught, shift:', e.shiftKey);
+        if (e.shiftKey) {
+          pptRedo();
+        } else {
+          pptUndo();
+        }
+      } else if (e.key === 'c' && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const copyCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-copy'].execute(copyCtx);
+      } else if (e.key === 'x' && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const cutCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-cut'].execute(cutCtx);
+      } else if (e.key === 'v' && !isFabricTextEditing) {
+        if (!canvas || !clipboardRef.current) return;
+        e.preventDefault();
+        const pasteCtx: PPTCanvasCtx = { canvas, clipboardRef, setShowComments: () => {}, openBackground: () => {} };
+        pptCanvasActionMap['ppt-canvas-paste'].execute(pasteCtx);
+      }
+    };
+
+    // Also listen for global 'undo'/'redo' custom events from KeyboardManager
+    const onUndoEvent = () => { console.log('[PPT Undo] received window "undo" event'); pptUndo(); };
+    const onRedoEvent = () => { console.log('[PPT Undo] received window "redo" event'); pptRedo(); };
+
+    window.addEventListener('keydown', onKeyDown, true); // capture phase
+    window.addEventListener('undo', onUndoEvent);
+    window.addEventListener('redo', onRedoEvent);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('undo', onUndoEvent);
+      window.removeEventListener('redo', onRedoEvent);
+    };
+  }, [pptUndo, pptRedo]);
+
+  // ─── Slide panel operations (cut/copy/paste/delete/duplicate) ──
+  const handleSlideCut = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    if (slides.length - indices.length === 0) return; // don't delete all
+    slideClipboardRef.current = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+    const toDelete = [...indices].reverse();
+    const newSlides = [...slides];
+    toDelete.forEach(i => { newSlides.splice(i, 1); });
+    const newIdx = Math.min(currentSlideIndex, newSlides.length - 1);
+    setSlides(newSlides);
+    setCurrentSlideIndex(newIdx);
+    setSelectedSlideIndices(new Set([newIdx]));
+  }, [slides, currentSlideIndex, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideCopy = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    slideClipboardRef.current = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+  }, [slides, selectedSlideIndices]);
+
+  const handleSlidePaste = useCallback((_i: number) => {
+    if (slideClipboardRef.current.length === 0) return;
+    const newSlides = [...slides];
+    const insertAt = currentSlideIndex + 1;
+    const pasted = slideClipboardRef.current.map(s => JSON.parse(JSON.stringify(s)));
+    newSlides.splice(insertAt, 0, ...pasted);
+    setSlides(newSlides);
+    setCurrentSlideIndex(insertAt);
+    setSelectedSlideIndices(new Set([insertAt]));
+  }, [slides, currentSlideIndex, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideDelete = useCallback((_i: number) => {
+    if (slides.length <= 1) return;
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    const toDelete = [...indices].reverse();
+    const newSlides = [...slides];
+    toDelete.forEach(i => { newSlides.splice(i, 1); });
+    const newIdx = Math.min(Math.min(...indices), newSlides.length - 1);
+    setSlides(newSlides);
+    setCurrentSlideIndex(newIdx);
+    setSelectedSlideIndices(new Set([newIdx]));
+  }, [slides, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideDuplicate = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    const dupes = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+    const newSlides = [...slides];
+    const insertAt = Math.max(...indices) + 1;
+    newSlides.splice(insertAt, 0, ...dupes);
+    setSlides(newSlides);
+    setCurrentSlideIndex(insertAt);
+    setSelectedSlideIndices(new Set([insertAt]));
+  }, [slides, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideBackground = useCallback((_i: number) => {
+    // Slide background editing is handled via the property panel
+    setShowPropertyPanel(true);
+    setPropVersion(v => v + 1);
+  }, []);
+
+  const handleSlideComment = useCallback((_i: number) => {
+    setShowComments(true);
+    setShowHistory(false);
+  }, []);
+
+  // ─── Clear undo stack on slide switch ──
+  useEffect(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    lastSnapshotRef.current = null;
+    setUndoVersion(v => v + 1);
+  }, [currentSlideIndex]);
 
   // ─── Load slide onto canvas ───────────────────────
   const loadSlideToCanvas = useCallback((slide: SlideData) => {
@@ -456,54 +744,107 @@ export function PresentationEditor({
           strokeDashArray: el.strokeDashArray || undefined,
           shadow: el.shadow || undefined,
         });
+      } else if (el.type === 'ellipse') {
+        obj = new fabricModule.Ellipse({
+          ...common,
+          rx: el.rx || 50,
+          ry: el.ry || 30,
+          stroke: el.stroke || '',
+          strokeWidth: el.strokeWidth || 0,
+          strokeDashArray: el.strokeDashArray || undefined,
+          shadow: el.shadow || undefined,
+        });
+      } else if (el.type === 'shape' && el.shapeType) {
+        obj = createFabricShape(fabricModule, el.shapeType, {
+          left: el.left || 0,
+          top: el.top || 0,
+          width: el.width || 120,
+          height: el.height || 80,
+          fill: el.fill || '#e2e8f0',
+          stroke: el.stroke || '#94a3b8',
+          strokeWidth: el.strokeWidth || 1,
+        });
+        if (obj) {
+          obj.set({
+            angle: el.angle || 0,
+            scaleX: el.scaleX || 1,
+            scaleY: el.scaleY || 1,
+            opacity: el.opacity ?? 1,
+            strokeDashArray: el.strokeDashArray || undefined,
+          });
+          if (el.shadow) obj.set('shadow', el.shadow);
+        }
       } else if (el.type === 'image' && el.src) {
         // FIX 2: Use saved scaleX/scaleY directly instead of recalculating
         pendingImages++;
-        const imgEl = new window.Image();
-        imgEl.crossOrigin = 'anonymous';
-        imgEl.onload = () => {
-          const fabricImg = new FabricImage(imgEl, {
-            left: el.left || 0,
-            top: el.top || 0,
-            // Use saved scale values directly (preserves original)
-            scaleX: el.scaleX || ((el.displayWidth || el.width || 200) / imgEl.width),
-            scaleY: el.scaleY || ((el.displayHeight || el.height || 200) / imgEl.height),
-            angle: el.angle || 0,
-            opacity: el.opacity ?? 1,
-          });
-          // Apply clipPath for border radius if saved
-          if (el.borderRadius && el.borderRadius > 0 && fabricModule.Rect) {
-            fabricImg.clipPath = new fabricModule.Rect({
-              width: imgEl.width,
-              height: imgEl.height,
-              rx: el.borderRadius / (el.scaleX || 1),
-              ry: el.borderRadius / (el.scaleY || 1),
-              originX: 'center',
-              originY: 'center',
+
+        // For embedded diagrams, regenerate SVG from diagram data (blob URLs die on refresh)
+        const diagramMatch = typeof el.src === 'string' && el.src.match(/^diagram:(.+)$/);
+        const loadImage = async () => {
+          let imgSrc = el.src;
+          let diagramId: string | null = null;
+          if (diagramMatch) {
+            diagramId = diagramMatch[1];
+            try {
+              const res = await fetch(`/api/gateway/diagrams/${diagramId}`, { headers: gw.gwAuthHeaders() });
+              if (res.ok) {
+                const data = await res.json();
+                const cells = data.data?.cells || data.data?.nodes || [];
+                const svgStr = renderCellsToSVG(cells);
+                const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+                imgSrc = URL.createObjectURL(blob);
+              }
+            } catch {}
+          }
+          const imgEl2 = new window.Image();
+          imgEl2.crossOrigin = 'anonymous';
+          imgEl2.onload = () => {
+            const fabricImg = new FabricImage(imgEl2, {
+              left: el.left || 0,
+              top: el.top || 0,
+              scaleX: el.scaleX || ((el.displayWidth || el.width || 200) / imgEl2.width),
+              scaleY: el.scaleY || ((el.displayHeight || el.height || 200) / imgEl2.height),
+              angle: el.angle || 0,
+              opacity: el.opacity ?? 1,
             });
-          }
-          if (el.stroke) {
-            fabricImg.set('stroke', el.stroke);
-            fabricImg.set('strokeWidth', el.strokeWidth || 0);
-          }
-          // Restore diagram metadata for embedded diagrams
-          if (el.__diagramId) {
-            (fabricImg as any).__diagramId = el.__diagramId;
-          }
-          canvas.add(fabricImg);
-          canvas.renderAll();
-          pendingImages--;
-          if (pendingImages === 0) {
-            isLoadingSlideRef.current = false;
-          }
+            if (el.borderRadius && el.borderRadius > 0 && fabricModule.Rect) {
+              fabricImg.clipPath = new fabricModule.Rect({
+                width: imgEl2.width,
+                height: imgEl2.height,
+                rx: el.borderRadius / (el.scaleX || 1),
+                ry: el.borderRadius / (el.scaleY || 1),
+                originX: 'center',
+                originY: 'center',
+              });
+            }
+            if (el.stroke) {
+              fabricImg.set('stroke', el.stroke);
+              fabricImg.set('strokeWidth', el.strokeWidth || 0);
+            }
+            if (diagramId) {
+              (fabricImg as any).__diagramId = diagramId;
+            } else if (el.__diagramId) {
+              (fabricImg as any).__diagramId = (el.__diagramId as string).replace(/^diagram:/, '');
+            }
+            canvas.add(fabricImg);
+            canvas.renderAll();
+            if (diagramMatch && imgSrc.startsWith('blob:')) {
+              URL.revokeObjectURL(imgSrc);
+            }
+            pendingImages--;
+            if (pendingImages === 0) {
+              isLoadingSlideRef.current = false;
+            }
+          };
+          imgEl2.onerror = () => {
+            pendingImages--;
+            if (pendingImages === 0) {
+              isLoadingSlideRef.current = false;
+            }
+          };
+          imgEl2.src = imgSrc;
         };
-        imgEl.onerror = () => {
-          pendingImages--;
-          if (pendingImages === 0) {
-            isLoadingSlideRef.current = false;
-          }
-        };
-        imgEl.src = el.src;
+        loadImage();
         continue;
       } else if (el.type === 'table') {
         // Recreate table placeholder rect
@@ -631,8 +972,32 @@ export function PresentationEditor({
         // Preserve diagram metadata for embedded diagrams
         if ((obj as any).__diagramId) {
           imgData.__diagramId = (obj as any).__diagramId;
+          // Save a stable marker instead of blob URL (blob URLs die on page refresh)
+          imgData.src = `diagram:${(obj as any).__diagramId}`;
         }
         elements.push(imgData);
+      } else if (objType === 'ellipse') {
+        elements.push({
+          ...base,
+          type: 'ellipse',
+          rx: obj.rx || 50,
+          ry: obj.ry || 30,
+          stroke: obj.stroke || '',
+          strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
+        });
+      } else if (objType === 'shape') {
+        // ShapeSet path-based shapes (diamond, star, hexagon, etc.)
+        elements.push({
+          ...base,
+          type: 'shape',
+          shapeType: (obj as any).__shapeType,
+          stroke: obj.stroke || '',
+          strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
+        });
       } else if (objType === 'table') {
         elements.push({
           ...base,
@@ -663,6 +1028,30 @@ export function PresentationEditor({
   }, [currentSlideIndex, serializeCanvas, triggerSave]);
 
   saveCurrentSlideToStateRef.current = saveCurrentSlideToState;
+
+  // ─── Save on unmount — prevent data loss when navigating away ──
+  const serializeCanvasRef = useRef(serializeCanvas);
+  serializeCanvasRef.current = serializeCanvas;
+  const currentSlideIndexRef = useRef(currentSlideIndex);
+  currentSlideIndexRef.current = currentSlideIndex;
+
+  useEffect(() => {
+    return () => {
+      // Flush any pending debounced save
+      if (modifiedDebounceRef.current) clearTimeout(modifiedDebounceRef.current);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      // Serialize current canvas and save immediately (can't use setState in unmount)
+      try {
+        const serialized = serializeCanvasRef.current();
+        if (serialized) {
+          const updated = [...slidesRef.current];
+          updated[currentSlideIndexRef.current] = serialized;
+          gw.savePresentation(presentationId, { slides: updated }).catch(() => {});
+        }
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presentationId]);
 
   // ─── Slide Operations ─────────────────────────────
   const addSlide = useCallback(() => {
@@ -723,13 +1112,12 @@ export function PresentationEditor({
       fontFamily: 'Inter, system-ui, sans-serif',
       fill: '#1a1a1a',
     });
+    canvas.fire('before:modified');
     canvas.add(text);
     canvas.setActiveObject(text);
     canvas.renderAll();
     setSelectedTool('select');
   }, []);
-
-  const [showShapePicker, setShowShapePicker] = useState(false);
 
   const addShape = useCallback((shapeType: ShapeType) => {
     const canvas = canvasRef.current;
@@ -741,20 +1129,17 @@ export function PresentationEditor({
     });
     if (!obj) return;
 
+    canvas.fire('before:modified');
     canvas.add(obj);
     canvas.setActiveObject(obj);
     canvas.renderAll();
     setSelectedTool('select');
-    setShowShapePicker(false);
   }, [fabricModule]);
 
   // FIX 3: Upload images to server instead of base64
   const addImage = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async () => {
-      const file = input.files?.[0];
+    pickFile({ accept: 'image/*' }).then(async (files) => {
+      const file = files[0];
       if (!file) return;
 
       const canvas = canvasRef.current;
@@ -769,6 +1154,7 @@ export function PresentationEditor({
         formData.append('file', file);
         const resp = await fetch('/api/gateway/uploads', {
           method: 'POST',
+          headers: gw.gwAuthHeaders(),
           body: formData,
         });
         if (!resp.ok) throw new Error('Upload failed');
@@ -776,7 +1162,7 @@ export function PresentationEditor({
         // Prefix with gateway base URL for full URL
         imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
       } catch (err) {
-        console.error('Image upload failed, falling back to base64:', err);
+        showError(t('errors.imageUploadFallback'), err);
         // Fallback to base64 if upload fails
         imgSrc = await new Promise<string>((resolve) => {
           const reader = new FileReader();
@@ -795,13 +1181,13 @@ export function PresentationEditor({
           scaleX: scale,
           scaleY: scale,
         });
+        canvas.fire('before:modified');
         canvas.add(fabricImg);
         canvas.setActiveObject(fabricImg);
         canvas.renderAll();
       };
       imgEl.src = imgSrc;
-    };
-    input.click();
+    });
   }, []);
 
   // ─── Table insertion ─────────────────────────────────
@@ -826,7 +1212,7 @@ export function PresentationEditor({
       strokeWidth: 0,
     });
 
-    // Store table data as ProseMirror JSON
+    // Store table data as ProseMirror JSON — colwidth null, CSS handles equal distribution
     const headerCells = Array.from({ length: cols }, () => ({
       type: 'table_header',
       attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
@@ -850,6 +1236,7 @@ export function PresentationEditor({
     (tableBg as any).__tableJSON = tableJSON;
     (tableBg as any).__isTable = true;
 
+    canvas.fire('before:modified');
     canvas.add(tableBg);
     canvas.setActiveObject(tableBg);
     canvas.renderAll();
@@ -867,7 +1254,9 @@ export function PresentationEditor({
     if (!canvas || !fabricModule) return;
 
     try {
-      const res = await fetch(`/api/gateway/diagrams/${diagramId}`);
+      // item.id is prefixed (e.g. "diagram:uuid"), API expects raw UUID
+      const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
+      const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
       if (!res.ok) throw new Error('Failed to load diagram');
       const data = await res.json();
       const cells = data.data?.cells || data.data?.nodes || [];
@@ -879,78 +1268,94 @@ export function PresentationEditor({
       const { FabricImage } = fabricModule;
       const imgEl = new window.Image();
       imgEl.onload = () => {
-        const scale = Math.min(400 / (imgEl.width || 400), 300 / (imgEl.height || 300), 1);
+        // Default size: 70% of PPT canvas, centered
+        const targetW = SLIDE_WIDTH * 0.7;
+        const targetH = SLIDE_HEIGHT * 0.7;
+        const scale = Math.min(targetW / (imgEl.width || targetW), targetH / (imgEl.height || targetH));
         const fabricImg = new FabricImage(imgEl, {
-          left: 100,
-          top: 100,
+          left: (SLIDE_WIDTH - imgEl.width * scale) / 2,
+          top: (SLIDE_HEIGHT - imgEl.height * scale) / 2,
           scaleX: scale,
           scaleY: scale,
         });
-        (fabricImg as any).__diagramId = diagramId;
+        (fabricImg as any).__diagramId = rawId;
+        canvas.fire('before:modified');
         canvas.add(fabricImg);
         canvas.setActiveObject(fabricImg);
         canvas.renderAll();
         URL.revokeObjectURL(url);
       };
       imgEl.onerror = () => {
-        console.error('Failed to load diagram SVG as image');
+        showError(t('errors.loadDiagramPreviewFailed'));
         URL.revokeObjectURL(url);
       };
       imgEl.src = url;
     } catch (err) {
-      console.error('Failed to insert diagram:', err);
+      showError('Failed to insert diagram', err);
     }
   }, [fabricModule]);
 
-  const handleDiagramEditorClose = useCallback(async () => {
-    const closingId = editingDiagramId;
+  // Dialog close just clears state — the diagram-updated event listener handles preview refresh
+  const handleDiagramEditorClose = useCallback(() => {
     setEditingDiagramId(null);
+  }, []);
 
-    const canvas = canvasRef.current;
-    if (!canvas || !closingId || !fabricModule) return;
+  // Listen for diagram-updated events (from dialog close or external edits)
+  // to refresh diagram preview images on the canvas
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const { diagramId } = (e as CustomEvent).detail || {};
+      if (!diagramId) return;
+      const canvas = canvasRef.current;
+      if (!canvas || !fabricModule) return;
 
-    try {
-      const res = await fetch(`/api/gateway/diagrams/${closingId}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const cells = data.data?.cells || data.data?.nodes || [];
-      const svgStr = renderCellsToSVG(cells);
-      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
+      const rawId = diagramId.replace(/^diagram:/, '');
+      try {
+        const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const cells = data.data?.cells || data.data?.nodes || [];
+        const svgStr = renderCellsToSVG(cells);
+        const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
 
-      const objects = canvas.getObjects();
-      const target = objects.find((o: any) => (o as any).__diagramId === closingId);
-      if (target) {
-        const imgEl = new window.Image();
-        imgEl.onload = () => {
-          const { FabricImage } = fabricModule;
-          const newImg = new FabricImage(imgEl, {
-            left: (target as any).left,
-            top: (target as any).top,
-            scaleX: (target as any).scaleX,
-            scaleY: (target as any).scaleY,
-            angle: (target as any).angle,
-          });
-          (newImg as any).__diagramId = closingId;
-          canvas.remove(target);
-          canvas.add(newImg);
-          canvas.renderAll();
+        const objects = canvas.getObjects();
+        const target = objects.find((o: any) => (o as any).__diagramId === rawId);
+        if (target) {
+          const imgEl = new window.Image();
+          imgEl.onload = () => {
+            const { FabricImage } = fabricModule;
+            const newImg = new FabricImage(imgEl, {
+              left: (target as any).left,
+              top: (target as any).top,
+              scaleX: (target as any).scaleX,
+              scaleY: (target as any).scaleY,
+              angle: (target as any).angle,
+            });
+            (newImg as any).__diagramId = rawId;
+            canvas.remove(target);
+            canvas.add(newImg);
+            canvas.renderAll();
+            URL.revokeObjectURL(url);
+          };
+          imgEl.src = url;
+        } else {
           URL.revokeObjectURL(url);
-        };
-        imgEl.src = url;
-      } else {
-        URL.revokeObjectURL(url);
+        }
+      } catch (err) {
+        showError('Failed to refresh diagram preview', err);
       }
-    } catch (err) {
-      console.error('Failed to refresh diagram preview:', err);
-    }
-  }, [editingDiagramId, fabricModule]);
+    };
+    window.addEventListener('diagram-updated', handler);
+    return () => window.removeEventListener('diagram-updated', handler);
+  }, [fabricModule]);
 
   const deleteSelected = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const active = canvas.getActiveObjects();
     if (active.length > 0) {
+      canvas.fire('before:modified');
       active.forEach((obj: any) => canvas.remove(obj));
       canvas.discardActiveObject();
       canvas.renderAll();
@@ -981,7 +1386,6 @@ export function PresentationEditor({
 
   // ─── Delete Presentation ──────────────────────────
   const handleDelete = useCallback(async () => {
-    setShowMenu(false);
     await gw.deleteContentItem(`presentation:${presentationId}`);
     queryClient.invalidateQueries({ queryKey: ['content-items'] });
     onDeleted?.();
@@ -989,7 +1393,6 @@ export function PresentationEditor({
 
   // ─── Export PNG ───────────────────────────────────
   const handleDownload = useCallback(() => {
-    setShowMenu(false);
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
@@ -1066,8 +1469,8 @@ export function PresentationEditor({
     );
   }
 
-  // ─── Mobile Vertical Preview Mode ────────────────
-  if (isMobileView && !mobileEditMode) {
+  // ─── Mobile Vertical Preview Mode (no editing) ────────────────
+  if (isMobileView) {
     const previewSlides = slides.map((slide, i) => ({
       id: String(i),
       data: slide,
@@ -1076,9 +1479,10 @@ export function PresentationEditor({
     return (
       <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-card">
         {/* Header */}
-        <div className="flex items-center border-b border-border shrink-0">
+        <div className="flex items-center border-b border-border shrink-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
           <ContentTopBar
             breadcrumb={breadcrumb}
+            onNavigate={onNavigate}
             onBack={onBack}
             docListVisible={docListVisible}
             onToggleDocList={onToggleDocList}
@@ -1090,45 +1494,92 @@ export function PresentationEditor({
                 queryClient.invalidateQueries({ queryKey: ['content-items'] });
               }
             }}
-            actions={<>
+            onUndo={pptUndo}
+            onRedo={pptRedo}
+            canUndo={undoStackRef.current.length > 0}
+            canRedo={redoStackRef.current.length > 0}
+            metaLine={
               <button
+<<<<<<< Updated upstream
                 onClick={startPresentation}
                 className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 title={t('toolbar.present')}
+=======
+                onClick={() => { setShowHistory(true); setShowComments(false); }}
+                className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
+>>>>>>> Stashed changes
               >
-                <Play className="h-3.5 w-3.5" />
+                Last modified: {formatRelativeTime(presentation.updated_at)}
+                {presentation.updated_by && <span> by {presentation.updated_by}</span>}
               </button>
-            </>}
+            }
+            onHistory={() => { setShowHistory(true); setShowComments(false); }}
+            onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
+            menuItems={[
+              { icon: Link2, label: 'Copy link', shortcut: '⌘⇧L', onClick: () => onCopyLink?.() },
+              { icon: Pin, label: 'Pin to top', onClick: () => {} },
+              { icon: Download, label: 'Download', onClick: () => handleDownload() },
+              { icon: Share2, label: 'Share', onClick: () => {} },
+              { icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleDelete },
+              { icon: Clock, label: 'Version History', separator: true, shortcut: '⌘⇧H', onClick: () => { setShowHistory(true); setShowComments(false); } },
+              { icon: MessageSquare, label: 'Comments', shortcut: '⌘J', onClick: () => { setShowComments(true); setShowHistory(false); } },
+              { icon: Search, label: 'Search', shortcut: '⌘F', onClick: () => {} },
+              { icon: Play, label: 'Present', onClick: () => startPresentation() },
+            ]}
           />
         </div>
         {/* Vertical scroll preview */}
         <SlidePreviewList
           slides={previewSlides}
           currentSlideIndex={currentSlideIndex}
-          onSlideSelect={(i) => {
-            setCurrentSlideIndex(i);
-            setMobileEditMode(true);
-          }}
+          onSlideSelect={(i) => setCurrentSlideIndex(i)}
         />
-        {/* Edit FAB */}
-        <EditFAB
-          isEditing={false}
-          onEdit={() => setMobileEditMode(true)}
-          onSave={() => {}}
-          onCancel={() => {}}
+        {/* Bottom comment bar — no edit FAB for PPT on mobile */}
+        <MobileCommentBar
+          targetType="presentation"
+          targetId={`presentation:${presentationId}`}
         />
+        {/* Mobile: Comments BottomSheet */}
+        {showComments && !showHistory && (
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
+            <CommentPanel
+              targetType="presentation"
+              targetId={`presentation:${presentationId}`}
+              onClose={() => setShowComments(false)}
+            />
+          </BottomSheet>
+        )}
+        {/* Mobile: History BottomSheet */}
+        {showHistory && (
+          <BottomSheet open={true} onClose={() => setShowHistory(false)} title={t('content.versionHistory')} initialHeight="full">
+            <RevisionHistory
+              contentType="presentation"
+              contentId={presentationId}
+              onClose={() => setShowHistory(false)}
+              onRestore={async (data) => {
+                if (data?.slides) {
+                  setSlides(data.slides);
+                  setCurrentSlideIndex(0);
+                  await gw.savePresentation(presentationId, { slides: data.slides });
+                  queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
+                }
+              }}
+            />
+          </BottomSheet>
+        )}
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-row min-h-0 bg-card">
-      {/* Left column: TopBar + Toolbar + main area */}
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+    <div ref={containerRef} className="flex-1 flex flex-row min-h-0">
+      {/* Left column: TopBar + Toolbar + main area — card style */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-card md:rounded-lg md:shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] md:overflow-hidden relative z-[1]">
       {/* ─── Header Bar ─── */}
-      <div className="flex items-center border-b border-border shrink-0">
+      <div className="flex items-center border-b border-border shrink-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
         <ContentTopBar
           breadcrumb={breadcrumb}
+          onNavigate={onNavigate}
           onBack={isMobileView && mobileEditMode ? () => setMobileEditMode(false) : onBack}
           docListVisible={docListVisible}
           onToggleDocList={onToggleDocList}
@@ -1140,60 +1591,70 @@ export function PresentationEditor({
               queryClient.invalidateQueries({ queryKey: ['content-items'] });
             }
           }}
+          onUndo={pptUndo}
+          onRedo={pptRedo}
+          canUndo={undoStackRef.current.length > 0}
+          canRedo={redoStackRef.current.length > 0}
           metaLine={
-            <div className="text-[11px] text-muted-foreground/50">
-              {formatRelativeTime(presentation.updated_at)}
-              {presentation.updated_by && <span> &middot; {presentation.updated_by}</span>}
-            </div>
-          }
-          actions={<>
             <button
+<<<<<<< Updated upstream
               onClick={startPresentation}
               className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               title={t('toolbar.present')}
+=======
+              onClick={() => { setShowHistory(true); setShowComments(false); }}
+              className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
+>>>>>>> Stashed changes
             >
+              Last modified: {formatRelativeTime(presentation.updated_at)}
+              {presentation.updated_by && <span> by {presentation.updated_by}</span>}
+            </button>
+          }
+          onHistory={() => { setShowHistory(true); setShowComments(false); }}
+          onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
+          menuItems={[
+            { icon: Link2, label: 'Copy link', shortcut: '⌘⇧L', onClick: () => onCopyLink?.() },
+            { icon: Pin, label: 'Pin to top', onClick: () => {} },
+            { icon: Download, label: 'Download', onClick: () => handleDownload() },
+            { icon: Share2, label: 'Share', onClick: () => {} },
+            { icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleDelete },
+            { icon: Clock, label: 'Version History', separator: true, shortcut: '⌘⇧H', onClick: () => { setShowHistory(true); setShowComments(false); } },
+            { icon: MessageSquare, label: 'Comments', shortcut: '⌘J', onClick: () => { setShowComments(true); setShowHistory(false); } },
+            { icon: Search, label: 'Search', shortcut: '⌘F', onClick: () => {} },
+            { icon: Play, label: 'Present', onClick: () => startPresentation() },
+          ]}
+          actions={<>
+            {/* Search */}
+            <button className="p-2 text-black/70 dark:text-white/70 hover:text-foreground rounded transition-colors" title={t('toolbar.search')}>
+              <Search className="h-4 w-4" />
+            </button>
+            {/* Present button — Figma: black bg, Slides-only */}
+            <button onClick={startPresentation} className="flex items-center gap-1.5 h-8 px-3 ml-1 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
               <Play className="h-3.5 w-3.5" />
+<<<<<<< Updated upstream
               <span className="hidden sm:inline">{t('toolbar.present')}</span>
+=======
+              Present
+>>>>>>> Stashed changes
             </button>
-            <button
-              onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
-              className={cn('p-1.5 rounded transition-colors', showComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
-              title={t('content.comments') || 'Comments'}
-            >
-              <MessageSquare className="h-5 w-5 md:h-4 md:w-4" />
+            {/* Share button */}
+            <button className="flex items-center gap-1.5 h-8 px-3 ml-1 border border-black/20 dark:border-white/20 rounded-lg text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors">
+              <ExternalLink className="h-4 w-4" />
+              Share
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(v => !v)}
-                className="p-1.5 text-muted-foreground hover:text-foreground shrink-0"
-                title={t('content.moreActions') || 'More'}
-              >
-                <MoreHorizontal className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-              {showMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-52">
-                    <MenuBtn icon={Clock} label={t('content.versionHistory') || 'Version History'} onClick={() => {
-                      setShowMenu(false);
-                      setShowHistory(true);
-                      setShowComments(false);
-                    }} />
-                    <MenuBtn icon={Link2} label={t('content.copyLink') || 'Copy Link'} onClick={() => {
-                      setShowMenu(false);
-                      onCopyLink?.();
-                    }} />
-                    <MenuBtn icon={Download} label={t('content.download') || 'Download PNG'} onClick={handleDownload} />
-                    <div className="border-t border-border my-1" />
-                    <MenuBtn icon={Trash2} label={t('content.delete') || 'Delete'} onClick={handleDelete} danger />
-                  </div>
-                </>
-              )}
-            </div>
+            {/* History */}
+            <button onClick={() => { setShowHistory(v => !v); setShowComments(false); }} className={cn('flex items-center justify-center w-8 h-8 ml-1 border border-black/20 dark:border-white/20 rounded-lg transition-colors', showHistory ? 'text-sidebar-primary bg-sidebar-primary/10 border-sidebar-primary/20' : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04]')} title={t('content.versionHistory')}>
+              <Clock className="h-4 w-4" />
+            </button>
+            {/* @ Comments */}
+            <button onClick={() => { setShowComments(v => !v); setShowHistory(false); }} className={cn('flex items-center justify-center w-8 h-8 ml-1 rounded-lg transition-colors', showComments ? 'bg-sidebar-primary/80' : 'bg-sidebar-primary hover:bg-sidebar-primary/90')} title={t('content.comments')}>
+              <AtSign className="h-4 w-4 text-white" />
+            </button>
           </>}
         />
       </div>
 
+<<<<<<< Updated upstream
       {/* ─── Toolbar (simplified) ──────────────────────── */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0 bg-muted/30">
         <ToolBtn icon={MousePointer2} active={selectedTool === 'select'} onClick={() => setSelectedTool('select')} title={t('toolbar.select')} />
@@ -1325,29 +1786,49 @@ export function PresentationEditor({
               handler = createPPTShapeHandler({ obj: selectedObj, canvas });
             } else {
               return null;
+=======
+      {/* ─── Main Area: Slide List + Canvas + Property Panel ── */}
+      <div className="flex-1 flex min-h-0">
+        {/* Slide List (left) — hidden on mobile */}
+        <SlidePanel
+          slides={slides}
+          currentSlideIndex={currentSlideIndex}
+          selectedIndices={selectedSlideIndices}
+          onSlideSelect={(i) => {
+            if (i !== currentSlideIndex) {
+              saveCurrentSlideToState();
+>>>>>>> Stashed changes
             }
+            setCurrentSlideIndex(i);
+            setSelectedSlideIndices(new Set([i]));
+          }}
+          onMultiSelect={setSelectedSlideIndices}
+          onAddSlide={addSlide}
+          onSlideCut={handleSlideCut}
+          onSlideCopy={handleSlideCopy}
+          onSlidePaste={handleSlidePaste}
+          onSlideDelete={handleSlideDelete}
+          onSlideDuplicate={handleSlideDuplicate}
+          onSlideBackground={handleSlideBackground}
+          onSlideComment={handleSlideComment}
+        />
 
-            return (
-              <FloatingToolbar
-                items={items}
-                handler={handler}
-                anchor={anchor}
-                visible={true}
-              />
-            );
-          })()}
-          {/* Table DOM overlays — always visible for all table objects */}
-          {tableObjects.map((tObj, idx) => (
-            <PPTTableOverlay
-              key={tObj.__uid || idx}
-              obj={tObj}
-              canvas={canvasRef.current}
-              containerRef={canvasContainerRef}
-              propVersion={propVersion}
-              isSelected={selectedObj === tObj}
-            />
-          ))}
-        </div>
+        {/* Canvas Area (center) */}
+        <SlideCanvas
+          canvasRef={canvasRef}
+          canvasHostRef={canvasHostRef}
+          canvasContainerRef={canvasContainerRef}
+          selectedObj={selectedObj}
+          propVersion={propVersion}
+          tableObjects={tableObjects}
+          showPropertyPanel={showPropertyPanel}
+          onTogglePropertyPanel={() => setShowPropertyPanel(v => !v)}
+          onAddTextbox={addTextbox}
+          onAddShape={addShape}
+          onAddImage={addImage}
+          onAddTable={() => addTable(3, 3)}
+          onInsertDiagram={insertDiagram}
+        />
 
         {/* Property Panel (right) */}
         {showPropertyPanel && (
@@ -1369,7 +1850,7 @@ export function PresentationEditor({
       {/* Sidebar — full height on desktop, BottomSheet on mobile */}
       {showComments && !showHistory && (
         <>
-          <div className="hidden md:flex w-80 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
+          <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
             <CommentPanel
               targetType="presentation"
               targetId={`presentation:${presentationId}`}
@@ -1388,7 +1869,7 @@ export function PresentationEditor({
 
       {showHistory && (
         <>
-          <div className="hidden md:flex w-72 border-l border-border bg-card flex-col shrink-0 overflow-hidden h-full">
+          <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
             <RevisionHistory
               contentType="presentation"
               contentId={presentationId}
@@ -1426,6 +1907,7 @@ export function PresentationEditor({
           <DiagramPicker
             onSelect={handleDiagramPickerSelect}
             onCancel={() => setDiagramPicker(false)}
+            embedded
           />
         </div>
       )}
@@ -1438,6 +1920,7 @@ export function PresentationEditor({
     </div>
   );
 }
+<<<<<<< Updated upstream
 
 // ─── Property Panel ─────────────────────────────────
 function PropertyPanel({
@@ -2766,3 +3249,5 @@ function PresenterMode({
     </div>
   );
 }
+=======
+>>>>>>> Stashed changes

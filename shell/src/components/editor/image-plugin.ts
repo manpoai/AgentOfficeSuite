@@ -6,6 +6,8 @@ import { Plugin } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import type { Schema } from 'prosemirror-model';
 import * as docApi from '@/lib/api/documents';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 /** Find a valid block-level insertion position at or near `pos`. */
 function findInsertPos(view: EditorView, pos: number): number {
@@ -89,14 +91,7 @@ export async function uploadAndInsert(view: EditorView, file: File, rawPos: numb
         return true;
       });
     } catch (e: any) {
-      const errMsg = e?.message || String(e);
-      console.error('Image upload failed:', errMsg, e);
-      // Show error as a temporary toast so user can see what went wrong
-      const toast = document.createElement('div');
-      toast.textContent = `Image upload failed: ${errMsg}`;
-      toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:12px 24px;border-radius:8px;z-index:9999;font-size:14px;max-width:80vw;word-break:break-all;';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 8000);
+      showError(getT()('errors.imageUploadFailed'), e);
       // Remove placeholder on error
       let found = false;
       view.state.doc.descendants((node, nodePos) => {

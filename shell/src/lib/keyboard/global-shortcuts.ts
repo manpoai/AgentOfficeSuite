@@ -51,6 +51,15 @@ const GLOBAL_SHORTCUTS: ShortcutRegistration[] = [
     priority: 6,
   },
   {
+    id: 'global-cmd-backslash',
+    key: '\\',
+    modifiers: { meta: true },
+    handler: () => dispatch('toggle-sidebar'),
+    label: 'Toggle sidebar',
+    category: 'Global',
+    priority: 10,
+  },
+  {
     id: 'global-help',
     key: '?',
     handler: () => dispatch('toggle-shortcut-help'),
@@ -70,10 +79,10 @@ export function registerGlobalShortcuts(): () => void {
   registered = true;
 
   const manager = KeyboardManager.getInstance();
-  const unregisters = GLOBAL_SHORTCUTS.map((s) => manager.register('global', s));
+  const unregister = manager.registerGlobal(GLOBAL_SHORTCUTS);
 
   return () => {
-    unregisters.forEach((fn) => fn());
+    unregister();
     registered = false;
   };
 }

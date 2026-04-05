@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a third content type "board" (画板) to ASuite, backed by Excalidraw, alongside existing doc (Outline) and table (NocoDB) types.
+**Goal:** Add a third content type "board" (画板) to ASuite, backed by Excalidraw, alongside existing doc and table (Baserow) types.
 
 **Architecture:** Board data is a JSON blob stored directly in Gateway SQLite (no external service needed). The Shell renders boards using `@excalidraw/excalidraw` React component loaded via Next.js dynamic import. The existing `content_items` unified tree model is extended with `type = 'board'`, so sidebar, drag-and-drop, delete/restore all inherit automatically.
 
@@ -236,7 +236,7 @@ In the `DELETE /api/content-items/:id/permanent` handler (line ~3024), after the
 
 - [ ] **Step 5: Extend restore to handle boards**
 
-In the `POST /api/content-items/:id/restore` handler (line ~3005), after the doc restore block, the existing code already handles tables with a comment "Tables: nothing to do in NocoDB". Add after that:
+In the `POST /api/content-items/:id/restore` handler (line ~3005), after the doc restore block, the existing code already handles tables with a comment "Tables: nothing to do in Baserow". Add after that:
 
 ```js
   // Boards: nothing to do (data was never deleted)

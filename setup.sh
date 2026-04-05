@@ -5,7 +5,7 @@
 # This script:
 # 1. Generates .env with random secrets (if not exists)
 # 2. Starts all services via docker compose
-# 3. Runs init container to configure MM/NocoDB
+# 3. Runs init container to configure MM/Baserow
 # 4. Prints onboarding instructions for connecting agents
 
 set -e
@@ -42,13 +42,13 @@ else
     PUB_MM="http://localhost:8065"
     PUB_OL="http://localhost:3000"
     PUB_PL="http://localhost:8000"
-    PUB_NC="http://localhost:8080"
+    PUB_BR="http://localhost:8280"
   else
     SHELL_URL="https://$DOMAIN"
     PUB_MM="https://mm.$DOMAIN"
     PUB_OL="https://outline.$DOMAIN"
     PUB_PL="https://plane.$DOMAIN"
-    PUB_NC="https://noco.$DOMAIN"
+    PUB_BR="https://baserow.$DOMAIN"
   fi
 
   cat > .env << ENVEOF
@@ -73,9 +73,8 @@ MINIO_SECRET_KEY=$(gen_secret)
 POSTGRES_PL_PASS=$(gen_short)
 PLANE_SECRET_KEY=$(gen_secret)
 
-# NocoDB
-POSTGRES_NC_PASS=$(gen_short)
-NOCODB_JWT_SECRET=$(gen_secret)
+# Baserow
+POSTGRES_BR_PASS=$(gen_short)
 
 # Ports
 MM_PORT=8065
@@ -90,7 +89,7 @@ OL_TOKEN=PENDING
 PLANE_TOKEN=PENDING
 PLANE_WORKSPACE=asuite
 PLANE_PROJECT_ID=PENDING
-NOCODB_BASE_ID=PENDING
+BASEROW_DATABASE_ID=PENDING
 GATEWAY_ADMIN_TOKEN=$ADMIN_TOKEN
 
 # Shell
@@ -99,7 +98,7 @@ SHELL_SECRET=$(gen_secret)
 PUBLIC_MM_URL=$PUB_MM
 PUBLIC_OUTLINE_URL=$PUB_OL
 PUBLIC_PLANE_URL=$PUB_PL
-PUBLIC_NOCODB_URL=$PUB_NC
+PUBLIC_BASEROW_URL=$PUB_BR
 ENVEOF
 
   echo "[setup] .env generated"
@@ -141,7 +140,7 @@ echo "  Shell:    http://localhost:${SHELL_PORT:-3101}"
 echo "  MM:       http://localhost:${MM_PORT:-8065}"
 echo "  Outline:  http://localhost:${OUTLINE_PORT:-3000}"
 echo "  Plane:    http://localhost:${PLANE_PORT:-8000}"
-echo "  NocoDB:   http://localhost:${NOCODB_PORT:-8080}"
+echo "  Baserow:  http://localhost:${BASEROW_PORT:-8280}"
 echo ""
 echo "─── To connect an Agent ───────────────"
 echo ""

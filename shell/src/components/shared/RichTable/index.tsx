@@ -349,6 +349,7 @@ export const RichTable = forwardRef<RichTableHandle, RichTableProps>(
     const onChangeRef = useRef(onChange);
     const onPmChangeRef = useRef(onProsemirrorChange);
     const onCellToolbarRef = useRef(onCellToolbar);
+    const readonlyRef = useRef(userConfig?.readonly ?? false);
     onChangeRef.current = onChange;
     onPmChangeRef.current = onProsemirrorChange;
     onCellToolbarRef.current = onCellToolbar;
@@ -361,6 +362,7 @@ export const RichTable = forwardRef<RichTableHandle, RichTableProps>(
       }),
       [userConfig]
     );
+    readonlyRef.current = config.readonly;
 
     // Initialize ProseMirror
     useEffect(() => {
@@ -414,19 +416,17 @@ export const RichTable = forwardRef<RichTableHandle, RichTableProps>(
         plugins.push(tableEditing());
 
         // Add table menu plugin for grip bars, insertion dots, context menus
-        if (!config.readonly) {
-          plugins.push(tableMenuPlugin(
-            onCellToolbarRef.current
-              ? (info: any) => onCellToolbarRef.current?.(info)
-              : undefined
-          ));
-        }
+        // Always include — even in readonly mode the plugin is inert (no selection in cells)
+        // This avoids async editor recreation lag when toggling readonly → editable
+        plugins.push(tableMenuPlugin(
+          (info: any) => onCellToolbarRef.current?.(info)
+        ));
 
         const state = EditorState.create({ doc, plugins });
 
         const view = new EditorView(editorRef.current!, {
           state,
-          editable: () => !config.readonly,
+          editable: () => !readonlyRef.current,
           dispatchTransaction(tr) {
             const newState = view.state.apply(tr);
             view.updateState(newState);
@@ -454,8 +454,20 @@ export const RichTable = forwardRef<RichTableHandle, RichTableProps>(
         setReady(false);
       };
       // Only re-init when config fundamentals change
+      // readonly uses a ref — no need to recreate editor on readonly toggle
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [config.readonly, config.cellMinWidth, config.columnResizing]);
+    }, [config.cellMinWidth, config.columnResizing]);
+
+    // When readonly toggles, force ProseMirror to re-evaluate editable()
+    useEffect(() => {
+      const view = viewRef.current;
+      if (view) {
+        // setProps triggers re-evaluation of editable()
+        view.setProps({ editable: () => !readonlyRef.current });
+        // Force a state update so the plugin's update() fires and shows/hides bars
+        view.dispatch(view.state.tr);
+      }
+    }, [config.readonly]);
 
     // Build actions object
     const actions = useMemo<RichTableActions | null>(() => {
@@ -682,14 +694,14 @@ export const RichTable = forwardRef<RichTableHandle, RichTableProps>(
           ref={editorRef}
           className={cn(
             'rich-table-editor',
-            'relative prose prose-sm max-w-none',
-            '[&_table]:w-full [&_table]:border-collapse',
+            'relative prose prose-sm max-w-none h-full',
+            '[&_table]:w-full [&_table]:h-full [&_table]:border-collapse',
             '[&_td]:border [&_td]:border-border [&_td]:p-2 [&_td]:text-sm [&_td]:text-foreground',
             '[&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:text-sm [&_th]:font-semibold [&_th]:text-foreground [&_th]:bg-muted',
             '[&_td:focus-within]:outline-none [&_td:focus-within]:ring-2 [&_td:focus-within]:ring-sidebar-primary/30',
             '[&_th:focus-within]:outline-none [&_th:focus-within]:ring-2 [&_th:focus-within]:ring-sidebar-primary/30',
             '[&_p]:m-0 [&_p]:leading-normal',
-            '[&_.ProseMirror]:outline-none',
+            '[&_.ProseMirror]:outline-none [&_.ProseMirror]:h-full',
             '[&_.column-resize-handle]:absolute [&_.column-resize-handle]:right-[-2px] [&_.column-resize-handle]:top-0 [&_.column-resize-handle]:bottom-[-2px] [&_.column-resize-handle]:w-[4px] [&_.column-resize-handle]:bg-sidebar-primary/40 [&_.column-resize-handle]:cursor-col-resize',
             '[&_.selectedCell]:bg-sidebar-primary/10'
           )}

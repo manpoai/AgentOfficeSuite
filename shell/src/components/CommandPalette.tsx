@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { FileText, Table2, Presentation, GitBranch, Users, Settings, Search, ArrowRight, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatRelativeTime } from '@/lib/utils/time';
+import { formatRelativeTime, formatDate } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
 import { useT } from '@/lib/i18n';
 
@@ -166,7 +166,7 @@ export function CommandPalette() {
         result.push({
           id: `doc-${d.id}`,
           label: d.title,
-          sublabel: d.updated_at ? new Date(d.updated_at).toLocaleDateString('zh-CN') : '',
+          sublabel: d.updated_at ? formatDate(d.updated_at) : '',
           icon: <FileText className="h-4 w-4 text-muted-foreground" />,
           action: () => navigate('/content'),
           category: t('command.catDocs'),
@@ -241,16 +241,17 @@ export function CommandPalette() {
 
       {/* Dialog — full-screen on mobile, centered card on desktop */}
       <div className="relative w-full h-full md:h-auto md:max-w-lg bg-card md:border md:border-border md:rounded-xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+        {/* Search input — taller on mobile for comfortable touch */}
+        <div className="flex items-center gap-3 px-4 py-4 md:py-3 border-b border-border shrink-0"
+             style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 1rem)' }}>
+          <Search className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('command.placeholder')}
-            className="flex-1 bg-transparent text-sm md:text-sm text-base text-foreground placeholder:text-muted-foreground outline-none"
+            className="flex-1 bg-transparent text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           {isSearching && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />}
           <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded hidden md:inline">ESC</kbd>
@@ -260,8 +261,9 @@ export function CommandPalette() {
           </button>
         </div>
 
-        {/* Results */}
-        <div className="flex-1 md:flex-none md:max-h-[50vh] overflow-y-auto py-1">
+        {/* Results — fills remaining space on mobile, capped height on desktop */}
+        <div className="flex-1 md:flex-none md:max-h-[50vh] overflow-y-auto py-1"
+             style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
           {/* Loading state for search */}
           {isSearchMode && isSearching && displayItems.length === 0 && (
             <div className="flex items-center justify-center gap-2 py-8">

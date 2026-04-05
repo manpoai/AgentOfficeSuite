@@ -137,8 +137,9 @@ export function FloatingToolbar({ items, handler, anchor, visible, onHover, clas
   return createPortal(
     <div
       ref={toolbarRef}
+      data-floating-toolbar
       className={cn(
-        'fixed z-[1000] flex items-center gap-0 px-[3px] py-[2px]',
+        'fixed z-[1200] flex items-center gap-0 px-[3px] py-[2px]',
         'bg-popover border border-border rounded-lg shadow-xl backdrop-blur-sm',
         className,
       )}
