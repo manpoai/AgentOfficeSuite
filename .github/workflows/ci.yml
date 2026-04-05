@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install shell dependencies
+        run: cd shell && npm ci
+      - name: Build shell
+        run: cd shell && npm run build
+      - name: Install gateway dependencies
+        run: cd gateway && npm ci
