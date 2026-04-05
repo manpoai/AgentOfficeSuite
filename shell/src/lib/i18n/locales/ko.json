@@ -648,7 +648,14 @@
     "download": "다운로드",
     "share": "공유",
     "delete": "삭제",
-    "addIcon": "아이콘 추가"
+    "addIcon": "아이콘 추가",
+    "agentMembers": "에이전트 멤버",
+    "addAgent": "에이전트 추가",
+    "sendToAgent": "에이전트에게 전송",
+    "copyPrompt": "복사",
+    "resetToken": "토큰 재설정",
+    "resetTokenConfirm": "현재 토큰이 무효화됩니다. 계속하시겠습니까?",
+    "newTokenWarning": "지금 이 토큰을 저장하세요. 다시 표시되지 않습니다."
   },
   "notification": {
     "noNotifications": "알림이 없습니다"

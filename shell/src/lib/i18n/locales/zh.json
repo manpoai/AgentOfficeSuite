@@ -702,7 +702,14 @@
     "deleteColumn": "删除列",
     "download": "下载",
     "share": "分享",
-    "addIcon": "添加图标"
+    "addIcon": "添加图标",
+    "agentMembers": "Agent 成员",
+    "addAgent": "添加 Agent",
+    "sendToAgent": "发给你的 Agent",
+    "copyPrompt": "复制",
+    "resetToken": "重置 Token",
+    "resetTokenConfirm": "这将使当前 Token 失效，确认继续？",
+    "newTokenWarning": "请立即保存此 Token，关闭后不可再查看。"
   },
   "notification": {
     "noNotifications": "暂无通知"

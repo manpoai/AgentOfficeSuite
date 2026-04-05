@@ -83,6 +83,16 @@ export async function approveAgent(agentId: string): Promise<void> {
   await gwFetch(`/admin/agents/${agentId}/approve`, { method: 'POST' });
 }
 
+/** Admin: reset an agent's token */
+export async function resetAgentToken(agentId: string): Promise<{ token: string }> {
+  return gwFetch(`/admin/agents/${agentId}/reset-token`, { method: 'POST' });
+}
+
+/** Get agent skills info including onboarding prompt */
+export async function getAgentSkills(): Promise<{ onboarding_prompt?: string; [key: string]: unknown }> {
+  return gwFetch('/agent-skills');
+}
+
 export async function getAgent(name: string): Promise<Agent> {
   return gwFetch(`/agents/${name}`);
 }

@@ -39,7 +39,7 @@ function checkSelfRegisterRate(req, res, next) {
   next();
 }
 
-export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, authenticateAny, authenticateAdmin, authenticateAgent, genId, hashToken, hashPassword, verifyPassword, createBrUser }) {
+export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, authenticateAny, authenticateAdmin, authenticateAgent, genId, hashToken, hashPassword, verifyPassword, createBrUser, pushEvent }) {
 
   // ─── Shared: Avatar upload setup ─────────────────
   const AVATAR_DIR = path.join(GATEWAY_DIR, 'uploads', 'avatars');
@@ -238,13 +238,32 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       }
     }).catch(e => console.warn(`[gateway] BR user creation failed: ${e.message}`));
 
+    // Notify all human admins about new agent registration
+    const admins = db.prepare("SELECT id FROM actors WHERE type = 'human' AND role = 'admin'").all();
+    for (const admin of admins) {
+      const notifId = genId('ntf');
+      db.prepare(`INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, created_at)
+        VALUES (?, ?, ?, 'agent_registered', ?, ?, ?, ?)`)
+        .run(notifId, agentId, admin.id,
+          `New agent "${display_name}" requests access`,
+          `Agent "${name}" has registered and is pending approval.`,
+          '/agents',
+          now);
+    }
+
+    const skillsUrl = `${req.protocol}://${req.get('host')}/api/agent-skills`;
     res.status(201).json({
       agent_id: agentId,
       token,
       name,
       display_name,
       status: 'pending_approval',
-      message: 'Registration received. Token is active but rate-limited until admin approval.',
+      skills_url: skillsUrl,
+      mcp_server: {
+        install: 'npx -y asuite-mcp-server',
+        env: { ASUITE_TOKEN: token, ASUITE_URL: `${req.protocol}://${req.get('host')}` },
+      },
+      message: 'Registration received. Fetch skills from skills_url and configure MCP server.',
       created_at: now,
     });
   });
@@ -255,8 +274,26 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     if (!agent) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     }
+    const now = Date.now();
     db.prepare('UPDATE actors SET pending_approval = 0, updated_at = ? WHERE id = ?')
-      .run(Date.now(), agent.id);
+      .run(now, agent.id);
+
+    // Push approval event to the agent via SSE
+    const approvalEvent = {
+      id: genId('evt'),
+      type: 'agent.approved',
+      occurred_at: now,
+      data: {
+        agent_id: agent.id,
+        name: agent.username,
+        message: 'Your registration has been approved. You now have full access to ASuite.',
+      },
+    };
+    db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at)
+      VALUES (?, ?, 'agent.approved', 'system', ?, ?, ?)`)
+      .run(approvalEvent.id, agent.id, approvalEvent.occurred_at, JSON.stringify(approvalEvent), now);
+    if (pushEvent) pushEvent(agent.id, approvalEvent);
+
     res.json({ agent_id: agent.id, name: agent.username, status: 'approved' });
   });
 
@@ -363,6 +400,71 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       size: req.file.size,
       content_type: req.file.mimetype,
     });
+  });
+
+    // GET /api/agent-skills — return skills package (no auth required, public)
+  app.get('/api/agent-skills', (req, res) => {
+    const skillsDir = path.join(GATEWAY_DIR, '..', 'mcp-server', 'skills');
+    const files = {};
+    if (fs.existsSync(skillsDir)) {
+      for (const f of fs.readdirSync(skillsDir)) {
+        if (f.endsWith('.md')) {
+          files[f] = fs.readFileSync(path.join(skillsDir, f), 'utf8');
+        }
+      }
+    }
+    let onboardingPrompt = '';
+    try {
+      const promptPath = path.join(GATEWAY_DIR, '..', 'mcp-server', 'onboarding-prompt.md');
+      onboardingPrompt = fs.readFileSync(promptPath, 'utf8');
+      files['onboarding-prompt.md'] = onboardingPrompt;
+    } catch {}
+    res.json({ skills: files, onboarding_prompt: onboardingPrompt });
+  });
+
+  // Admin: reset an agent's token
+  app.post('/api/admin/agents/:agent_id/reset-token', authenticateAdmin, (req, res) => {
+    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    if (!agent) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
+    }
+    const newToken = crypto.randomBytes(32).toString('hex');
+    const newTokenHash = hashToken(newToken);
+    db.prepare('UPDATE actors SET token_hash = ?, updated_at = ? WHERE id = ?')
+      .run(newTokenHash, Date.now(), agent.id);
+    res.json({
+      agent_id: agent.id,
+      name: agent.username,
+      token: newToken,
+      message: 'Token has been reset. The old token is now invalid.',
+    });
+  });
+
+  // Agent/human: update own profile (display_name only)
+  app.patch('/api/me/profile', authenticateAny, (req, res) => {
+    const { display_name } = req.body;
+    if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'display_name required' });
+    }
+    db.prepare('UPDATE actors SET display_name = ?, updated_at = ? WHERE id = ?')
+      .run(display_name.trim(), Date.now(), req.actor.id);
+    const updated = db.prepare('SELECT id, type, username, display_name, avatar_url FROM actors WHERE id = ?').get(req.actor.id);
+    res.json(updated);
+  });
+
+  // Admin: update agent profile (display_name only, username immutable)
+  app.patch('/api/admin/agents/:agent_id', authenticateAdmin, (req, res) => {
+    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    if (!agent) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
+    }
+    const { display_name } = req.body;
+    if (!display_name || typeof display_name !== 'string' || display_name.trim().length === 0) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'display_name required' });
+    }
+    db.prepare('UPDATE actors SET display_name = ?, updated_at = ? WHERE id = ?')
+      .run(display_name.trim(), Date.now(), agent.id);
+    res.json({ agent_id: agent.id, name: agent.username, display_name: display_name.trim() });
   });
 
   // Note: file downloads are intentionally unauthenticated because avatar URLs
