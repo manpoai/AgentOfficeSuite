@@ -6,6 +6,7 @@
  */
 import type { Graph, Node } from '@antv/x6';
 import { MINDMAP_COLORS } from '../constants';
+import { getT } from '@/lib/i18n';
 
 export interface MindmapTreeNode {
   id: string;
@@ -21,7 +22,8 @@ function newMmId() {
 
 // ── Tree CRUD ──
 
-export function createRootTree(label = '中心主题'): MindmapTreeNode {
+export function createRootTree(label?: string): MindmapTreeNode {
+  if (!label) label = getT()('diagram.centralTopic');
   return { id: newMmId(), label, collapsed: false, children: [] };
 }
 
@@ -264,12 +266,16 @@ export function renderMindmapToGraph(
     const existing = existingNodes.get(n.id);
     if (existing) {
       // Update in place — no destroy/recreate.
-      // Use silent for position/resize to avoid X6's notifyCellEvent crash
-      // (it triggers events with missing args.cell).
-      // The setData call (non-silent) forces React to re-render the component,
-      // which picks up the new position/size from node.getSize()/node.position().
+      // 1. Silently update model (no events → no notifyCellEvent crash)
       existing.prop('position', { x: n.x, y: n.y }, { silent: true });
       existing.prop('size', { width: n.width, height: n.height }, { silent: true });
+      // 2. Directly update the SVG view (bypasses event system entirely)
+      const view = graph.findViewByCell(existing.id);
+      if (view) {
+        (view as any).translate();
+        (view as any).resize();
+      }
+      // 3. Non-silent setData triggers React re-render for label/colors/etc.
       existing.setData(nodeData);
     } else {
       // New node — add it

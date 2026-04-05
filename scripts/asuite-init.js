@@ -8,7 +8,7 @@
  * 3. Create Mattermost admin user + team + enable bot accounts
  * 4. Create Outline admin (auto via OIDC on first login)
  * 5. Create Plane admin + workspace + project
- * 6. Create NocoDB admin + base + default tables
+ * 6. Create Baserow admin + database + default tables
  * 7. Create Dex static password for admin
  * 8. Generate Gateway admin token + agent tokens
  * 9. Generate .env with all credentials
@@ -43,7 +43,7 @@ const PORTS = {
   mm: 8065,
   outline: 3000,
   plane: 8000,
-  nocodb: 8080,
+  baserow: 8280,
   dex: 5556,
   minio: 9000,
   gateway: 4000,
@@ -105,8 +105,7 @@ async function main() {
   state.env.MINIO_SECRET_KEY = genSecret();
   state.env.POSTGRES_PL_PASS = genShort();
   state.env.PLANE_SECRET_KEY = genSecret();
-  state.env.POSTGRES_NC_PASS = genShort();
-  state.env.NOCODB_JWT_SECRET = genSecret();
+  state.env.POSTGRES_BR_PASS = genShort();
   state.env.MM_PORT = String(PORTS.mm);
   state.env.OUTLINE_PORT = String(PORTS.outline);
   state.env.PLANE_PORT = String(PORTS.plane);
@@ -147,9 +146,8 @@ async function main() {
       `OUTLINE_PORT=${PORTS.outline}`,
       `PLANE_PORT=${PORTS.plane}`,
       '',
-      '# NocoDB',
-      `POSTGRES_NC_PASS=${state.env.POSTGRES_NC_PASS}`,
-      `NOCODB_JWT_SECRET=${state.env.NOCODB_JWT_SECRET}`,
+      '# Baserow',
+      `POSTGRES_BR_PASS=${state.env.POSTGRES_BR_PASS}`,
       '',
       '# Gateway',
       `GATEWAY_ADMIN_TOKEN=${state.env.GATEWAY_ADMIN_TOKEN}`,
@@ -163,12 +161,12 @@ async function main() {
   const mmUrl = `http://localhost:${PORTS.mm}`;
   const olUrl = `http://localhost:${PORTS.outline}`;
   const planeUrl = `http://localhost:${PORTS.plane}`;
-  const ncUrl = `http://localhost:${PORTS.nocodb}`;
+  const brUrl = `http://localhost:${PORTS.baserow}`;
   const minioUrl = `http://localhost:${PORTS.minio}`;
 
   const services = [
     ['Mattermost', `${mmUrl}/api/v4/system/ping`],
-    ['NocoDB', `${ncUrl}/api/v1/health`],
+    ['Baserow', `${brUrl}/api/_health/`],
   ];
 
   let allReady = true;
@@ -219,48 +217,54 @@ async function main() {
   // For now, log instructions for manual token generation if needed
   log('MM setup: admin user configured. Bot tokens managed by Gateway at runtime.');
 
-  // ── Step 5: Setup NocoDB ──
-  log('--- NocoDB Setup ---');
+  // ── Step 5: Setup Baserow ──
+  log('--- Baserow Setup ---');
 
-  let ncToken = null;
+  let brToken = null;
 
-  // Try signup first (first user becomes super admin), then signin
-  log('Creating NocoDB admin...');
-  const ncSignup = await api(ncUrl, 'POST', '/api/v1/auth/user/signup',
-    { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, firstname: 'Admin', lastname: '' });
-  if (ncSignup.data?.token) {
-    ncToken = ncSignup.data.token;
-    log('NocoDB admin created');
+  // Try signup first (first user becomes admin), then signin
+  log('Creating Baserow admin...');
+  const brSignup = await api(brUrl, 'POST', '/api/user/register/',
+    { email: ADMIN_EMAIL, password: ADMIN_PASSWORD, name: 'Admin', authenticate: true });
+  if (brSignup.data?.token) {
+    brToken = brSignup.data.token;
+    log('Baserow admin created');
   } else {
     // Admin already exists — sign in
-    const ncSignin = await api(ncUrl, 'POST', '/api/v1/auth/user/signin',
+    const brSignin = await api(brUrl, 'POST', '/api/user/token-auth/',
       { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-    if (ncSignin.data?.token) {
-      ncToken = ncSignin.data.token;
-      log('NocoDB admin already exists, signed in');
+    if (brSignin.data?.token) {
+      brToken = brSignin.data.token;
+      log('Baserow admin already exists, signed in');
     } else {
-      warn(`NocoDB auth failed: ${JSON.stringify(ncSignin.data)}`);
+      warn(`Baserow auth failed: ${JSON.stringify(brSignin.data)}`);
     }
   }
 
-  // Ensure default base exists
-  if (ncToken) {
-    const basesRes = await api(ncUrl, 'GET', '/api/v1/db/meta/projects/', null,
-      { 'xc-auth': ncToken });
-    const bases = basesRes.data?.list || [];
-    let baseId = bases.length > 0 ? bases[0].id : null;
+  // Ensure default database exists
+  if (brToken) {
+    const appsRes = await api(brUrl, 'GET', '/api/applications/', null,
+      { Authorization: `JWT ${brToken}` });
+    const apps = Array.isArray(appsRes.data) ? appsRes.data : [];
+    let databaseId = apps.find(a => a.type === 'database')?.id || null;
 
-    if (!baseId) {
-      log('Creating NocoDB default base...');
-      const createBase = await api(ncUrl, 'POST', '/api/v1/db/meta/projects/',
-        { title: 'ASuite' }, { 'xc-auth': ncToken });
-      baseId = createBase.data?.id;
+    if (!databaseId) {
+      log('Creating Baserow default database...');
+      // Need a workspace first
+      const wsRes = await api(brUrl, 'GET', '/api/workspaces/', null,
+        { Authorization: `JWT ${brToken}` });
+      const workspaces = Array.isArray(wsRes.data) ? wsRes.data : [];
+      const wsId = workspaces[0]?.id;
+      if (wsId) {
+        const createDb = await api(brUrl, 'POST', `/api/applications/workspace/${wsId}/`,
+          { name: 'ASuite', type: 'database' }, { Authorization: `JWT ${brToken}` });
+        databaseId = createDb.data?.id;
+      }
     }
 
-    if (baseId) {
-      log(`NocoDB base: ${baseId}`);
-
-      state.secrets.NC_BASE_ID = baseId;
+    if (databaseId) {
+      log(`Baserow database: ${databaseId}`);
+      state.secrets.BR_DATABASE_ID = databaseId;
     }
   }
 
@@ -280,7 +284,7 @@ async function main() {
     log('ecosystem.config.cjs already exists — preserving (delete it first to regenerate)');
   } else {
     const adminToken = state.env.GATEWAY_ADMIN_TOKEN || 'asuite-admin-secret';
-    const ecoConfig = generateEcosystemConfig(adminToken, state.secrets.NC_BASE_ID);
+    const ecoConfig = generateEcosystemConfig(adminToken, state.secrets.BR_DATABASE_ID);
     fs.writeFileSync(ecoPath, ecoConfig);
     log('ecosystem.config.cjs written');
   }
@@ -312,8 +316,8 @@ async function main() {
     'POSTGRES_PL_PASS=<auto-generated>',
     'PLANE_SECRET_KEY=<auto-generated>',
     '',
-    '# NocoDB',
-    'POSTGRES_NC_PASS=<auto-generated>',
+    '# Baserow',
+    'POSTGRES_BR_PASS=<auto-generated>',
     '',
     '# Ports (host-side)',
     'MM_PORT=8065',
@@ -341,15 +345,15 @@ async function main() {
   log('    -d \'{"name":"my-agent","display_name":"My Agent"}\'');
 }
 
-function generateEcosystemConfig(adminToken, ncBaseId) {
-  // Read current MM_ADMIN_TOKEN from existing config if available
+function generateEcosystemConfig(adminToken, brDatabaseId) {
+  // Read current tokens from existing config if available
   const existingEco = path.join(ASUITE_DIR, 'ecosystem.config.cjs');
   let mmAdminToken = 'REPLACE_WITH_MM_ADMIN_TOKEN';
   let olToken = 'REPLACE_WITH_OUTLINE_TOKEN';
   let planeToken = 'REPLACE_WITH_PLANE_TOKEN';
   let planeProjectId = 'REPLACE_WITH_PROJECT_ID';
-  let ncEmail = ADMIN_EMAIL;
-  let ncPassword = ADMIN_PASSWORD;
+  let brEmail = ADMIN_EMAIL;
+  let brPassword = ADMIN_PASSWORD;
 
   if (fs.existsSync(existingEco)) {
     try {
@@ -362,12 +366,12 @@ function generateEcosystemConfig(adminToken, ncBaseId) {
       if (ptMatch) planeToken = ptMatch[1];
       const ppMatch = content.match(/PLANE_PROJECT_ID:\s*'([^']+)'/);
       if (ppMatch) planeProjectId = ppMatch[1];
-      const neMatch = content.match(/NOCODB_EMAIL:\s*'([^']+)'/);
-      if (neMatch) ncEmail = neMatch[1];
-      const npMatch = content.match(/NOCODB_PASSWORD:\s*'([^']+)'/);
-      if (npMatch) ncPassword = npMatch[1];
-      const nbMatch = content.match(/NOCODB_BASE_ID:\s*'([^']+)'/);
-      if (nbMatch && !ncBaseId) ncBaseId = nbMatch[1];
+      const beMatch = content.match(/BASEROW_EMAIL:\s*'([^']+)'/);
+      if (beMatch) brEmail = beMatch[1];
+      const bpMatch = content.match(/BASEROW_PASSWORD:\s*'([^']+)'/);
+      if (bpMatch) brPassword = bpMatch[1];
+      const bdMatch = content.match(/BASEROW_DATABASE_ID:\s*'([^']+)'/);
+      if (bdMatch && !brDatabaseId) brDatabaseId = bdMatch[1];
     } catch {}
   }
 
@@ -395,10 +399,10 @@ module.exports = {
         PLANE_TOKEN: '${planeToken}',
         PLANE_WORKSPACE: 'asuite',
         PLANE_PROJECT_ID: '${planeProjectId}',
-        NOCODB_URL: 'http://localhost:8080',
-        NOCODB_EMAIL: '${ncEmail}',
-        NOCODB_PASSWORD: '${ncPassword}',
-        NOCODB_BASE_ID: '${ncBaseId || 'REPLACE_WITH_BASE_ID'}',
+        BASEROW_URL: 'http://localhost:8280',
+        BASEROW_EMAIL: '${brEmail}',
+        BASEROW_PASSWORD: '${brPassword}',
+        BASEROW_DATABASE_ID: '${brDatabaseId || 'REPLACE_WITH_DATABASE_ID'}',
         ADMIN_TOKEN: '${adminToken}',
       },
       autorestart: true,
@@ -423,7 +427,7 @@ module.exports = {
         NEXT_PUBLIC_MM_URL: '${IS_LOCAL ? 'http://localhost:8065' : `https://mm.${DOMAIN}`}',
         NEXT_PUBLIC_OUTLINE_URL: '${IS_LOCAL ? 'http://localhost:3000' : `https://outline.${DOMAIN}`}',
         NEXT_PUBLIC_PLANE_URL: '${IS_LOCAL ? 'http://localhost:8000' : `https://plane.${DOMAIN}`}',
-        NEXT_PUBLIC_NOCODB_URL: '${IS_LOCAL ? 'http://localhost:8080' : `https://noco.${DOMAIN}`}',
+        NEXT_PUBLIC_BASEROW_URL: '${IS_LOCAL ? 'http://localhost:8280' : `https://baserow.${DOMAIN}`}',
       },
       autorestart: true,
       max_restarts: 20,

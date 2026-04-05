@@ -176,6 +176,8 @@ interface BlockMenuItem {
   scope?: 'all' | 'opaque-only';
   /** Key for matching current block type to highlight active state */
   matchKey?: string;
+  /** Locale-independent action kind for filtering (copy/comment/delete) */
+  kind?: 'copy' | 'comment' | 'delete';
 }
 
 /** Determine the matchKey for the current block at pos */
@@ -396,6 +398,7 @@ function buildMenuItems(): BlockMenuItem[] {
     },
     {
       label: t('editor.comment') || 'Comment',
+      kind: 'comment',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>`,
       separator: true,
       action: (view, pos) => {
@@ -444,6 +447,7 @@ function buildMenuItems(): BlockMenuItem[] {
     },
     {
       label: t('editor.copy') || 'Copy',
+      kind: 'copy',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="12" height="12" rx="2"/><path d="M16 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/></svg>`,
       separator: true,
       action: (view, pos) => {
@@ -457,6 +461,7 @@ function buildMenuItems(): BlockMenuItem[] {
     },
     {
       label: t('content.delete') || 'Delete',
+      kind: 'delete',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`,
       separator: true,
       danger: true,
@@ -853,11 +858,8 @@ export function blockHandlePlugin(): Plugin {
     // For opaque blocks: table → copy+delete only; image → copy+delete+comment
     if (isOpaque) {
       items = items.filter(item => {
-        const label = item.label.toLowerCase();
-        const isCopy = label.includes('copy') || label.includes('复制');
-        const isComment = label.includes('comment') || label.includes('评论') || label.includes('コメント') || label.includes('댓글');
-        if (isTable) return item.danger || isCopy; // No comment for tables
-        return item.danger || isCopy || isComment; // Comment allowed for images
+        if (isTable) return item.danger || item.kind === 'copy'; // No comment for tables
+        return item.danger || item.kind === 'copy' || item.kind === 'comment'; // Comment allowed for images
       });
     }
 
@@ -865,9 +867,9 @@ export function blockHandlePlugin(): Plugin {
     const activeKey = getBlockMatchKey(view, blockPos);
 
     // Split items: block type items (grid) vs action items (list)
-    const actionLabels = new Set(['Copy', 'Delete', 'Comment', '复制', '删除', '评论', 'コメント', '댓글']);
-    const gridItems = items.filter(item => !item.danger && !actionLabels.has(item.label));
-    const actionItems = items.filter(item => item.danger || actionLabels.has(item.label));
+    const ACTION_KINDS = new Set<string | undefined>(['copy', 'comment', 'delete']);
+    const gridItems = items.filter(item => !item.danger && !ACTION_KINDS.has(item.kind));
+    const actionItems = items.filter(item => item.danger || ACTION_KINDS.has(item.kind));
 
     const activeBg = 'hsl(var(--sidebar-primary, 220 80% 60%) / 0.15)';
     const activeColor = 'hsl(var(--sidebar-primary, 220 80% 60%))';

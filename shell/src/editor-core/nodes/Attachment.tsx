@@ -8,6 +8,7 @@ import type {
 import type { Command } from "prosemirror-state";
 import { NodeSelection } from "prosemirror-state";
 import { Trans } from "react-i18next";
+import { pickFile } from "@/lib/utils/pick-file";
 import type { Primitive } from "utility-types";
 import { bytesToHumanReadable, getEventFiles } from "../../utils/files";
 import { sanitizeUrl } from "../../utils/urls";
@@ -197,12 +198,9 @@ export default class Attachment extends Node {
         }
 
         // create an input element and click to trigger picker
-        const inputElement = document.createElement("input");
-        inputElement.type = "file";
-        inputElement.accept = accept;
-        inputElement.onchange = (event) => {
-          const files = getEventFiles(event);
-          void insertFiles(view, event, state.selection.from, files, {
+        void pickFile({ accept }).then((files) => {
+          const syntheticEvent = { preventDefault: () => {} } as unknown as Event;
+          void insertFiles(view, syntheticEvent, state.selection.from, files, {
             uploadFile,
             onFileUploadStart,
             onFileUploadStop,
@@ -213,8 +211,7 @@ export default class Attachment extends Node {
               preview: node.attrs.preview,
             },
           });
-        };
-        inputElement.click();
+        });
         return true;
       },
       downloadAttachment: (): Command => (state) => {

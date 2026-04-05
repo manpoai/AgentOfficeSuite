@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { MessageSquare, FileText, CheckSquare, Users, Settings, Search, ArrowRight } from 'lucide-react';
+import { FileText, Table2, Presentation, GitBranch, Users, Settings, Search, ArrowRight, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime, formatDate } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
-import type { Document as DocType } from '@/lib/api/documents';
 import { useT } from '@/lib/i18n';
 
 interface CommandItem {
@@ -18,34 +18,93 @@ interface CommandItem {
   category: string;
 }
 
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  doc: <FileText className="h-4 w-4" />,
+  table: <Table2 className="h-4 w-4" />,
+  presentation: <Presentation className="h-4 w-4" />,
+  diagram: <GitBranch className="h-4 w-4" />,
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  doc: 'Documents',
+  table: 'Tables',
+  presentation: 'Presentations',
+  diagram: 'Diagrams',
+};
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query || query.length < 2) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-300/40 dark:bg-yellow-500/30 text-inherit rounded-sm px-0.5">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+function formatTime(ts?: string): string {
+  return formatRelativeTime(ts);
+}
+
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const { t } = useT();
 
-  // Fetch data for search
-  const { data: tasks } = useQuery({ queryKey: ['tasks'], queryFn: gw.listTasks, staleTime: 30_000 });
+  // Debounce search query (300ms, min 2 chars)
+  useEffect(() => {
+    if (query.length < 2) {
+      setDebouncedQuery('');
+      return;
+    }
+    const timer = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Global search API
+  const { data: searchData, isFetching: isSearching } = useQuery({
+    queryKey: ['global-search', debouncedQuery],
+    queryFn: () => gw.globalSearch(debouncedQuery, 20),
+    enabled: debouncedQuery.length >= 2,
+    staleTime: 10_000,
+  });
+
+  // Fetch data for fallback commands
   const { data: contentItems } = useQuery({ queryKey: ['content-items'], queryFn: gw.listContentItems, staleTime: 30_000 });
   const docs = useMemo(() => contentItems?.filter(i => i.type === 'doc').map(i => ({
-    id: i.raw_id, title: i.title, text: '', icon: i.icon || undefined,
-    full_width: false, created_by: i.created_by || null, updated_by: i.updated_by || null,
-    created_at: i.created_at || '', updated_at: i.updated_at || '',
-  } as DocType)), [contentItems]);
+    id: i.raw_id, title: i.title,
+    updated_at: i.updated_at || '',
+  })), [contentItems]);
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: gw.listAgents, staleTime: 30_000 });
 
-  // Listen for Cmd+K / Ctrl+K
+  // Listen for open-command-palette custom event (dispatched by KeyboardManager)
   useEffect(() => {
+    const handler = () => {
+      setOpen(v => {
+        if (!v) {
+          setQuery('');
+          setDebouncedQuery('');
+          setSelectedIndex(0);
+        }
+        return !v;
+      });
+    };
+    window.addEventListener('open-command-palette', handler);
+    return () => window.removeEventListener('open-command-palette', handler);
+  }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setOpen(v => !v);
-        setQuery('');
-        setSelectedIndex(0);
-      }
-      if (e.key === 'Escape' && open) {
+      if (e.key === 'Escape') {
         setOpen(false);
       }
     };
@@ -63,15 +122,31 @@ export function CommandPalette() {
     setOpen(false);
   }, [router]);
 
-  // Build command items
-  const items = useMemo<CommandItem[]>(() => {
+  // Determine if we're in search mode (user typed >= 2 chars)
+  const isSearchMode = debouncedQuery.length >= 2;
+
+  // Build search result items (grouped by type)
+  const searchItems = useMemo<CommandItem[]>(() => {
+    if (!isSearchMode || !searchData?.results) return [];
+    return searchData.results.map(r => ({
+      id: `search-${r.id}`,
+      label: r.title,
+      sublabel: r.snippet
+        ? (r.snippet.length > 80 ? r.snippet.slice(0, 80) + '...' : r.snippet)
+        : formatTime(r.updated_at),
+      icon: <span className="text-muted-foreground">{TYPE_ICON[r.type] || <FileText className="h-4 w-4" />}</span>,
+      action: () => navigate(`/content?id=${r.type}:${r.id}`),
+      category: TYPE_LABEL[r.type] || r.type,
+    }));
+  }, [isSearchMode, searchData, navigate]);
+
+  // Build fallback command items (when no search query)
+  const commandItems = useMemo<CommandItem[]>(() => {
     const result: CommandItem[] = [];
 
     // Navigation commands (always available)
     const navItems = [
-      { label: t('command.navIM'), path: '/im', icon: <MessageSquare className="h-4 w-4" /> },
       { label: t('command.navContent'), path: '/content', icon: <FileText className="h-4 w-4" /> },
-      { label: t('command.navTasks'), path: '/tasks', icon: <CheckSquare className="h-4 w-4" /> },
       { label: t('command.navContacts'), path: '/contacts', icon: <Users className="h-4 w-4" /> },
       { label: t('command.navSettings'), path: '/settings', icon: <Settings className="h-4 w-4" /> },
     ];
@@ -85,28 +160,14 @@ export function CommandPalette() {
       });
     });
 
-    // Tasks
-    if (tasks) {
-      tasks.forEach(tk => {
-        result.push({
-          id: `task-${tk.task_id}`,
-          label: tk.title,
-          sublabel: tk.assignees?.[0] || '',
-          icon: <CheckSquare className="h-4 w-4 text-blue-400" />,
-          action: () => navigate('/tasks'),
-          category: t('command.catTasks'),
-        });
-      });
-    }
-
     // Docs
     if (docs) {
       docs.forEach(d => {
         result.push({
           id: `doc-${d.id}`,
           label: d.title,
-          sublabel: new Date(d.updatedAt).toLocaleDateString('zh-CN'),
-          icon: <FileText className="h-4 w-4 text-blue-400" />,
+          sublabel: d.updated_at ? formatDate(d.updated_at) : '',
+          icon: <FileText className="h-4 w-4 text-muted-foreground" />,
           action: () => navigate('/content'),
           category: t('command.catDocs'),
         });
@@ -128,76 +189,97 @@ export function CommandPalette() {
     }
 
     return result;
-  }, [tasks, docs, agents, navigate]);
+  }, [docs, agents, navigate, t]);
 
-  // Filter items
-  const filtered = useMemo(() => {
-    if (!query) return items.slice(0, 15);
+  // Items to display: search results in search mode, otherwise filtered commands
+  const displayItems = useMemo(() => {
+    if (isSearchMode) return searchItems;
+    if (!query) return commandItems.slice(0, 15);
     const q = query.toLowerCase();
-    return items.filter(item =>
+    return commandItems.filter(item =>
       item.label.toLowerCase().includes(q) ||
       (item.sublabel || '').toLowerCase().includes(q) ||
       item.category.toLowerCase().includes(q)
     ).slice(0, 15);
-  }, [items, query]);
+  }, [isSearchMode, searchItems, commandItems, query]);
 
   // Reset selection on filter change
-  useEffect(() => { setSelectedIndex(0); }, [filtered.length]);
+  useEffect(() => { setSelectedIndex(0); }, [displayItems.length]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelectedIndex(i => Math.min(i + 1, filtered.length - 1));
+      setSelectedIndex(i => Math.min(i + 1, displayItems.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelectedIndex(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter' && filtered[selectedIndex]) {
+    } else if (e.key === 'Enter' && displayItems[selectedIndex]) {
       e.preventDefault();
-      filtered[selectedIndex].action();
+      displayItems[selectedIndex].action();
     }
   };
 
   // Group by category
   const grouped = useMemo(() => {
     const map = new Map<string, CommandItem[]>();
-    filtered.forEach(item => {
+    displayItems.forEach(item => {
       const list = map.get(item.category) || [];
       list.push(item);
       map.set(item.category, list);
     });
     return map;
-  }, [filtered]);
+  }, [displayItems]);
 
   if (!open) return null;
 
   let flatIndex = -1;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-0 md:pt-[15vh]">
+      {/* Backdrop (hidden on mobile since we go full-screen) */}
+      <div className="absolute inset-0 bg-black/50 hidden md:block" onClick={() => setOpen(false)} />
 
-      {/* Dialog */}
-      <div className="relative w-full max-w-lg bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
-        {/* Search input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+      {/* Dialog — full-screen on mobile, centered card on desktop */}
+      <div className="relative w-full h-full md:h-auto md:max-w-lg bg-card md:border md:border-border md:rounded-xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Search input — taller on mobile for comfortable touch */}
+        <div className="flex items-center gap-3 px-4 py-4 md:py-3 border-b border-border shrink-0"
+             style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 1rem)' }}>
+          <Search className="h-5 w-5 md:h-4 md:w-4 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('command.placeholder')}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+            className="flex-1 bg-transparent text-base md:text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
-          <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">ESC</kbd>
+          {isSearching && <Loader2 className="h-4 w-4 text-muted-foreground animate-spin shrink-0" />}
+          <kbd className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded hidden md:inline">ESC</kbd>
+          {/* Mobile close button */}
+          <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-muted md:hidden">
+            <X className="h-5 w-5 text-muted-foreground" />
+          </button>
         </div>
 
-        {/* Results */}
-        <div className="max-h-[50vh] overflow-y-auto py-1">
-          {filtered.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-8">{t('command.noResults')}</p>
+        {/* Results — fills remaining space on mobile, capped height on desktop */}
+        <div className="flex-1 md:flex-none md:max-h-[50vh] overflow-y-auto py-1"
+             style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+          {/* Loading state for search */}
+          {isSearchMode && isSearching && displayItems.length === 0 && (
+            <div className="flex items-center justify-center gap-2 py-8">
+              <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+              <p className="text-sm text-muted-foreground">Searching...</p>
+            </div>
           )}
+
+          {/* No results */}
+          {!isSearching && displayItems.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              {isSearchMode ? 'No results found' : t('command.noResults')}
+            </p>
+          )}
+
+          {/* Grouped results */}
           {Array.from(grouped.entries()).map(([category, categoryItems]) => (
             <div key={category}>
               <div className="px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -212,13 +294,22 @@ export function CommandPalette() {
                     onClick={() => item.action()}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     className={cn(
-                      'w-full flex items-center gap-3 px-4 py-2 text-left transition-colors',
+                      'w-full flex items-center gap-3 px-4 py-2 min-h-[48px] md:min-h-0 text-left transition-colors',
                       selectedIndex === idx ? 'bg-accent' : 'hover:bg-accent/50'
                     )}
                   >
                     <span className="text-muted-foreground shrink-0">{item.icon}</span>
-                    <span className="text-sm text-foreground flex-1 truncate">{item.label}</span>
-                    {item.sublabel && (
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-foreground truncate block">
+                        {isSearchMode ? highlightMatch(item.label, debouncedQuery) : item.label}
+                      </span>
+                      {isSearchMode && item.sublabel && (
+                        <span className="text-xs text-muted-foreground truncate block mt-0.5">
+                          {highlightMatch(item.sublabel, debouncedQuery)}
+                        </span>
+                      )}
+                    </div>
+                    {!isSearchMode && item.sublabel && (
                       <span className="text-xs text-muted-foreground shrink-0">{item.sublabel}</span>
                     )}
                     {selectedIndex === idx && <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />}
@@ -229,8 +320,8 @@ export function CommandPalette() {
           ))}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-border flex items-center gap-4 text-[10px] text-muted-foreground">
+        {/* Footer — hidden on mobile */}
+        <div className="px-4 py-2 border-t border-border items-center gap-4 text-[10px] text-muted-foreground hidden md:flex">
           <span><kbd className="bg-muted px-1 py-0.5 rounded">↑↓</kbd> {t('command.navHint').replace('↑↓ ', '')}</span>
           <span><kbd className="bg-muted px-1 py-0.5 rounded">Enter</kbd> {t('command.enterHint').replace('Enter ', '')}</span>
           <span><kbd className="bg-muted px-1 py-0.5 rounded">Esc</kbd> {t('command.escHint').replace('Esc ', '')}</span>

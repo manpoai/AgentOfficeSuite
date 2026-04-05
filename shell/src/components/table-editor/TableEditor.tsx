@@ -16,18 +16,22 @@ import {
   Settings, Info, GripVertical, ToggleLeft, ToggleRight, ArrowUpNarrowWide,
   CreditCard, Image, MessageSquare, UserCheck, RotateCcw,
 } from 'lucide-react';
+import { ContentTopBar } from '@/components/shared/ContentTopBar';
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import * as nc from '@/lib/api/nocodb';
+import * as br from '@/lib/api/baserow';
 import * as gw from '@/lib/api/gateway';
 import { RowDetailPanel } from './RowDetailPanel';
-import { Comments } from '@/components/comments/Comments';
+import { CommentPanel } from '@/components/shared/CommentPanel';
 import { LinkRecordPicker } from './LinkRecordPicker';
 import TableHistory, { SnapshotPreview } from './TableHistory';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+import { EditFAB } from '@/components/shared/EditFAB';
 
 // ── Column type config ──
 
@@ -111,7 +115,7 @@ function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
 }
 
 // ── Compact cell display for kanban/gallery views ──
-function CompactCellDisplay({ value, col }: { value: unknown; col: nc.NCColumn }) {
+function CompactCellDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
   if (value == null || value === '') return null;
   const colType = col.type;
 
@@ -357,6 +361,10 @@ export function TableEditor(props: TableEditorProps) {
 
 function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate, onCopyLink, docListVisible, onToggleDocList }: TableEditorProps) {
   const { t } = useT();
+  const isMobile = useIsMobile();
+  const [mobileEditing, setMobileEditing] = useState(false);
+  // On mobile, default to read-only preview; on desktop always editable
+  const mobilePreview = isMobile && !mobileEditing;
   const [page, setPage] = useState(1);
   const [editingCell, setEditingCell] = useState<{ rowId: number; col: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -391,11 +399,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [newColRollupCol, setNewColRollupCol] = useState(''); // for rollup: field id in related table
   const [newColRollupFn, setNewColRollupFn] = useState('sum');
   const [newColUserNotify, setNewColUserNotify] = useState(false);
-  const [editingTableTitle, setEditingTableTitle] = useState(false);
-  const [tableTitleValue, setTableTitleValue] = useState('');
+  // Title editing now handled by ContentTopBar
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [showTableComments, setShowTableComments] = useState(false);
-  const [selectDropdown, setSelectDropdown] = useState<{ rowId: number; col: string; options: nc.NCSelectOption[]; multi: boolean } | null>(null);
+  const [selectDropdown, setSelectDropdown] = useState<{ rowId: number; col: string; options: br.BRSelectOption[]; multi: boolean } | null>(null);
   const [selectInput, setSelectInput] = useState('');
   // View state
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
@@ -414,7 +421,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [expandedRowIdx, setExpandedRowIdx] = useState<number | null>(null);
   const [expandWithComments, setExpandWithComments] = useState(false);
   // Link record picker state
-  const [linkPicker, setLinkPicker] = useState<{ rowId: number; column: nc.NCColumn } | null>(null);
+  const [linkPicker, setLinkPicker] = useState<{ rowId: number; column: br.BRColumn } | null>(null);
   // Bulk operations state
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -442,6 +449,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
   // CSV import state
   const [csvImportData, setCsvImportData] = useState<{ headers: string[]; rows: string[][] } | null>(null);
   const [csvColMap, setCsvColMap] = useState<Record<number, string>>({}); // csvColIdx → tableColTitle
@@ -487,7 +495,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   const { data: meta, isError: metaError, error: metaErrorDetail } = useQuery({
     queryKey: ['nc-table-meta', tableId],
-    queryFn: () => nc.describeTable(tableId),
+    queryFn: () => br.describeTable(tableId),
     retry: 2,
   });
 
@@ -517,14 +525,14 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // View filters
   const { data: viewFilters } = useQuery({
     queryKey: ['nc-view-filters', activeViewId],
-    queryFn: () => nc.listFilters(activeViewId!),
+    queryFn: () => br.listFilters(activeViewId!),
     enabled: !!activeViewId,
   });
 
   // View sorts
   const { data: viewSorts } = useQuery({
     queryKey: ['nc-view-sorts', activeViewId],
-    queryFn: () => nc.listSorts(activeViewId!),
+    queryFn: () => br.listSorts(activeViewId!),
     enabled: !!activeViewId,
   });
 
@@ -569,7 +577,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // Filters and sorts from the view are applied as query params.
   const { data: rowsData, isLoading, isFetching } = useQuery({
     queryKey: ['nc-rows', tableId, activeViewId, page, effectiveSortParam, whereParam || '__no_filter__'],
-    queryFn: () => nc.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: effectiveSortParam, where: whereParam }),
+    queryFn: () => br.queryRows(tableId, { limit: pageSize, offset: (page - 1) * pageSize, sort: effectiveSortParam, where: whereParam }),
     enabled: !!meta,
     placeholderData: keepPreviousData,
   });
@@ -577,7 +585,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // View columns (field visibility/width per view)
   const { data: viewColumns } = useQuery({
     queryKey: ['nc-view-columns', activeViewId],
-    queryFn: () => nc.listViewColumns(activeViewId!),
+    queryFn: () => br.listViewColumns(activeViewId!),
     enabled: !!activeViewId,
   });
 
@@ -621,7 +629,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     staleTime: 30_000,
   });
   const allTables = useMemo(() =>
-    allContentItems?.filter(i => i.type === 'table').map(i => ({ id: i.raw_id, title: i.title, created_at: i.created_at || undefined })) as nc.NCTable[] | undefined,
+    allContentItems?.filter(i => i.type === 'table').map(i => ({ id: i.raw_id, title: i.title, created_at: i.created_at || undefined })) as br.BRTable[] | undefined,
     [allContentItems]
   );
 
@@ -637,7 +645,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   const { data: relatedMeta } = useQuery({
     queryKey: ['nc-table-meta', relatedTableId],
-    queryFn: () => nc.describeTable(relatedTableId),
+    queryFn: () => br.describeTable(relatedTableId),
     enabled: !!relatedTableId && (newColType === 'Lookup' || newColType === 'Rollup'),
   });
 
@@ -713,6 +721,36 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     }
   }, [views.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Mobile: prevent body scroll when horizontally scrolling the table grid ──
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    let startX = 0;
+    let startY = 0;
+    let locked = false;
+    const onTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      locked = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (!locked && dx > dy && dx > 10) {
+        locked = true; // horizontal scroll detected
+      }
+      if (locked) {
+        e.preventDefault(); // prevent body scroll during horizontal table scroll
+      }
+    };
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, []);
+
   // ── Column drag-over state for drop indicator ──
   const [colDragOver, setColDragOver] = useState<{ overId: string; side: 'left' | 'right' } | null>(null);
   const [colDragActiveId, setColDragActiveId] = useState<string | null>(null);
@@ -727,7 +765,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (oldIndex < 0 || newIndex < 0) return;
     const reordered = arrayMove(sortedDisplayCols, oldIndex, newIndex);
     // Optimistically update the view columns cache so UI reflects new order instantly
-    queryClient.setQueryData(['nc-view-columns', activeViewId], (old: nc.NCViewColumn[] | undefined) => {
+    queryClient.setQueryData(['nc-view-columns', activeViewId], (old: br.BRViewColumn[] | undefined) => {
       if (!old) return old;
       const reorderedIds = new Set(reordered.map(c => c.column_id));
       const preserved = old.filter(vc => !reorderedIds.has(vc.fk_column_id));
@@ -739,7 +777,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     });
     // Persist to backend
     const promises = reordered.map((col, idx) =>
-      nc.updateViewColumn(activeViewId, col.column_id, { order: idx + 1 })
+      br.updateViewColumn(activeViewId, col.column_id, { order: idx + 1 })
     );
     await Promise.all(promises).catch(() => {});
     refreshViewColumns();
@@ -778,7 +816,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (oldIndex < 0 || newIndex < 0) return;
     const reordered = arrayMove(draggableCols, oldIndex, newIndex);
     // Optimistically update cache — preserve PK and other non-draggable column entries
-    queryClient.setQueryData(['nc-view-columns', activeViewId], (old: nc.NCViewColumn[] | undefined) => {
+    queryClient.setQueryData(['nc-view-columns', activeViewId], (old: br.BRViewColumn[] | undefined) => {
       if (!old) return old;
       const reorderedIds = new Set(reordered.map(c => c.column_id));
       const preserved = old.filter(vc => !reorderedIds.has(vc.fk_column_id));
@@ -790,7 +828,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     });
     // PK columns keep order 0, draggable columns start at 1
     const promises = reordered.map((col, idx) =>
-      nc.updateViewColumn(activeViewId, col.column_id, { order: idx + 1 })
+      br.updateViewColumn(activeViewId, col.column_id, { order: idx + 1 })
     );
     await Promise.all(promises).catch(() => {});
     refreshViewColumns();
@@ -800,68 +838,68 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const handleCreateView = async () => {
     if (!newViewTitle.trim()) return;
     try {
-      const view = await nc.createView(tableId, newViewTitle.trim(), newViewType);
+      const view = await br.createView(tableId, newViewTitle.trim(), newViewType);
       setNewViewTitle('');
       setNewViewType('grid');
       setShowCreateView(false);
       refreshMeta();
       setActiveViewId(view.view_id);
-    } catch {}
+    } catch (e) { console.error('Create view failed:', e); }
   };
 
   const handleRenameView = async (viewId: string) => {
     if (!viewTitleValue.trim()) { setEditingViewTitle(null); return; }
     try {
-      await nc.renameView(viewId, viewTitleValue.trim());
+      await br.renameView(viewId, viewTitleValue.trim());
       refreshMeta();
-    } catch {}
+    } catch (e) { console.error('Rename view failed:', e); }
     setEditingViewTitle(null);
   };
 
   const handleDeleteView = async (viewId: string) => {
     try {
-      await nc.deleteView(viewId);
+      await br.deleteView(viewId);
       refreshMeta();
       if (activeViewId === viewId) setActiveViewId(null);
-    } catch {}
+    } catch (e) { console.error('Delete view failed:', e); }
     setViewMenu(null);
   };
 
   const handleAddFilter = async () => {
     if (!activeViewId || !newFilterCol) return;
     try {
-      await nc.createFilter(activeViewId, { fk_column_id: newFilterCol, comparison_op: newFilterOp, value: newFilterVal });
+      await br.createFilter(activeViewId, { fk_column_id: newFilterCol, comparison_op: newFilterOp, value: newFilterVal });
       refreshFilters();
       refresh();
       setNewFilterCol('');
       setNewFilterVal('');
-    } catch {}
+    } catch (e) { console.error('Add filter failed:', e); }
   };
 
   const handleDeleteFilter = async (filterId: string) => {
     try {
-      await nc.deleteFilter(filterId);
+      await br.deleteFilter(filterId);
       refreshFilters();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Delete filter failed:', e); }
   };
 
   const handleUpdateFilter = async (filterId: string, updates: { fk_column_id?: string; comparison_op?: string; value?: string }) => {
     try {
-      await nc.updateFilter(filterId, updates);
+      await br.updateFilter(filterId, updates);
       refreshFilters();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Update filter failed:', e); }
   };
 
   const handleAddSort = async () => {
     if (!activeViewId || !newSortCol) return;
     try {
-      await nc.createSort(activeViewId, { fk_column_id: newSortCol, direction: newSortDir });
+      await br.createSort(activeViewId, { fk_column_id: newSortCol, direction: newSortDir });
       refreshSorts();
       refresh();
       setNewSortCol('');
-    } catch {}
+    } catch (e) { console.error('Add sort failed:', e); }
   };
 
   // Sort from column header menu — syncs with toolbar sort via API
@@ -870,29 +908,29 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     // Remove existing sort on this column if any
     const existingSort = viewSorts?.find(s => s.fk_column_id === columnId);
     if (existingSort) {
-      try { await nc.deleteSort(existingSort.sort_id); } catch {}
+      try { await br.deleteSort(existingSort.sort_id); } catch (e) { console.error('Delete existing sort failed:', e); }
     }
     try {
-      await nc.createSort(activeViewId, { fk_column_id: columnId, direction });
+      await br.createSort(activeViewId, { fk_column_id: columnId, direction });
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Create sort failed:', e); }
   };
 
   const handleDeleteSort = async (sortId: string) => {
     try {
-      await nc.deleteSort(sortId);
+      await br.deleteSort(sortId);
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Delete sort failed:', e); }
   };
 
   const handleUpdateSort = async (sortId: string, updates: { fk_column_id?: string; direction?: string }) => {
     try {
-      await nc.updateSort(sortId, updates);
+      await br.updateSort(sortId, updates);
       refreshSorts();
       refresh();
-    } catch {}
+    } catch (e) { console.error('Update sort failed:', e); }
   };
 
   // ── Sort ──
@@ -942,7 +980,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       };
     });
     try {
-      await nc.updateRow(tableId, rowId, { [col]: newVal });
+      await br.updateRow(tableId, rowId, { [col]: newVal });
       refresh(); // Sync with server. Row order is stable with numeric Id sort.
     } catch (e) {
       console.error('Update failed:', e);
@@ -960,7 +998,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     });
     try {
       // NocoDB/PostgreSQL requires boolean values, not integers (1/0 causes type error)
-      await nc.updateRow(tableId, rowId, { [col]: newVal });
+      await br.updateRow(tableId, rowId, { [col]: newVal });
     } catch (e) {
       console.error('Toggle failed:', e);
       // Rollback optimistic update
@@ -983,7 +1021,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         ...(colDef.options || []),
         { title: optionTitle, color: SELECT_COLORS[(colDef.options?.length || 0) % SELECT_COLORS.length] },
       ];
-      await nc.updateColumn(tableId, colDef.column_id, { options: updatedOptions });
+      await br.updateColumn(tableId, colDef.column_id, { options: updatedOptions });
     }
   };
 
@@ -997,7 +1035,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     setSelectDropdown(null);
     try {
       if (value) await ensureSelectOption(col, value);
-      await nc.updateRow(tableId, rowId, { [col]: value });
+      await br.updateRow(tableId, rowId, { [col]: value });
       refreshMeta();
     } catch (e) {
       console.error('Set select failed:', e);
@@ -1020,7 +1058,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     });
     try {
       if (!currentItems.includes(option)) await ensureSelectOption(col, option);
-      await nc.updateRow(tableId, rowId, { [col]: newValue });
+      await br.updateRow(tableId, rowId, { [col]: newValue });
       refresh();
       refreshMeta();
     } catch (e) {
@@ -1037,7 +1075,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         if (!data) return old;
         return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
       });
-      await nc.updateRow(tableId, rowId, { [col]: value });
+      await br.updateRow(tableId, rowId, { [col]: value });
       refresh();
     } catch (e) {
       console.error('Set rating failed:', e);
@@ -1067,7 +1105,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       }
       const merged = [...existing, ...uploaded];
       // NocoDB expects array, not JSON string for Attachment columns
-      await nc.updateRow(tableId, rowId, { [colTitle]: merged });
+      await br.updateRow(tableId, rowId, { [colTitle]: merged });
       refresh();
       // Re-open attachment dropdown to show updated list
       setAttachmentDropdown({ rowId, col: colTitle });
@@ -1106,7 +1144,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       };
     });
     try {
-      await nc.insertRow(tableId, {});
+      await br.insertRow(tableId, {});
       refresh(); // Sync with server. Numeric Id sort keeps new row at the end.
     } catch (e) {
       console.error('Insert failed:', e);
@@ -1125,7 +1163,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   const handleDeleteRow = async (rowId: number) => {
     try {
-      await nc.deleteRow(tableId, rowId);
+      await br.deleteRow(tableId, rowId);
       refresh();
     } catch (e) {
       console.error('Delete failed:', e);
@@ -1206,7 +1244,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       if (newColType === 'User') {
         opts.meta = { ...(opts.meta as Record<string, unknown> || {}), notify: newColUserNotify };
       }
-      const newCol = await nc.addColumn(tableId, colTitle, newColType, opts);
+      const newCol = await br.addColumn(tableId, colTitle, newColType, opts);
       // Reorder if insert position was specified
       if (insertColPosition && activeViewId) {
         // Ensure all columns have order entries — initialize from current displayCols order if viewColumns is empty/sparse
@@ -1214,25 +1252,25 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         const allCols = [...displayCols.map(c => c.column_id), newCol.column_id];
         for (let i = 0; i < allCols.length; i++) {
           if (!existingVcIds.has(allCols[i])) {
-            await nc.updateViewColumn(activeViewId, allCols[i], { order: (i + 1) * 10 });
+            await br.updateViewColumn(activeViewId, allCols[i], { order: (i + 1) * 10 });
           }
         }
         // Re-fetch to get current orders
-        const freshVc = await nc.listViewColumns(activeViewId);
+        const freshVc = await br.listViewColumns(activeViewId);
         if (insertColPosition.afterColId === '__first__') {
-          await nc.updateViewColumn(activeViewId, newCol.column_id, { order: 0 });
+          await br.updateViewColumn(activeViewId, newCol.column_id, { order: 0 });
           for (const vc of freshVc) {
             if (vc.fk_column_id !== newCol.column_id) {
-              await nc.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
+              await br.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
             }
           }
         } else {
           const afterViewCol = freshVc.find(vc => vc.fk_column_id === insertColPosition.afterColId);
           const afterOrder = afterViewCol?.order ?? 0;
-          await nc.updateViewColumn(activeViewId, newCol.column_id, { order: afterOrder + 1 });
+          await br.updateViewColumn(activeViewId, newCol.column_id, { order: afterOrder + 1 });
           for (const vc of freshVc) {
             if (vc.fk_column_id !== newCol.column_id && (vc.order ?? 0) > afterOrder) {
-              await nc.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
+              await br.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
             }
           }
         }
@@ -1250,7 +1288,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const handleRenameColumn = async (columnId: string) => {
     if (!colTitleValue.trim()) return;
     try {
-      await nc.updateColumn(tableId, columnId, { title: colTitleValue.trim() });
+      await br.updateColumn(tableId, columnId, { title: colTitleValue.trim() });
       setEditingColTitle(null);
       refreshMeta();
       refresh();
@@ -1261,7 +1299,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   const handleChangeColumnType = async (columnId: string, newType: string) => {
     try {
-      await nc.updateColumn(tableId, columnId, { uidt: newType });
+      await br.updateColumn(tableId, columnId, { uidt: newType });
       setColMenu(null);
       refreshMeta();
       refresh();
@@ -1275,7 +1313,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     const colTitle = col?.title || columnId;
     if (!window.confirm(t('dataTable.deleteFieldConfirm', { name: colTitle }))) return;
     try {
-      await nc.deleteColumn(tableId, columnId);
+      await br.deleteColumn(tableId, columnId);
       setColMenu(null);
       refreshMeta();
       refresh();
@@ -1285,17 +1323,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   // ── Table operations ──
-  const handleRenameTable = async () => {
-    if (!tableTitleValue.trim()) return;
-    try {
-      await nc.renameTable(tableId, tableTitleValue.trim());
-      setEditingTableTitle(false);
-      refreshMeta();
-      queryClient.invalidateQueries({ queryKey: ['content-items'] });
-    } catch (e) {
-      console.error('Rename table failed:', e);
-    }
-  };
+  // handleRenameTable now inlined in ContentTopBar onTitleChange
 
   const handleDeleteTable = async () => {
     if (!confirm(t('dataTable.deleteTableConfirm'))) return;
@@ -1317,8 +1345,8 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       const batchSize = 200;
       while (true) {
         const batch = activeViewId
-          ? await nc.queryRowsByView(tableId, activeViewId, { limit: batchSize, offset })
-          : await nc.queryRows(tableId, { limit: batchSize, offset });
+          ? await br.queryRowsByView(tableId, activeViewId, { limit: batchSize, offset })
+          : await br.queryRows(tableId, { limit: batchSize, offset });
         allRows.push(...batch.list);
         if (allRows.length >= (batch.pageInfo?.totalRows || 0) || batch.list.length < batchSize) break;
         offset += batchSize;
@@ -1408,7 +1436,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
           }
         });
         if (Object.keys(rowData).length > 0) {
-          await nc.insertRow(tableId, rowData);
+          await br.insertRow(tableId, rowData);
         }
       }
       setCsvImportData(null);
@@ -1422,7 +1450,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   // ── Open edit field dialog for existing column ──
-  const openEditField = (col: nc.NCColumn, anchorEl?: HTMLElement | null) => {
+  const openEditField = (col: br.BRColumn, anchorEl?: HTMLElement | null) => {
     setColMenu(null);
     setEditFieldColId(col.column_id);
     // Try to position dialog near the column header
@@ -1523,7 +1551,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         if (newColType === 'User') {
           updates.meta = JSON.stringify({ notify: newColUserNotify });
         }
-        await nc.updateColumn(tableId, editFieldColId, updates);
+        await br.updateColumn(tableId, editFieldColId, updates);
         resetAddColState();
         setEditFieldColId(null);
         refreshMeta();
@@ -1539,14 +1567,14 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   // ── Duplicate column ──
-  const handleDuplicateColumn = async (col: nc.NCColumn) => {
+  const handleDuplicateColumn = async (col: br.BRColumn) => {
     setColMenu(null);
     try {
       const opts: Record<string, unknown> = {};
       if ((col.type === 'SingleSelect' || col.type === 'MultiSelect') && col.options?.length) {
         opts.options = col.options.map((o, i) => ({ title: o.title, color: o.color || SELECT_COLORS[i % SELECT_COLORS.length] }));
       }
-      const newCol = await nc.addColumn(tableId, `${col.title} (copy)`, col.type, opts);
+      const newCol = await br.addColumn(tableId, `${col.title} (copy)`, col.type, opts);
       // Reorder: place after the source column
       if (activeViewId) {
         // Ensure all columns have order entries
@@ -1554,16 +1582,16 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         const allCols = [...displayCols.map(c => c.column_id), newCol.column_id];
         for (let i = 0; i < allCols.length; i++) {
           if (!existingVcIds.has(allCols[i])) {
-            await nc.updateViewColumn(activeViewId, allCols[i], { order: (i + 1) * 10 });
+            await br.updateViewColumn(activeViewId, allCols[i], { order: (i + 1) * 10 });
           }
         }
-        const freshVc = await nc.listViewColumns(activeViewId);
+        const freshVc = await br.listViewColumns(activeViewId);
         const srcViewCol = freshVc.find(vc => vc.fk_column_id === col.column_id);
         const srcOrder = srcViewCol?.order ?? 0;
-        await nc.updateViewColumn(activeViewId, newCol.column_id, { order: srcOrder + 1 });
+        await br.updateViewColumn(activeViewId, newCol.column_id, { order: srcOrder + 1 });
         for (const vc of freshVc) {
           if (vc.fk_column_id !== col.column_id && vc.fk_column_id !== newCol.column_id && (vc.order ?? 0) > srcOrder) {
-            await nc.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
+            await br.updateViewColumn(activeViewId, vc.fk_column_id, { order: (vc.order ?? 0) + 1 });
           }
         }
         refreshViewColumns();
@@ -1576,7 +1604,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   // ── Insert column left/right ──
-  const handleInsertColumn = (position: 'left' | 'right', col: nc.NCColumn) => {
+  const handleInsertColumn = (position: 'left' | 'right', col: br.BRColumn) => {
     setColMenu(null);
     // Determine which column the new one should be placed after
     if (position === 'left') {
@@ -1602,7 +1630,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       else next.delete(columnId);
       // Persist to Gateway DB
       if (activeViewId) {
-        nc.updateViewColumn(activeViewId, columnId, { show: !shouldHide }).catch(() => {});
+        br.updateViewColumn(activeViewId, columnId, { show: !shouldHide }).catch(() => {});
       }
       return next;
     });
@@ -1611,7 +1639,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // ── Persist column width ──
   const persistColWidth = useCallback((columnId: string, width: number) => {
     if (activeViewId) {
-      nc.updateViewColumn(activeViewId, columnId, { width }).catch(() => {});
+      br.updateViewColumn(activeViewId, columnId, { width }).catch(() => {});
     }
   }, [activeViewId]);
 
@@ -1662,7 +1690,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (!confirm(t('dataTable.deleteRowsConfirm', { n: selectedRows.size }))) return;
     try {
       for (const rowId of selectedRows) {
-        await nc.deleteRow(tableId, rowId);
+        await br.deleteRow(tableId, rowId);
       }
       setSelectedRows(new Set());
       refresh();
@@ -1675,7 +1703,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (selectedRows.size === 0 || !bulkEditCol) return;
     try {
       for (const rowId of selectedRows) {
-        await nc.updateRow(tableId, rowId, { [bulkEditCol]: bulkEditVal });
+        await br.updateRow(tableId, rowId, { [bulkEditCol]: bulkEditVal });
       }
       setShowBulkEdit(false);
       setBulkEditCol('');
@@ -1687,7 +1715,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   // ── Keyboard navigation ──
-  const handleCellKeyDown = (e: React.KeyboardEvent, rowIdx: number, col: nc.NCColumn) => {
+  const handleCellKeyDown = (e: React.KeyboardEvent, rowIdx: number, col: br.BRColumn) => {
     if (e.key === 'Escape') { setEditingCell(null); return; }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1794,125 +1822,88 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     <div className="flex flex-1 min-h-0 overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Header */}
-      <div className="flex items-center border-b border-border bg-white dark:bg-card shrink-0">
-        <div className="flex-1 min-w-0 flex items-center px-4 py-2">
-        {onToggleDocList && (
-          <button
-            onClick={onToggleDocList}
-            className="hidden md:flex p-1.5 -ml-1 mr-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-            title={docListVisible ? t('dataTable.collapseSidebar') : t('dataTable.expandSidebar')}
-          >
-            {docListVisible ? <ArrowLeftToLine className="h-4 w-4" /> : <ArrowRightToLine className="h-4 w-4" />}
-          </button>
-        )}
-        <button onClick={onBack} className="md:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 text-sm">
-            {breadcrumb && breadcrumb.length > 1 ? (
-              <>
-                {breadcrumb.slice(0, -1).map((crumb, i) => (
-                  <span key={crumb.id} className="flex items-center gap-1 min-w-0">
-                    {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-                    <span className="text-muted-foreground truncate">{crumb.title}</span>
-                  </span>
-                ))}
-                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-              </>
-            ) : null}
-            {editingTableTitle ? (
-              <input
-                value={tableTitleValue}
-                onChange={e => setTableTitleValue(e.target.value)}
-                onBlur={handleRenameTable}
-                onKeyDown={e => { if (e.key === 'Enter') handleRenameTable(); if (e.key === 'Escape') setEditingTableTitle(false); }}
-                className="text-sm font-semibold bg-transparent text-foreground outline-none border-b border-sidebar-primary flex-1"
-                autoFocus
-              />
-            ) : (
-              <span
-                className="text-foreground font-medium truncate cursor-pointer hover:text-sidebar-primary"
-                onDoubleClick={() => { setEditingTableTitle(true); setTableTitleValue(meta?.title || ''); }}
-              >
-                {meta?.title || t('common.loading')}
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] text-muted-foreground/50 mt-0.5 flex items-center gap-2">
-            <span>{totalRows} {t('dataTable.rows')}</span>
-            {meta?.updated_at && (
-              <>
-                <span>·</span>
-                <span>{t('dataTable.lastEditedAt')} {new Date(meta.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-              </>
-            )}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={() => setShowTableComments(v => !v)}
-            className={cn('p-1.5 rounded transition-colors', showTableComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
-            title={t('content.comments')}
-          >
-            <MessageSquare className="h-4 w-4" />
-          </button>
-          <div className="relative">
-            <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
-              <MoreHorizontal className="h-4 w-4" />
+      <div className="flex items-center border-b border-border bg-card shrink-0">
+        <ContentTopBar
+          breadcrumb={breadcrumb}
+          onBack={onBack}
+          docListVisible={docListVisible}
+          onToggleDocList={onToggleDocList}
+          title={meta?.title || t('common.loading')}
+          onTitleChange={async (newTitle) => {
+            try {
+              await br.renameTable(tableId, newTitle);
+              refreshMeta();
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            } catch (e) {
+              console.error('Rename table failed:', e);
+            }
+          }}
+          metaLine={
+            <div className="text-[11px] text-muted-foreground/50 flex items-center gap-2">
+              <span>{totalRows} {t('dataTable.rows')}</span>
+              {meta?.updated_at && (
+                <>
+                  <span>·</span>
+                  <span>{t('dataTable.lastEditedAt')} {new Date(meta.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </>
+              )}
+            </div>
+          }
+          actions={<>
+            <button
+              onClick={() => setShowTableComments(v => !v)}
+              className={cn('p-1.5 rounded transition-colors', showTableComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
+              title={t('content.comments')}
+            >
+              <MessageSquare className="h-5 w-5 md:h-4 md:w-4" />
             </button>
-            {showTableMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowTableMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
-                  <button
-                    onClick={() => { setShowTableMenu(false); setShowHistory(true); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                  >
-                    <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.versionHistory')}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowTableMenu(false);
-                      if (onCopyLink) { onCopyLink(); }
-                      else {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('id', `table:${tableId}`);
-                        navigator.clipboard.writeText(url.toString());
-                      }
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                  >
-                    <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.copyLink')}
-                  </button>
-                  <button
-                    onClick={handleExportCSV}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                  >
-                    <Download className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.download')}
-                  </button>
-                  <div className="border-t border-border my-1" />
-                  <button
-                    onClick={() => { setShowTableMenu(false); handleDeleteTable(); }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> {t('content.delete')}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-        </div>
-        {/* Comment sidebar header — aligned with top bar */}
-        {showTableComments && (
-          <div className="w-80 shrink-0 flex items-center justify-between px-4 py-2 border-l border-border">
-            <h3 className="text-sm font-semibold text-foreground">{t('content.comments')}</h3>
-            <button onClick={() => setShowTableComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('common.close')}>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
+            <div className="relative">
+              <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
+                <MoreHorizontal className="h-5 w-5 md:h-4 md:w-4" />
+              </button>
+              {showTableMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowTableMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
+                    <button
+                      onClick={() => { setShowTableMenu(false); setShowHistory(true); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                    >
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.versionHistory')}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowTableMenu(false);
+                        if (onCopyLink) { onCopyLink(); }
+                        else {
+                          const url = new URL(window.location.href);
+                          url.searchParams.set('id', `table:${tableId}`);
+                          navigator.clipboard.writeText(url.toString());
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                    >
+                      <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.copyLink')}
+                    </button>
+                    <button
+                      onClick={handleExportCSV}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                    >
+                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.download')}
+                    </button>
+                    <div className="border-t border-border my-1" />
+                    <button
+                      onClick={() => { setShowTableMenu(false); handleDeleteTable(); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> {t('content.delete')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </>}
+        />
       </div>
 
       {/* Main content + comments sidebar flex row */}
@@ -2009,10 +2000,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           setViewMenu(null);
                           try {
                             const copyTitle = `${v.title} (copy)`;
-                            const newView = await nc.createView(tableId, copyTitle, VIEW_TYPES.find(vt => vt.typeNum === v.type)?.type || 'grid');
+                            const newView = await br.createView(tableId, copyTitle, VIEW_TYPES.find(vt => vt.typeNum === v.type)?.type || 'grid');
                             refreshMeta();
                             setActiveViewId(newView.view_id);
-                          } catch {}
+                          } catch (e) { console.error('Duplicate view failed:', e); }
                         }}
                         className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                       >
@@ -2086,16 +2077,16 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                     try {
                       const existingCount = views.filter(v => v.type === vt.typeNum).length;
                       const defaultName = `${t(`dataTable.viewTypes.${vt.key}`)}${t('dataTable.viewSuffix')}${existingCount > 0 ? ` ${existingCount + 1}` : ''}`;
-                      const newView = await nc.createView(tableId, defaultName, vt.type);
+                      const newView = await br.createView(tableId, defaultName, vt.type);
                       if (vt.type === 'kanban') {
                         const selectCol = displayCols.find(c => c.type === 'SingleSelect');
                         if (selectCol) {
-                          await nc.updateKanbanConfig(newView.view_id, { fk_grp_col_id: selectCol.column_id });
+                          await br.updateKanbanConfig(newView.view_id, { fk_grp_col_id: selectCol.column_id });
                         }
                       }
                       refreshMeta();
                       setActiveViewId(newView.view_id);
-                    } catch {}
+                    } catch (e) { console.error('Create view failed:', e); }
                   }}
                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
                 >
@@ -2109,8 +2100,8 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       )}
       </>}{/* end view tabs conditional */}
 
-      {/* Toolbar bar — NocoDB style, view-type aware — hidden during history preview */}
-      {!previewSnapshot && (() => {
+      {/* Toolbar bar — NocoDB style, view-type aware — hidden during history preview and mobile preview */}
+      {!previewSnapshot && !mobilePreview && (() => {
         const activeView = views.find(v => v.view_id === activeViewId);
         const viewType = activeView?.type || 3;
         const isForm = viewType === 1;
@@ -2253,7 +2244,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                 key={c.column_id}
                                 onClick={async () => {
                                   if (activeView) {
-                                    await nc.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });
+                                    await br.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });
                                     refreshMeta();
                                     setActiveToolbarPanel(null);
                                   }
@@ -2302,7 +2293,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
                           <select
                             value={activeView?.fk_cover_image_col_id || ''}
-                            onChange={async e => { if (activeView) { await nc.updateKanbanConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
+                            onChange={async e => { if (activeView) { await br.updateKanbanConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
                             className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
                           >
                             <option value="">{t('dataTable.none')}</option>
@@ -2363,7 +2354,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wide">{t('dataTable.coverField')}</div>
                           <select
                             value={activeView?.fk_cover_image_col_id || ''}
-                            onChange={async e => { if (activeView) { await nc.updateGalleryConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
+                            onChange={async e => { if (activeView) { await br.updateGalleryConfig(activeView.view_id, { fk_cover_image_col_id: e.target.value || undefined }); refreshMeta(); } }}
                             className="w-full bg-muted rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none"
                           >
                             <option value="">{t('dataTable.none')}</option>
@@ -2463,14 +2454,9 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   <Filter className="h-3.5 w-3.5" />
                   {viewFilters?.length ? `${viewFilters.length} ${t('dataTable.filter')}` : t('dataTable.filter')}
                 </button>
-                {activeToolbarPanel === 'filter' && activeViewId && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-[420px]">
-                      <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">{t('dataTable.filterRecords')}</span>
-                        <Info className="h-3 w-3 text-muted-foreground/60" />
-                      </div>
+                {activeToolbarPanel === 'filter' && activeViewId && (() => {
+                  const filterContent = (
+                    <>
                       <div className="p-3 space-y-2">
                         {viewFilters?.map(f => {
                           const col = displayCols.find(c => c.column_id === f.fk_column_id);
@@ -2563,9 +2549,35 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           <Plus className="h-3.5 w-3.5" /> {t('dataTable.addCondition')}
                         </button>
                       </div>
-                    </div>
-                  </>
-                )}
+                    </>
+                  );
+
+                  if (isMobile) {
+                    return (
+                      <BottomSheet
+                        open={true}
+                        onClose={() => setActiveToolbarPanel(null)}
+                        title={t('dataTable.filterRecords')}
+                        initialHeight="half"
+                      >
+                        {filterContent}
+                      </BottomSheet>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
+                      <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-[420px]">
+                        <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-border">
+                          <span className="text-xs font-semibold text-foreground">{t('dataTable.filterRecords')}</span>
+                          <Info className="h-3 w-3 text-muted-foreground/60" />
+                        </div>
+                        {filterContent}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -2583,88 +2595,107 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   <ArrowUpDown className="h-3.5 w-3.5" />
                   {viewSorts?.length ? `${viewSorts.length} ${t('dataTable.sort')}` : t('dataTable.sort')}
                 </button>
-                {activeToolbarPanel === 'sort' && activeViewId && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-80">
-                      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-semibold text-foreground">{t('dataTable.sortByFields')}</span>
-                          <Info className="h-3 w-3 text-muted-foreground/60" />
-                        </div>
-                      </div>
-                      <div className="p-3 space-y-2">
-                        {viewSorts?.map(s => {
-                          const col = displayCols.find(c => c.column_id === s.fk_column_id);
-                          return (
-                            <div key={s.sort_id} className="flex items-center gap-2">
-                              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 cursor-grab" />
-                              <select
-                                value={s.fk_column_id}
-                                onChange={e => handleUpdateSort(s.sort_id, { fk_column_id: e.target.value })}
-                                className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
+                {activeToolbarPanel === 'sort' && activeViewId && (() => {
+                  const sortContent = (
+                    <div className="p-3 space-y-2">
+                      {viewSorts?.map(s => {
+                        const col = displayCols.find(c => c.column_id === s.fk_column_id);
+                        return (
+                          <div key={s.sort_id} className="flex items-center gap-2">
+                            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0 cursor-grab" />
+                            <select
+                              value={s.fk_column_id}
+                              onChange={e => handleUpdateSort(s.sort_id, { fk_column_id: e.target.value })}
+                              className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1 min-w-0"
+                            >
+                              {displayCols.map(c => (
+                                <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                              ))}
+                            </select>
+                            <div className="flex rounded overflow-hidden border border-border shrink-0">
+                              <button
+                                onClick={() => handleUpdateSort(s.sort_id, { direction: 'asc' })}
+                                className={cn('px-2 py-1 text-xs transition-colors',
+                                  s.direction === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                                )}
                               >
-                                {displayCols.map(c => (
-                                  <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                                ))}
-                              </select>
-                              <div className="flex rounded overflow-hidden border border-border shrink-0">
-                                <button
-                                  onClick={() => handleUpdateSort(s.sort_id, { direction: 'asc' })}
-                                  className={cn('px-2 py-1 text-xs transition-colors',
-                                    s.direction === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                                  )}
-                                >
-                                  A→Z
-                                </button>
-                                <button
-                                  onClick={() => handleUpdateSort(s.sort_id, { direction: 'desc' })}
-                                  className={cn('px-2 py-1 text-xs transition-colors border-l border-border',
-                                    s.direction === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                                  )}
-                                >
-                                  Z→A
-                                </button>
-                              </div>
-                              <button onClick={() => handleDeleteSort(s.sort_id)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
-                                <X className="h-3.5 w-3.5" />
+                                A→Z
+                              </button>
+                              <button
+                                onClick={() => handleUpdateSort(s.sort_id, { direction: 'desc' })}
+                                className={cn('px-2 py-1 text-xs transition-colors border-l border-border',
+                                  s.direction === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                                )}
+                              >
+                                Z→A
                               </button>
                             </div>
-                          );
-                        })}
-                        <div className="flex items-center gap-2">
-                          <select value={newSortCol} onChange={e => setNewSortCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1">
-                            <option value="">{t('dataTable.chooseField')}</option>
-                            {displayCols.map(c => (
-                              <option key={c.column_id} value={c.column_id}>{c.title}</option>
-                            ))}
-                          </select>
-                          <div className="flex rounded overflow-hidden border border-border shrink-0">
-                            <button
-                              onClick={() => setNewSortDir('asc')}
-                              className={cn('px-2 py-1.5 text-xs transition-colors',
-                                newSortDir === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                              )}
-                            >
-                              A→Z
-                            </button>
-                            <button
-                              onClick={() => setNewSortDir('desc')}
-                              className={cn('px-2 py-1.5 text-xs transition-colors border-l border-border',
-                                newSortDir === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                              )}
-                            >
-                              Z→A
+                            <button onClick={() => handleDeleteSort(s.sort_id)} className="p-1 text-muted-foreground hover:text-destructive shrink-0">
+                              <X className="h-3.5 w-3.5" />
                             </button>
                           </div>
-                          <button onClick={handleAddSort} disabled={!newSortCol} className="p-1 text-muted-foreground hover:text-sidebar-primary disabled:opacity-30 shrink-0">
-                            <Plus className="h-3.5 w-3.5" />
+                        );
+                      })}
+                      <div className="flex items-center gap-2">
+                        <select value={newSortCol} onChange={e => setNewSortCol(e.target.value)} className="bg-muted rounded px-2 py-1.5 text-xs text-foreground outline-none flex-1">
+                          <option value="">{t('dataTable.chooseField')}</option>
+                          {displayCols.map(c => (
+                            <option key={c.column_id} value={c.column_id}>{c.title}</option>
+                          ))}
+                        </select>
+                        <div className="flex rounded overflow-hidden border border-border shrink-0">
+                          <button
+                            onClick={() => setNewSortDir('asc')}
+                            className={cn('px-2 py-1.5 text-xs transition-colors',
+                              newSortDir === 'asc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            A→Z
+                          </button>
+                          <button
+                            onClick={() => setNewSortDir('desc')}
+                            className={cn('px-2 py-1.5 text-xs transition-colors border-l border-border',
+                              newSortDir === 'desc' ? 'bg-sidebar-primary text-sidebar-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            Z→A
                           </button>
                         </div>
+                        <button onClick={handleAddSort} disabled={!newSortCol} className="p-1 text-muted-foreground hover:text-sidebar-primary disabled:opacity-30 shrink-0">
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                  </>
-                )}
+                  );
+
+                  if (isMobile) {
+                    return (
+                      <BottomSheet
+                        open={true}
+                        onClose={() => setActiveToolbarPanel(null)}
+                        title={t('dataTable.sortByFields')}
+                        initialHeight="half"
+                      >
+                        {sortContent}
+                      </BottomSheet>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setActiveToolbarPanel(null)} />
+                      <div className="absolute left-0 top-full mt-1.5 z-20 bg-card border border-border rounded-xl shadow-2xl w-80">
+                        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-foreground">{t('dataTable.sortByFields')}</span>
+                            <Info className="h-3 w-3 text-muted-foreground/60" />
+                          </div>
+                        </div>
+                        {sortContent}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -2824,7 +2855,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             columns={displayCols}
             activeView={activeView}
             isLoading={isLoading}
-            onUpdateRow={async (rowId, fields) => { await nc.updateRow(tableId, rowId, fields); refresh(); }}
+            onUpdateRow={async (rowId, fields) => { await br.updateRow(tableId, rowId, fields); refresh(); }}
             onAddRow={handleAddRow}
             tableId={tableId}
             refreshMeta={refreshMeta}
@@ -2850,7 +2881,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
           <FormView
             columns={displayCols.filter(c => !c.primary_key && !READONLY_TYPES.has(c.type))}
             tableId={tableId}
-            onSubmit={async (data) => { await nc.insertRow(tableId, data); refresh(); }}
+            onSubmit={async (data) => { await br.insertRow(tableId, data); refresh(); }}
           />
         );
         // Calendar view (frontend-only, NocoDB doesn't support it)
@@ -2864,7 +2895,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         // Grid view (default)
         return null;
       })() || (
-      <div className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none' }}>
+      <div ref={gridScrollRef} className="flex-1 overflow-auto" style={{ overscrollBehavior: 'none', WebkitOverflowScrolling: 'touch' as any }}>
         {isLoading ? (
           <div className="p-4 space-y-2">
             {[...Array(8)].map((_, i) => (
@@ -2873,17 +2904,19 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
           </div>
         ) : (
           <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleColumnDragEnd} onDragOver={handleColumnDragOver} onDragStart={(e) => setColDragActiveId(String(e.active.id))} onDragCancel={() => { setColDragOver(null); setColDragActiveId(null); }}>
-          <table className="text-sm border-collapse table-fixed">
+          <table className="text-sm border-collapse table-fixed" style={{ minWidth: `${32 + visibleCols.length * 120}px` }}>
             <thead>
               <tr className="border-b border-border bg-muted/30 sticky top-0 z-[5]">
                 <th className="px-1 py-1.5 text-center text-[10px] font-normal text-muted-foreground/50 group/hdr sticky left-0 z-[6] bg-card relative after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }}>
-                  <span className={cn('group-hover/hdr:hidden', selectedRows.size > 0 && 'hidden')}>#</span>
+                  <span className={cn(!mobilePreview && 'group-hover/hdr:hidden', selectedRows.size > 0 && !mobilePreview && 'hidden')}>#</span>
+                  {!mobilePreview && (
                   <input
                     type="checkbox"
                     checked={rows.length > 0 && selectedRows.size === rows.length}
                     onChange={toggleSelectAll}
                     className={cn('w-3 h-3 accent-sidebar-primary cursor-pointer', selectedRows.size > 0 ? 'inline' : 'hidden group-hover/hdr:inline')}
                   />
+                  )}
                 </th>
                   <SortableContext items={visibleCols.filter(c => !c.primary_key).map(c => c.column_id)} strategy={horizontalListSortingStrategy}>
                 {visibleCols.map((col, colIdx) => {
@@ -2904,7 +2937,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           "relative px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap group",
                           'sticky z-[6] bg-card',
                           isLastFrozen
-                            ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-gray-300 dark:after:bg-gray-600'
+                            ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-border'
                             : 'border-r border-border'
                         )}
                         style={{
@@ -2975,7 +3008,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                       overSide={colDragOver?.overId === col.column_id ? colDragOver.side : undefined}
                       className={cn(
                         "relative px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap group",
-                        isFrozen ? cn('sticky z-[6] bg-card', isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-gray-300 dark:after:bg-gray-600' : 'border-r border-border') : 'border-r border-border'
+                        isFrozen ? cn('sticky z-[6] bg-card', isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-border' : 'border-r border-border') : 'border-r border-border'
                       )}
                       style={{
                         width: `${width || 180}px`, minWidth: `${width || 180}px`, maxWidth: `${width || 180}px`,
@@ -3115,11 +3148,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   );
                 })}
                   </SortableContext>
+                {!mobilePreview && (
                 <th className="px-2 py-1.5 border-r border-border">
                   <button onClick={(e) => { const rect = (e.target as HTMLElement).getBoundingClientRect(); setEditFieldAnchor({ x: rect.right - 384, y: rect.bottom + 4 }); setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title={t('dataTable.addCol')}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -3136,7 +3171,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                       </span>
                       <div className={cn(
                         'absolute inset-0 flex items-center justify-center',
-                        selectedRows.has(rowId) ? 'visible' : 'invisible group-hover/row:visible'
+                        mobilePreview ? 'hidden' : (selectedRows.has(rowId) ? 'visible' : 'invisible group-hover/row:visible')
                       )}>
                         <input
                           type="checkbox"
@@ -3161,10 +3196,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           key={col.column_id}
                           className={cn(
                             'px-2 relative',
-                            isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-gray-300 dark:after:bg-gray-600' : 'border-r border-border',
+                            isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-border' : 'border-r border-border',
                             (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.title) || (attachmentDropdown?.rowId === rowId && attachmentDropdown?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
                             isEditing && 'ring-2 ring-sidebar-primary ring-inset bg-card',
-                            (!isReadonly || col.type === 'Links' || col.type === 'Attachment' || col.type === 'User' || col.type === 'Collaborator') && !isEditing && 'cursor-pointer',
+                            !mobilePreview && (!isReadonly || col.type === 'Links' || col.type === 'Attachment' || col.type === 'User' || col.type === 'Collaborator') && !isEditing && 'cursor-pointer',
+                            mobilePreview && 'cursor-pointer',
                             isFrozen ? cn('sticky z-[3]', isPK && commentedRowIds.has(String(rowId)) ? 'bg-amber-50 dark:bg-amber-950/30' : 'bg-card') : undefined,
                             rowHeight === 'short' && 'py-0',
                             rowHeight === 'medium' && 'py-1',
@@ -3176,6 +3212,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                             ...((isPK || isFrozen) ? { left: `${frozenLeft}px` } : {})
                           }}
                           onClick={() => {
+                            // Mobile preview: clicking any cell opens the row detail panel
+                            if (mobilePreview) {
+                              setExpandedRowIdx(rowIdx);
+                              return;
+                            }
                             if (col.type === 'Links') {
                               setLinkPicker({ rowId, column: col });
                               return;
@@ -3240,7 +3281,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                 className="w-full bg-transparent text-xs text-foreground outline-none py-1.5"
                               />
                             )
-                          ) : col.type === 'Rating' && !isReadonly ? (
+                          ) : col.type === 'Rating' && !isReadonly && !mobilePreview ? (
                             <RatingStars value={val as number} onChange={v => setRating(rowId, col.title, v)} max={(col.meta as any)?.max || 5} iconType={(col.meta as any)?.iconIdx || 'star'} />
                           ) : isPK ? (
                             <div className="flex items-center gap-1">
@@ -3272,7 +3313,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                               try {
                                 const attachments = Array.isArray(val) ? val : JSON.parse(String(val || '[]'));
                                 const updated = (attachments as any[]).filter((_: any, i: number) => i !== idx);
-                                await nc.updateRow(tableId, rowId, { [col.title]: updated });
+                                await br.updateRow(tableId, rowId, { [col.title]: updated });
                                 refresh();
                               } catch (e) { console.error('Delete attachment failed:', e); }
                             } : undefined} />
@@ -3395,14 +3436,14 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                 </div>
                                 <div className="overflow-y-auto flex-1 py-1">
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); nc.updateRow(tableId, rowId, { [col.title]: '' }).then(refresh); setUserPicker(null); }}
+                                    onClick={(e) => { e.stopPropagation(); br.updateRow(tableId, rowId, { [col.title]: '' }).then(refresh); setUserPicker(null); }}
                                     className="w-full px-3 py-1 text-xs text-muted-foreground hover:bg-accent text-left"
                                   >
                                     {t('dataTable.clear')}
                                   </button>
                                   {/* Admin user */}
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); nc.updateRow(tableId, rowId, { [col.title]: 'admin' }).then(refresh); setUserPicker(null); }}
+                                    onClick={(e) => { e.stopPropagation(); br.updateRow(tableId, rowId, { [col.title]: 'admin' }).then(refresh); setUserPicker(null); }}
                                     className={cn('w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent', currentVal === 'admin' && 'font-medium bg-sidebar-primary/5')}
                                   >
                                     <User className="h-3 w-3 text-muted-foreground" />
@@ -3411,7 +3452,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                   {filtered.map(agent => (
                                     <button
                                       key={agent.name}
-                                      onClick={(e) => { e.stopPropagation(); nc.updateRow(tableId, rowId, { [col.title]: agent.display_name || agent.name }).then(refresh); setUserPicker(null); }}
+                                      onClick={(e) => { e.stopPropagation(); br.updateRow(tableId, rowId, { [col.title]: agent.display_name || agent.name }).then(refresh); setUserPicker(null); }}
                                       className={cn('w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent', currentVal === (agent.display_name || agent.name) && 'font-medium bg-sidebar-primary/5')}
                                     >
                                       {agent.avatar_url ? (
@@ -3494,7 +3535,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                           return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: reordered } : r) };
                                         });
                                         try {
-                                          await nc.updateRow(tableId, rowId, { [col.title]: reordered });
+                                          await br.updateRow(tableId, rowId, { [col.title]: reordered });
                                         } catch (e) { console.error('Reorder failed:', e); refresh(); }
                                       }}
                                     >
@@ -3528,7 +3569,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                                 onClick={async (e) => {
                                                   e.stopPropagation();
                                                   const updated = attachments.filter((_: any, i: number) => i !== idx);
-                                                  await nc.updateRow(tableId, rowId, { [col.title]: updated });
+                                                  await br.updateRow(tableId, rowId, { [col.title]: updated });
                                                   refresh();
                                                   if (updated.length === 0) setAttachmentDropdown(null);
                                                 }}
@@ -3579,7 +3620,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                   if (!data) return old;
                                   return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col.title]: dateStr || null } : r) };
                                 });
-                                try { await nc.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
+                                try { await br.updateRow(tableId, rowId, { [col.title]: dateStr || null }); refresh(); }
                                 catch (e) { console.error('Date update failed:', e); refresh(); }
                               }}
                               onClose={() => setDatePicker(null)}
@@ -3611,6 +3652,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                 }
                 return rows.map((row, rowIdx) => renderRow(row, rowIdx));
               })()}
+              {!mobilePreview && (
               <tr className="border-b border-border">
                 <td className="px-2 py-1 sticky left-0 z-[3] bg-card relative after:absolute after:right-0 after:top-0 after:bottom-0 after:w-px after:bg-border" style={{ width: '32px', minWidth: '32px', maxWidth: '32px' }} />
                 <td className="px-2 py-1 sticky left-[32px] z-[3] bg-card">
@@ -3620,6 +3662,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                 </td>
                 <td colSpan={displayCols.length} />
               </tr>
+              )}
             </tbody>
           </table>
           {/* Drag overlay — semi-transparent column preview */}
@@ -4278,6 +4321,23 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         />
       )}
 
+      {/* Mobile Edit FAB */}
+      {isMobile && (
+        <EditFAB
+          isEditing={mobileEditing}
+          onEdit={() => setMobileEditing(true)}
+          onSave={() => {
+            // Save any active edit before exiting edit mode
+            if (editingCell) saveEdit();
+            setMobileEditing(false);
+          }}
+          onCancel={() => {
+            setEditingCell(null);
+            setMobileEditing(false);
+          }}
+        />
+      )}
+
       {/* Row Detail Panel */}
       {expandedRowIdx != null && rows[expandedRowIdx] && (
         <RowDetailPanel
@@ -4316,32 +4376,54 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
       </div>{/* end main table content */}
 
-      {/* Comments sidebar */}
-      {showTableComments && (
-        <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-          <Comments
-            queryKey={['table-comments-all', tableId]}
-            fetchComments={() => gw.listAllTableComments(tableId)}
-            postComment={(text, parentId) => gw.commentOnTable(tableId, text, parentId).then(() => {})}
-            editComment={(id, text) => gw.editTableComment(id, text)}
-            deleteComment={(id) => gw.deleteTableComment(id).then(() => { queryClient.invalidateQueries({ queryKey: ['commented-rows', tableId] }); })}
-            resolveComment={(id) => gw.resolveTableComment(id)}
-            unresolveComment={(id) => gw.unresolveTableComment(id)}
-          />
-        </div>
+      </div>
+      </div>{/* end left column */}
+
+      {/* Sidebar — full height, independent column */}
+      {showTableComments && !showHistory && (
+        <>
+          <div className="w-80 border-l border-border bg-card hidden md:flex flex-col shrink-0 overflow-hidden h-full">
+            <CommentPanel
+              targetType="table"
+              targetId={tableId}
+              onClose={() => setShowTableComments(false)}
+            />
+          </div>
+          {isMobile && (
+            <BottomSheet open={showTableComments} onClose={() => setShowTableComments(false)} title={t('content.comments')} initialHeight="full">
+              <CommentPanel
+                targetType="table"
+                targetId={tableId}
+                onClose={() => setShowTableComments(false)}
+              />
+            </BottomSheet>
+          )}
+        </>
       )}
-      </div>
-      </div>
+
       {showHistory && (
-        <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-          <TableHistory
-            tableId={tableId}
-            onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
-            onRestored={() => { setPreviewSnapshot(null); refresh(); }}
-            onSelectVersion={(preview) => setPreviewSnapshot(preview)}
-            selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
-          />
-        </div>
+        <>
+          <div className="w-72 border-l border-border bg-card hidden md:flex flex-col shrink-0 overflow-hidden h-full">
+            <TableHistory
+              tableId={tableId}
+              onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+              onRestored={() => { setPreviewSnapshot(null); refresh(); }}
+              onSelectVersion={(preview) => setPreviewSnapshot(preview)}
+              selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+            />
+          </div>
+          {isMobile && (
+            <BottomSheet open={showHistory} onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }} title={t('dataTableHistory.title')} initialHeight="full">
+              <TableHistory
+                tableId={tableId}
+                onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+                onRestored={() => { setPreviewSnapshot(null); refresh(); }}
+                onSelectVersion={(preview) => setPreviewSnapshot(preview)}
+                selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+              />
+            </BottomSheet>
+          )}
+        </>
       )}
     </div>
   );
@@ -4621,7 +4703,7 @@ function DatePickerDropdown({ value, showTime, onChange, onClose }: {
 
 // ── Linked record chips for Link columns ──
 
-function LinkedRecordChips({ tableId, rowId, column, value }: { tableId: string; rowId: number; column: nc.NCColumn; value: unknown }) {
+function LinkedRecordChips({ tableId, rowId, column, value }: { tableId: string; rowId: number; column: br.BRColumn; value: unknown }) {
   const { t } = useT();
   const inlineRecords = Array.isArray(value) ? value as Record<string, unknown>[] : [];
   const num = inlineRecords.length || (parseInt(String(value)) || 0);
@@ -4630,7 +4712,7 @@ function LinkedRecordChips({ tableId, rowId, column, value }: { tableId: string;
   const needsFetch = !Array.isArray(value) && num > 0;
   const { data: linkedData } = useQuery({
     queryKey: ['nc-linked-records', tableId, rowId, column.column_id],
-    queryFn: () => nc.listLinkedRecords(tableId, rowId, column.column_id, { limit: 10 }),
+    queryFn: () => br.listLinkedRecords(tableId, rowId, column.column_id, { limit: 10 }),
     enabled: needsFetch,
     staleTime: 60_000,
   });
@@ -4687,7 +4769,7 @@ function LinkedRecordChips({ tableId, rowId, column, value }: { tableId: string;
 
 // ── Cell display ──
 
-function CellDisplay({ value, col, onDeleteAttachment }: { value: unknown; col: nc.NCColumn; onDeleteAttachment?: (idx: number) => void }) {
+function CellDisplay({ value, col, onDeleteAttachment }: { value: unknown; col: br.BRColumn; onDeleteAttachment?: (idx: number) => void }) {
   const { t } = useT();
   const { type: colType, primary_key: isPK } = col;
 
@@ -5040,8 +5122,8 @@ function KanbanCard({ id, children, isDragging }: { id: number; children: React.
 
 function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRow, tableId, refreshMeta, hiddenCols, onExpandRow, onRefreshRows }: {
   rows: Record<string, unknown>[];
-  columns: nc.NCColumn[];
-  activeView: nc.NCView;
+  columns: br.BRColumn[];
+  activeView: br.BRView;
   isLoading: boolean;
   onUpdateRow: (rowId: number, fields: Record<string, unknown>) => Promise<void>;
   onAddRow: () => void;
@@ -5080,7 +5162,7 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
                 <button
                   key={c.column_id}
                   onClick={async () => {
-                    await nc.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });
+                    await br.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });
                     refreshMeta();
                   }}
                   className="w-full px-3 py-2 text-xs bg-muted hover:bg-accent rounded-lg text-foreground"
@@ -5208,7 +5290,7 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
       return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [grpCol.title]: newVal } : r) };
     });
     try {
-      await nc.updateRow(tableId, rowId, { [grpCol.title]: newVal });
+      await br.updateRow(tableId, rowId, { [grpCol.title]: newVal });
     } catch {
       onRefreshRows?.(); // revert on failure
     }
@@ -5293,8 +5375,8 @@ function KanbanView({ rows, columns, activeView, isLoading, onUpdateRow, onAddRo
 
 function GalleryView({ rows, columns, activeView, isLoading, onAddRow, hiddenCols, onExpandRow }: {
   rows: Record<string, unknown>[];
-  columns: nc.NCColumn[];
-  activeView?: nc.NCView;
+  columns: br.BRColumn[];
+  activeView?: br.BRView;
   isLoading: boolean;
   onAddRow: () => void;
   hiddenCols: Set<string>;
@@ -5373,7 +5455,7 @@ function GalleryView({ rows, columns, activeView, isLoading, onAddRow, hiddenCol
 // ── Form View ──
 
 function FormView({ columns, tableId, onSubmit }: {
-  columns: nc.NCColumn[];
+  columns: br.BRColumn[];
   tableId: string;
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
 }) {
@@ -5389,7 +5471,7 @@ function FormView({ columns, tableId, onSubmit }: {
       setFormData({});
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 2000);
-    } catch {}
+    } catch (e) { console.error('Form submit failed:', e); }
     setSubmitting(false);
   };
 
@@ -5465,7 +5547,7 @@ function FormView({ columns, tableId, onSubmit }: {
 
 function CalendarView({ rows, columns, isLoading }: {
   rows: Record<string, unknown>[];
-  columns: nc.NCColumn[];
+  columns: br.BRColumn[];
   isLoading: boolean;
 }) {
   const { t } = useT();

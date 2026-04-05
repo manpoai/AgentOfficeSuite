@@ -6,6 +6,7 @@ html, body {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background-color: hsl(var(--card));
 }
 
 /* Force default cursor on all X6 node content inside foreignObject.
@@ -61,12 +62,13 @@ html, body {
     --input: 0 0% 90%;
     --ring: 0 0% 65%;
     --radius: 0.625rem;
-    --sidebar: 0 0% 97%;
-    --sidebar-foreground: 0 0% 9%;
-    --sidebar-primary: 151 66% 49%;
+    --brand: 145 63% 49%;
+    --sidebar: 120 7% 96%;
+    --sidebar-foreground: 0 0% 0%;
+    --sidebar-primary: 145 63% 49%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 151 66% 95%;
-    --sidebar-accent-foreground: 151 66% 35%;
+    --sidebar-accent: 145 63% 95%;
+    --sidebar-accent-foreground: 145 63% 35%;
     --sidebar-border: 0 0% 90%;
   }
 
@@ -90,12 +92,13 @@ html, body {
     --border: 0 0% 20%;
     --input: 0 0% 22%;
     --ring: 0 0% 45%;
+    --brand: 145 63% 55%;
     --sidebar: 0 0% 11%;
     --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 151 66% 55%;
+    --sidebar-primary: 145 63% 55%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 151 66% 15%;
-    --sidebar-accent-foreground: 151 66% 80%;
+    --sidebar-accent: 145 63% 15%;
+    --sidebar-accent-foreground: 145 63% 80%;
     --sidebar-border: 0 0% 20%;
   }
 

@@ -354,11 +354,11 @@ CatchupEvent:
 
 ---
 
-## 四·五、结构化数据 API（NocoDB）
+## 四·五、结构化数据 API（Baserow）
 
-Agent 可通过 `/api/data` 接口读写 NocoDB 中的结构化数据表。底层是 NocoDB 0.202，所有数据存储在 ASuite 共享 Base（`pgw03v3ek2obunx`）中。
+Agent 可通过 `/api/data` 接口读写 Baserow 中的结构化数据表。所有数据存储在 ASuite 共享 Database 中。
 
-> NocoDB 管理界面：http://localhost:8080（admin@asuite.local / Asuite2026!）
+> Baserow 管理界面：http://localhost:8280（admin@asuite.local / Asuite2026!）
 
 ### 4·5.1 创建表
 
@@ -398,9 +398,9 @@ Response 200:
 {
   list: [
     {
-      id: "mb7m0i7guw5dhaq",
-      title: "agent_notes",
-      base_id: "pgw03v3ek2obunx",
+      id: "<table_id>",
+      title: "my_table",
+      base_id: "<base_id>",
       ...
     }
   ]
@@ -413,10 +413,10 @@ Response 200:
 GET /api/data/:table_id/rows?limit=25&offset=0&where=...&sort=...
 
 参数:
-  table_id  — NocoDB table ID（从 GET /api/data/tables 获取）
+  table_id  — Baserow table ID（从 GET /api/data/tables 获取）
   limit     — 每页条数，默认 25
   offset    — 偏移，默认 0
-  where     — NocoDB where 表达式（如 (Agent,eq,zylos-thinker)）
+  where     — Baserow where 表达式（如 (Agent,eq,zylos-thinker)）
   sort      — 排序字段（如 -created_at 表示倒序）
 
 Response 200:
@@ -459,11 +459,9 @@ Response 200:
 
 ### 4·5.6 表 ID 速查
 
-| 表名 | Table ID | 列 |
-|---|---|---|
-| agent_notes | `mb7m0i7guw5dhaq` | Id, Title, Content, Agent |
+通过 `GET /api/data/tables` 获取当前可用的表及其 table_id。
 
-> 新建表需在 NocoDB 管理界面操作，建好后通过 `GET /api/data/tables` 获取 table_id。
+> 注意：Baserow 仅用于用户在 Database 编辑器中创建的表。系统/Agent 内部数据请使用 Gateway SQLite，不得在 Baserow 中创建系统表。
 
 ---
 

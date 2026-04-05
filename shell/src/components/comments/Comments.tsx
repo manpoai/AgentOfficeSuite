@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, X, MoreHorizontal, Pencil, Trash2, CheckCircle2, Undo2, Image as ImageIcon, Paperclip, Copy, Link, Reply, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/utils/time';
 import type { Comment } from '@/lib/api/gateway';
-import { useMentionPopover, MentionPopover, type MentionCandidate } from '@/components/mention-popover';
 import { useT } from '@/lib/i18n';
+import { showError } from '@/lib/utils/error';
 
 interface CommentsProps {
   /** Unique key for React Query caching */
@@ -35,18 +36,9 @@ interface CommentsProps {
   topOffset?: number | null;
 }
 
-function timeAgo(dateStr: string, t: (key: string, params?: Record<string, string | number>) => string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return t('comments.justNow');
-  if (mins < 60) return t('comments.minutesAgo', { n: mins });
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return t('comments.hoursAgo', { n: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 7) return t('comments.daysAgo', { n: days });
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+// timeAgo delegates to the shared formatRelativeTime utility
+function timeAgo(dateStr: string): string {
+  return formatRelativeTime(dateStr);
 }
 
 function getInitial(name: string): string {
@@ -183,8 +175,6 @@ export function Comments({
   const { t } = useT();
   const [newComment, setNewComment] = useState('');
   const [posting, setPosting] = useState(false);
-  const [cursorPos, setCursorPos] = useState(0);
-  const [mentionIdx, setMentionIdx] = useState(0);
   const [quote, setQuote] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -207,20 +197,6 @@ export function Comments({
     }
   }, [initialQuote, onQuoteConsumed]);
 
-  const mention = useMentionPopover(newComment, cursorPos);
-
-  const handleMentionSelect = useCallback((candidate: MentionCandidate) => {
-    const before = newComment.slice(0, mention.triggerStart);
-    const after = newComment.slice(mention.triggerEnd);
-    const text = `${before}@${candidate.username} ${after}`;
-    setNewComment(text);
-    setMentionIdx(0);
-    const newPos = mention.triggerStart + candidate.username.length + 2;
-    setTimeout(() => {
-      const el = commentInputRef.current;
-      if (el) { el.focus(); el.setSelectionRange(newPos, newPos); }
-    }, 0);
-  }, [newComment, mention.triggerStart, mention.triggerEnd]);
 
   const { data: comments = [], isLoading } = useQuery({
     queryKey,
@@ -257,7 +233,7 @@ export function Comments({
       setReplyToName('');
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Post comment failed:', e);
+      showError('Post comment failed', e);
     } finally {
       setPosting(false);
     }
@@ -271,7 +247,7 @@ export function Comments({
       setEditText('');
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Edit comment failed:', e);
+      showError('Edit comment failed', e);
     }
   };
 
@@ -281,7 +257,7 @@ export function Comments({
       await deleteComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Delete comment failed:', e);
+      showError('Delete comment failed', e);
     }
   };
 
@@ -291,7 +267,7 @@ export function Comments({
       await resolveComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Resolve comment failed:', e);
+      showError('Resolve comment failed', e);
     }
   };
 
@@ -301,7 +277,7 @@ export function Comments({
       await unresolveComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Unresolve comment failed:', e);
+      showError('Unresolve comment failed', e);
     }
   };
 
@@ -314,7 +290,7 @@ export function Comments({
       setNewComment(prev => prev ? `${prev}\n${imgMarkdown}` : imgMarkdown);
       commentInputRef.current?.focus();
     } catch (e) {
-      console.error('Image upload failed:', e);
+      showError('Image upload failed', e);
     } finally {
       setUploading(false);
     }
@@ -355,7 +331,7 @@ export function Comments({
       setInlineReplyId(null);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      console.error('Reply failed:', e);
+      showError('Reply failed', e);
     } finally {
       setInlineReplyPosting(false);
     }
@@ -373,7 +349,7 @@ export function Comments({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-foreground">{c.actor}</span>
-            <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at, t)}</span>
+            <span className="text-[10px] text-muted-foreground flex-1">{timeAgo(c.created_at)}</span>
             <CommentMenu
               comment={c}
               onEdit={editComment ? () => { setEditingId(c.id); setEditText(c.text); } : undefined}
@@ -506,14 +482,7 @@ export function Comments({
             setCursorPos(e.target.selectionStart || 0);
             autoResize(e.target);
           }}
-          onSelect={e => setCursorPos((e.target as HTMLTextAreaElement).selectionStart || 0)}
           onKeyDown={e => {
-            if (mention.isOpen) {
-              if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx(i => (i + 1) % mention.matches.length); return; }
-              if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx(i => (i - 1 + mention.matches.length) % mention.matches.length); return; }
-              if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); handleMentionSelect(mention.matches[mentionIdx]); return; }
-              if (e.key === 'Escape') { e.preventDefault(); setCursorPos(0); return; }
-            }
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePost(); }
           }}
           placeholder={t('comments.placeholder')}
@@ -565,17 +534,6 @@ export function Comments({
           <div className="absolute inset-0 flex items-center justify-center bg-muted/80 rounded-lg">
             <span className="text-[10px] text-muted-foreground">{t('comments.uploading')}</span>
           </div>
-        )}
-        {mention.isOpen && commentInputRef.current && (
-          <MentionPopover
-            matches={mention.matches}
-            selectedIndex={mentionIdx}
-            onSelect={handleMentionSelect}
-            anchorRect={{
-              left: commentInputRef.current.getBoundingClientRect().left,
-              bottom: commentInputRef.current.getBoundingClientRect().top,
-            }}
-          />
         )}
       </div>
     </div>

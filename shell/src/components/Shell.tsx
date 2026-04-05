@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import { useT } from '@/lib/i18n';
 
 type Module = 'im' | 'tasks' | 'docs' | 'data';
 
@@ -8,23 +9,24 @@ interface ServiceTokens {
   noco?: { token: string } | null;
 }
 
-const MODULE_LIST: { id: Module; label: string; icon: string }[] = [
-  { id: 'im',    label: 'IM',    icon: '💬' },
-  { id: 'tasks', label: '任务',  icon: '✅' },
-  { id: 'docs',  label: '文档',  icon: '📄' },
-  { id: 'data',  label: '数据库', icon: '🗄️' },
+const MODULE_LIST: { id: Module; labelKey: string; fallback: string; icon: string }[] = [
+  { id: 'im',    labelKey: '',              fallback: 'IM',    icon: '💬' },
+  { id: 'tasks', labelKey: 'shell.tasks',   fallback: 'Tasks', icon: '✅' },
+  { id: 'docs',  labelKey: 'shell.docs',    fallback: 'Docs',  icon: '📄' },
+  { id: 'data',  labelKey: 'shell.database', fallback: 'DB',   icon: '🗄��' },
 ];
 
 function buildUrl(mod: Module, tokens: ServiceTokens): string {
   // All services use sso-inject — sets auth cookies server-side then redirects to /
   if (mod === 'im') return 'https://mm.gridtabs.com/sso-inject';
-  if (mod === 'docs') return 'https://outline.gridtabs.com/sso-inject';
+  if (mod === 'docs') return 'https://asuite.gridtabs.com/content';
   if (mod === 'tasks') return 'https://plane.gridtabs.com/sso-inject';
   if (mod === 'data') return 'https://noco.gridtabs.com/sso-inject';
   return 'https://noco.gridtabs.com';
 }
 
 export function Shell() {
+  const { t } = useT();
   const [active, setActive] = useState<Module>('im');
   const [urls, setUrls] = useState<Record<Module, string> | null>(null);
   const fetchedRef = useRef(false);
@@ -32,7 +34,10 @@ export function Shell() {
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    fetch('/api/auth/service-tokens')
+    const token = localStorage.getItem('asuite_token');
+    fetch('/api/auth/service-tokens', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then(r => r.json())
       .then((data: ServiceTokens) => {
         setUrls({
@@ -47,7 +52,7 @@ export function Shell() {
         setUrls({
           im:    'https://mm.gridtabs.com',
           tasks: 'https://plane.gridtabs.com',
-          docs:  'https://outline.gridtabs.com',
+          docs:  'https://asuite.gridtabs.com/content',
           data:  'https://noco.gridtabs.com',
         });
       });
@@ -67,11 +72,13 @@ export function Shell() {
         borderRight: '1px solid #1e2a45',
         flexShrink: 0,
       }}>
-        {MODULE_LIST.map(m => (
+        {MODULE_LIST.map(m => {
+          const label = m.labelKey ? t(m.labelKey) : m.fallback;
+          return (
           <button
             key={m.id}
             onClick={() => setActive(m.id)}
-            title={m.label}
+            title={label}
             style={{
               width: 48,
               height: 48,
@@ -89,12 +96,13 @@ export function Shell() {
             }}
           >
             <span>{m.icon}</span>
-            <span style={{ fontSize: 9, marginTop: 2, letterSpacing: 0.5 }}>{m.label}</span>
+            <span style={{ fontSize: 9, marginTop: 2, letterSpacing: 0.5 }}>{label}</span>
           </button>
-        ))}
+          );
+        })}
         <div style={{ flex: 1 }} />
         <button
-          title="设置"
+          title={t('shell.settings')}
           style={{
             width: 48, height: 48, borderRadius: 12, border: 'none',
             background: 'transparent', color: '#7a8ba0', cursor: 'pointer',
@@ -113,7 +121,7 @@ export function Shell() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: '#7a8ba0', fontSize: 14,
           }}>
-            正在初始化...
+            {t('shell.initializing')}
           </div>
         ) : (
           MODULE_LIST.map(m => (

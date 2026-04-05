@@ -3,14 +3,16 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Search, Link2, Check, ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
-import * as nc from '@/lib/api/nocodb';
+import * as br from '@/lib/api/baserow';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
+import { formatDate } from '@/lib/utils/time';
 
 interface LinkRecordPickerProps {
   tableId: string;
   rowId: number;
-  column: nc.NCColumn;
+  column: br.BRColumn;
   onClose: () => void;
   onRefresh: () => void;
 }
@@ -18,7 +20,6 @@ interface LinkRecordPickerProps {
 const HIDDEN_TYPES = new Set(['Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 const PAGE_SIZE = 25;
 
-const SELECT_COLORS: Record<string, string> = {};
 
 export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }: LinkRecordPickerProps) {
   const { t } = useT();
@@ -44,21 +45,21 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   // Fetch linked records for this row+column
   const { data: linkedData, refetch: refetchLinked } = useQuery({
     queryKey: ['nc-linked-records', tableId, rowId, column.column_id],
-    queryFn: () => nc.listLinkedRecords(tableId, rowId, column.column_id, { limit: 200 }),
+    queryFn: () => br.listLinkedRecords(tableId, rowId, column.column_id, { limit: 200 }),
     enabled: !!relatedTableId,
   });
 
   // Fetch related table meta
   const { data: relatedMeta } = useQuery({
     queryKey: ['nc-table-meta', relatedTableId],
-    queryFn: () => nc.describeTable(relatedTableId),
+    queryFn: () => br.describeTable(relatedTableId),
     enabled: !!relatedTableId,
   });
 
   // Columns to display: display column first, then all non-hidden columns (horizontal scroll)
   const visibleCols = useMemo(() => {
     if (!relatedMeta?.columns) return [];
-    // Find display column (primary_key which is actually pv in NocoDB)
+    // Find display column (primary_key / pv)
     const displayCol = relatedMeta.columns.find(c => c.primary_key);
     const others = relatedMeta.columns.filter(c =>
       c !== displayCol && !HIDDEN_TYPES.has(c.type) && c.title !== 'created_by' && c.type !== 'ID'
@@ -87,7 +88,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   // Fetch records with server-side search and pagination
   const { data: allRecords, isLoading } = useQuery({
     queryKey: ['nc-rows', relatedTableId, 'link-picker', debouncedSearch, page],
-    queryFn: () => nc.queryRows(relatedTableId, {
+    queryFn: () => br.queryRows(relatedTableId, {
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
       ...(debouncedSearch ? { where: `(${displayColTitle},like,%${debouncedSearch}%)` } : {}),
@@ -105,14 +106,14 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
     setLinking(prev => new Set(prev).add(targetRowId));
     try {
       if (isLinked) {
-        await nc.unlinkRecords(tableId, rowId, column.column_id, [targetRowId]);
+        await br.unlinkRecords(tableId, rowId, column.column_id, [targetRowId]);
       } else {
-        await nc.linkRecords(tableId, rowId, column.column_id, [targetRowId]);
+        await br.linkRecords(tableId, rowId, column.column_id, [targetRowId]);
       }
       refetchLinked();
       onRefresh();
     } catch (e) {
-      console.error('Link toggle failed:', e);
+      showError('Link toggle failed', e);
     } finally {
       setLinking(prev => { const s = new Set(prev); s.delete(targetRowId); return s; });
     }
@@ -319,7 +320,7 @@ function CellValue({ value, colType, colTitle, colorMap }: {
 
   // Date/DateTime
   if (colType === 'Date' || colType === 'DateTime' || colType === 'CreatedTime' || colType === 'LastModifiedTime') {
-    try { return <span>{new Date(String(value)).toLocaleDateString()}</span>; } catch { return <span>{String(value)}</span>; }
+    try { return <span>{formatDate(String(value))}</span>; } catch { return <span>{String(value)}</span>; }
   }
 
   // Attachment

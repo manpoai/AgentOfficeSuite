@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { Editor } from '@/components/editor';
 import '@/components/editor/editor-styles.css';
 
-// Exact content from Outline API (same format Outline stores)
-const outlineContent = `# 渲染测试文档
+// Sample markdown content for editor testing
+const testContent = `# 渲染测试文档
 
 ## 基础元素
 
@@ -82,7 +82,7 @@ export default function EditorTestPage() {
   useEffect(() => {
     // Simulate API fetch delay
     setTimeout(() => {
-      setDoc({ id: 'test-doc-1', text: outlineContent });
+      setDoc({ id: 'test-doc-1', text: testContent });
     }, 500);
   }, []);
 

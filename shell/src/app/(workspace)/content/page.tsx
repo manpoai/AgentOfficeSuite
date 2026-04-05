@@ -1,29 +1,48 @@
 'use client';
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as docApi from '@/lib/api/documents';
-import type { Document as DocType, Comment as DocComment, Revision as DocRevision } from '@/lib/api/documents';
-import { FileText, Table2, Pencil, Plus, ArrowLeft, Trash2, X, Search, Clock, MoreHorizontal, MessageSquare as MessageSquareIcon, Download, ChevronRight, ChevronDown, FolderOpen, Smile, Eye, Code2, Maximize2, RotateCcw, ArrowLeftToLine, ArrowRightToLine, Link2, Presentation, Sheet, GitBranch } from 'lucide-react';
+import type { Document as DocType } from '@/lib/api/documents';
+import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, GitBranch, Pencil } from 'lucide-react';
+import { SwipeBack } from '@/components/shared/SwipeBack';
+import { ContentSidebar } from '@/components/ContentSidebar';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { MobileIconPicker } from '@/components/shared/MobileIconPicker';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
+import { formatRelativeTime, formatDate } from '@/lib/utils/time';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import dynamic from 'next/dynamic';
-import { Editor, SearchBar } from '@/components/editor';
-import { Comments } from '@/components/comments/Comments';
-import RevisionHistory from '@/components/RevisionHistory';
-// DocRevision is imported above
-import { TableEditor } from '@/components/table-editor/TableEditor';
-import { BoardEditor } from '@/components/board-editor/BoardEditor';
-import { PresentationEditor } from '@/components/presentation-editor/PresentationEditor';
-import { SpreadsheetEditor } from '@/components/spreadsheet-editor/SpreadsheetEditor';
-const DiagramEditor = dynamic(() => import('@/components/diagram-editor/X6DiagramEditor'), { ssr: false });
+import { EditorSkeleton, TableSkeleton } from '@/components/shared/Skeleton';
+import { MobileNav } from '@/components/shared/MobileNav';
+import { NotificationPanel } from '@/components/shared/NotificationPanel';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
+import { useAuth } from '@/lib/auth';
+import { useTheme } from 'next-themes';
+import { LogOut, Key, Globe, Bot, Camera, ChevronRight } from 'lucide-react';
+import { DocPanel } from './components/DocPanel';
+import { DiagramPanel } from './components/DiagramPanel';
 
-const RevisionPreview = dynamic(() => import('@/components/RevisionPreview'), { ssr: false });
+const TableEditor = dynamic(
+  () => import('@/components/table-editor/TableEditor').then(m => ({ default: m.TableEditor })),
+  { ssr: false, loading: () => <TableSkeleton /> }
+);
+
+const PresentationEditor = dynamic(
+  () => import('@/components/presentation-editor/PresentationEditor').then(m => ({ default: m.PresentationEditor })),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
 import * as gw from '@/lib/api/gateway';
-import { useT } from '@/lib/i18n';
+import { useT, LOCALE_LABELS, type Locale } from '@/lib/i18n';
 import { getAutoPosition } from '@/lib/hooks/use-auto-position';
-import { AutoDropdown } from '@/components/ui/auto-dropdown';
+import { useContextMenu } from '@/lib/hooks/use-context-menu';
+import type { ContextMenuItem } from '@/lib/hooks/use-context-menu';
+import { contentItemActions, type ContentItemCtx } from '@/actions/content-item.actions';
+import { contentItemSurfaces } from '@/surfaces/content-item.surfaces';
+import { toContextMenuItems, toContentMenuItems } from '@/surfaces/bridge';
+import { buildActionMap } from '@/actions/types';
 import {
   DndContext,
   closestCenter,
@@ -39,6 +58,8 @@ import {
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 
+const contentActionMap = buildActionMap(contentItemActions);
+
 /** Where to drop: before/after = reorder, inside = reparent */
 type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | null;
 
@@ -50,15 +71,16 @@ type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | 
 type ContentNode = {
   id: string;         // doc:<id> or table:<id>
   rawId: string;      // original id without prefix
-  type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   emoji?: string;
   createdAt: number;
   updatedAt?: string;
   parentId: string | null;
+  pinned?: boolean;
 };
 
-type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'board'; id: string } | { type: 'presentation'; id: string } | { type: 'spreadsheet'; id: string } | { type: 'diagram'; id: string } | null;
+type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'presentation'; id: string } | { type: 'diagram'; id: string } | null;
 
 /** Tree ordering stored in localStorage */
 interface TreeState {
@@ -94,7 +116,7 @@ function loadExpandedState(): string[] {
 }
 
 function saveExpandedState(ids: Set<string>) {
-  localStorage.setItem(EXPANDED_STATE_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(EXPANDED_STATE_KEY, JSON.stringify(Array.from(ids)));
 }
 
 // Debounced Gateway persistence for tree state
@@ -120,27 +142,30 @@ function selectionFromURL(): Selection | null {
     if (!id) return null;
     if (id.startsWith('doc:')) return { type: 'doc', id: id.slice(4) };
     if (id.startsWith('table:')) return { type: 'table', id: id.slice(6) };
-    if (id.startsWith('board:')) return { type: 'board', id: id.slice(6) };
     if (id.startsWith('presentation:')) return { type: 'presentation', id: id.slice(13) };
-    if (id.startsWith('spreadsheet:')) return { type: 'spreadsheet', id: id.slice(12) };
     if (id.startsWith('diagram:')) return { type: 'diagram', id: id.slice(8) };
   } catch { /* SSR or invalid */ }
   return null;
 }
 
 /** Update the browser URL to reflect the current selection (no page reload) */
-function syncSelectionToURL(sel: Selection | null) {
+function syncSelectionToURL(sel: Selection | null, replace = false) {
   const url = new URL(window.location.href);
   if (sel) {
     url.searchParams.set('id', `${sel.type}:${sel.id}`);
   } else {
     url.searchParams.delete('id');
   }
-  window.history.replaceState(null, '', url.toString());
+  const newUrl = url.toString();
+  if (replace || newUrl === window.location.href) {
+    window.history.replaceState(null, '', newUrl);
+  } else {
+    window.history.pushState(null, '', newUrl);
+  }
 }
 
 /** Build a shareable link for a content item */
-function buildContentLink(sel: Selection): string {
+function buildContentLink(sel: NonNullable<Selection>): string {
   const url = new URL(window.location.href);
   url.searchParams.set('id', `${sel.type}:${sel.id}`);
   return url.toString();
@@ -151,10 +176,21 @@ function buildContentLink(sel: Selection): string {
 // ═══════════════════════════════════════════════════
 
 export default function ContentPage() {
-  const { t } = useT();
+  const { t, locale, setLocale } = useT();
+  const { actor, logout, refreshActor } = useAuth();
+  const { setTheme, theme } = useTheme();
+  const isMobilePage = useIsMobile();
   const [selection, setSelection] = useState<Selection>(null);
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [showNewMenu, setShowNewMenu] = useState(false);
+  const [showMobileFabMenu, setShowMobileFabMenu] = useState(false);
+  const [showMobileProfile, setShowMobileProfile] = useState(false);
+  const [showMobileAgents, setShowMobileAgents] = useState(false);
+  const [mobileEditingName, setMobileEditingName] = useState(false);
+  const [mobileEditNameValue, setMobileEditNameValue] = useState('');
+  const [mobileSavingProfile, setMobileSavingProfile] = useState(false);
+  const [mobileShowLang, setMobileShowLang] = useState(false);
+  const mobileAvatarInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -162,11 +198,27 @@ export default function ContentPage() {
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
   const [dropIntent, setDropIntent] = useState<DropIntent>(null);
   const [sidebarView, setSidebarView] = useState<'library' | 'trash'>('library');
-  const [showViewMenu, setShowViewMenu] = useState(false);
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ nodeId: string; hasChildren: boolean } | null>(null);
   const [docListVisible, setDocListVisible] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const queryClient = useQueryClient();
+
+  // Unread notification count for MobileNav badge
+  const { data: mobileUnreadCount = 0 } = useQuery({
+    queryKey: ['notifications-unread-count'],
+    queryFn: gw.getUnreadCount,
+    refetchInterval: 30_000,
+  });
+
+  const { data: mobileAgents } = useQuery({
+    queryKey: ['admin-agents'],
+    queryFn: gw.listAllAgents,
+    enabled: showMobileAgents,
+  });
 
   // Hydrate client-only state after mount (avoid SSR mismatch)
   useEffect(() => {
@@ -182,7 +234,34 @@ export default function ContentPage() {
     }
     setExpandedIds(new Set(loadExpandedState()));
     setTreeState(loadTreeState());
+    const savedCollapsed = localStorage.getItem('asuite-sidebar-collapsed');
+    if (savedCollapsed === 'true') setSidebarCollapsed(true);
     setHydrated(true);
+
+    // Listen for popstate events (SPA navigation from ContentLink clicks)
+    const handlePopState = () => {
+      const sel = selectionFromURL();
+      if (sel) {
+        setSelection(sel);
+        setMobileView('detail');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    // Listen for ⌘+\ toggle-sidebar from KeyboardManager
+    const handleToggleSidebar = () => {
+      setSidebarCollapsed(prev => {
+        const next = !prev;
+        localStorage.setItem('asuite-sidebar-collapsed', String(next));
+        return next;
+      });
+    };
+    window.addEventListener('toggle-sidebar', handleToggleSidebar);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('toggle-sidebar', handleToggleSidebar);
+    };
   }, []);
 
   // On mount: fetch tree state from Gateway (migration from localStorage)
@@ -227,9 +306,7 @@ export default function ContentPage() {
 
   const selectedDocId = selection?.type === 'doc' ? selection.id : null;
   const selectedTableId = selection?.type === 'table' ? selection.id : null;
-  const selectedBoardId = selection?.type === 'board' ? selection.id : null;
   const selectedPresentationId = selection?.type === 'presentation' ? selection.id : null;
-  const selectedSpreadsheetId = selection?.type === 'spreadsheet' ? selection.id : null;
   const selectedDiagramId = selection?.type === 'diagram' ? selection.id : null;
 
   const { data: selectedDoc } = useQuery({
@@ -247,12 +324,13 @@ export default function ContentPage() {
       map.set(item.id, {
         id: item.id,
         rawId: item.raw_id,
-        type: item.type as 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'board' ? t('content.untitledBoard') : item.type === 'spreadsheet' ? (t('content.untitledSpreadsheet') || 'Untitled Spreadsheet') : item.type === 'diagram' ? (t('content.untitledDiagram') || 'Untitled Diagram') : (t('content.untitledPresentation') || 'Untitled Presentation')),
+        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram',
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? (t('content.untitledDiagram') || 'Untitled Diagram') : (t('content.untitledPresentation') || 'Untitled Presentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
         parentId: item.parent_id,
+        pinned: !!item.pinned,
       });
     }
     return map;
@@ -276,7 +354,7 @@ export default function ContentPage() {
   }, [nodeMap, treeState]);
 
   // Build children map and root items
-  const { childrenMap, rootIds } = useMemo(() => {
+  const { childrenMap, rootIds, pinnedIds, unpinnedIds } = useMemo(() => {
     const cMap = new Map<string, string[]>();
     const allIds = new Set(effectiveNodes.keys());
     const hasParent = new Set<string>();
@@ -329,7 +407,15 @@ export default function ContentPage() {
       roots.sort((a, b) => (effectiveNodes.get(a)?.createdAt || 0) - (effectiveNodes.get(b)?.createdAt || 0));
     }
 
-    return { childrenMap: cMap, rootIds: roots };
+    // Split roots into pinned and unpinned
+    const pinned: string[] = [];
+    const unpinned: string[] = [];
+    for (const id of roots) {
+      if (effectiveNodes.get(id)?.pinned) pinned.push(id);
+      else unpinned.push(id);
+    }
+
+    return { childrenMap: cMap, rootIds: roots, pinnedIds: pinned, unpinnedIds: unpinned };
   }, [effectiveNodes, treeState]);
 
   const toggleExpand = (id: string) => {
@@ -391,6 +477,14 @@ export default function ContentPage() {
     setMobileView('list');
   };
 
+  // Mobile back: clear selection + URL + sessionStorage + switch to list view
+  const handleMobileBack = useCallback(() => {
+    setSelection(null);
+    syncSelectionToURL(null);
+    try { sessionStorage.removeItem('asuite-content-selection'); } catch {}
+    setMobileView('list');
+  }, []);
+
   // Request deletion of a node — shows dialog for docs with children, or confirms directly
   const requestDelete = (nodeId: string) => {
     const node = effectiveNodes.get(nodeId);
@@ -416,7 +510,7 @@ export default function ContentPage() {
       await gw.deleteContentItem(nodeId, mode);
       await queryClient.invalidateQueries({ queryKey: ['content-items'] });
     } catch (err) {
-      console.error('Delete failed:', err);
+      showError('Delete failed', err);
     }
     setDeleteDialog(null);
   };
@@ -438,6 +532,22 @@ export default function ContentPage() {
         next.add(nodeId);
         return next;
       });
+    }
+  };
+
+  // Navigate to a breadcrumb item by rawId — resolves type from the content tree
+  const navigateToBreadcrumb = (rawId: string) => {
+    // Try all possible node types
+    for (const prefix of ['doc', 'table', 'presentation', 'diagram']) {
+      const nodeId = `${prefix}:${rawId}`;
+      const node = effectiveNodes.get(nodeId);
+      if (node) {
+        const sel = { type: node.type, id: node.rawId };
+        setSelection(sel);
+        syncSelectionToURL(sel);
+        setMobileView('detail');
+        return;
+      }
     }
   };
 
@@ -478,18 +588,19 @@ export default function ContentPage() {
     }, 100);
   }, [selection, childrenMap, effectiveNodes]);
 
-  // Auto-select first item if nothing is selected
+  // Auto-select first item if nothing is selected — desktop only
+  // On mobile, null selection = show list view (no auto-select)
   useEffect(() => {
-    if (selection || rootIds.length === 0) return;
+    if (!hydrated || selection || rootIds.length === 0 || isMobilePage) return;
     const firstId = rootIds[0];
     const firstNode = effectiveNodes.get(firstId);
     if (firstNode) {
       const sel = { type: firstNode.type, id: firstNode.rawId } as Selection;
       setSelection(sel);
       sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
-      syncSelectionToURL(sel);
+      syncSelectionToURL(sel, true);
     }
-  }, [rootIds, selection, effectiveNodes]);
+  }, [hydrated, rootIds, selection, effectiveNodes, isMobilePage]);
 
   const refreshDocs = () => {
     queryClient.invalidateQueries({ queryKey: ['content-items'] });
@@ -498,6 +609,17 @@ export default function ContentPage() {
 
   const refreshTables = () => {
     queryClient.invalidateQueries({ queryKey: ['content-items'] });
+  };
+
+  const handleTogglePin = async (nodeId: string) => {
+    const node = effectiveNodes.get(nodeId);
+    if (!node) return;
+    try {
+      await gw.updateContentItem(nodeId, { pinned: !node.pinned });
+      queryClient.invalidateQueries({ queryKey: ['content-items'] });
+    } catch (e) {
+      showError('Failed to toggle pin', e);
+    }
   };
 
   const handleCreateDoc = async (parentNodeId?: string) => {
@@ -518,7 +640,7 @@ export default function ContentPage() {
       syncSelectionToURL(sel);
       setMobileView('detail');
     } catch (e) {
-      console.error('Create doc failed:', e);
+      showError('Create doc failed', e);
     } finally {
       setCreating(false);
     }
@@ -542,31 +664,7 @@ export default function ContentPage() {
       syncSelectionToURL(sel);
       setMobileView('detail');
     } catch (e) {
-      console.error('Create table failed:', e);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleCreateBoard = async (parentNodeId?: string) => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const item = await gw.createContentItem({
-        type: 'board',
-        title: '',
-        parent_id: parentNodeId || null,
-      });
-      if (parentNodeId) {
-        setExpandedIds(prev => new Set(prev).add(parentNodeId));
-      }
-      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
-      const sel = { type: 'board' as const, id: item.raw_id };
-      setSelection(sel);
-      syncSelectionToURL(sel);
-      setMobileView('detail');
-    } catch (e) {
-      console.error('Create board failed:', e);
+      showError('Create table failed', e);
     } finally {
       setCreating(false);
     }
@@ -590,31 +688,7 @@ export default function ContentPage() {
       syncSelectionToURL(sel);
       setMobileView('detail');
     } catch (e) {
-      console.error('Create presentation failed:', e);
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const handleCreateSpreadsheet = async (parentNodeId?: string) => {
-    if (creating) return;
-    setCreating(true);
-    try {
-      const item = await gw.createContentItem({
-        type: 'spreadsheet',
-        title: '',
-        parent_id: parentNodeId || null,
-      });
-      if (parentNodeId) {
-        setExpandedIds(prev => new Set(prev).add(parentNodeId));
-      }
-      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
-      const sel = { type: 'spreadsheet' as const, id: item.raw_id };
-      setSelection(sel);
-      syncSelectionToURL(sel);
-      setMobileView('detail');
-    } catch (e) {
-      console.error('Create spreadsheet failed:', e);
+      showError('Create presentation failed', e);
     } finally {
       setCreating(false);
     }
@@ -638,7 +712,7 @@ export default function ContentPage() {
       syncSelectionToURL(sel);
       setMobileView('detail');
     } catch (e) {
-      console.error('Create diagram failed:', e);
+      showError('Create diagram failed', e);
     } finally {
       setCreating(false);
     }
@@ -839,6 +913,12 @@ export default function ContentPage() {
     return path;
   };
 
+  const toggleSidebarCollapse = () => {
+    const next = !sidebarCollapsed;
+    setSidebarCollapsed(next);
+    localStorage.setItem('asuite-sidebar-collapsed', String(next));
+  };
+
   const dragActiveNode = dragActiveId ? effectiveNodes.get(dragActiveId) : null;
 
   // Get depth of a node for rendering
@@ -853,174 +933,80 @@ export default function ContentPage() {
   };
 
   return (
-    <div className="flex h-full overflow-hidden flex-col md:flex-row">
-      {/* Document Library sidebar */}
-      <div className={cn(
-        'w-full md:w-[260px] border-r border-border bg-[#F5F5F5] dark:bg-sidebar flex flex-col md:shrink-0 min-h-0 overflow-hidden transition-all duration-200',
-        mobileView === 'list' ? 'flex' : 'hidden md:flex',
-        !docListVisible && 'md:w-0 md:border-r-0 md:hidden'
-      )}>
-        {/* Header */}
-        <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-          <div className="relative">
-            <button
-              onClick={() => setShowViewMenu(v => !v)}
-              className="flex items-center gap-1.5 hover:bg-black/[0.04] dark:hover:bg-accent/50 rounded px-1 py-0.5 -mx-1 transition-colors"
-            >
-              {sidebarView === 'library' ? (
-                <FolderOpen className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
-              )}
-              <h2 className="text-xs font-medium text-muted-foreground">
-                {sidebarView === 'library' ? 'Document Library' : t('content.trash') || 'Trash'}
-              </h2>
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
-            </button>
-            {showViewMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowViewMenu(false)} />
-                <div className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-lg py-1 w-44">
-                  <button
-                    onClick={() => { setShowViewMenu(false); setSidebarView('library'); }}
-                    className={cn(
-                      'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
-                      sidebarView === 'library' ? 'text-foreground bg-accent' : 'text-foreground hover:bg-accent'
-                    )}
-                  >
-                    <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                    Document Library
-                  </button>
-                  <button
-                    onClick={() => { setShowViewMenu(false); setSidebarView('trash'); }}
-                    className={cn(
-                      'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
-                      sidebarView === 'trash' ? 'text-foreground bg-accent' : 'text-foreground hover:bg-accent'
-                    )}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.trash') || 'Trash'}
-                  </button>
-                </div>
-              </>
+    <div className="flex h-full overflow-hidden flex-col md:flex-row relative bg-sidebar">
+      {/* Unified sidebar (desktop only) — includes logo, search, tree, settings */}
+      <ContentSidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+        visible={docListVisible && mobileView === 'list' || docListVisible}
+        sidebarView={sidebarView}
+        onSidebarViewChange={setSidebarView}
+        showNewMenu={showNewMenu}
+        onShowNewMenuChange={setShowNewMenu}
+        creating={creating}
+        onCreateDoc={() => handleCreateDoc()}
+        onCreateTable={() => handleCreateTable()}
+        onCreatePresentation={() => handleCreatePresentation()}
+        onCreateDiagram={() => handleCreateDiagram()}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      >
+        {sidebarView === 'library' ? (
+          <>
+            {isLoading && (
+              <div className="space-y-1 px-1 py-2">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
+                    <div className="w-4 h-4 rounded bg-muted shrink-0" />
+                    <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
-          {sidebarView === 'library' && (
-            <div className="flex items-center gap-1 relative">
-              <button
-                onClick={() => setShowNewMenu(v => !v)}
-                className="p-1 text-muted-foreground hover:text-foreground"
-                title={t('common.new')}
+
+            {/* Search mode */}
+            {displaySearchItems && (
+              displaySearchItems.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">{t('content.noMatch')}</p>
+              ) : (
+                displaySearchItems.map(item => (
+                  <TreeNodeItem
+                    key={item.id}
+                    nodeId={item.id}
+                    node={item}
+                    isSelected={selection?.type === item.type && selection?.id === item.rawId}
+                    onSelect={() => handleSelect(item.id)}
+                    hasChildren={false}
+                    isExpanded={false}
+                    onToggle={() => {}}
+                    depth={0}
+                    onCreateChild={() => {}}
+                  />
+                ))
+              )
+            )}
+
+            {/* Tree mode with DnD */}
+            {!displaySearchItems && !isLoading && (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={updateDropIntent}
+                onDragMove={updateDropIntent}
+                onDragEnd={handleDragEnd}
               >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-              {showNewMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowNewMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-lg py-1 w-36">
+                {/* Pinned section */}
+                {pinnedIds.length > 0 && (
+                  <>
                     <button
-                      onClick={() => { setShowNewMenu(false); handleCreateDoc(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                      onClick={() => setPinnedCollapsed(v => !v)}
+                      className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
                     >
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newDoc')}
+                      Pinned
+                      <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', pinnedCollapsed && '-rotate-90')} />
                     </button>
-                    <button
-                      onClick={() => { setShowNewMenu(false); handleCreateTable(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Table2 className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newTable')}
-                    </button>
-                    <button
-                      onClick={() => { setShowNewMenu(false); handleCreateBoard(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Pencil className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newBoard')}
-                    </button>
-                    <button
-                      onClick={() => { setShowNewMenu(false); handleCreatePresentation(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Presentation className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newPresentation') || 'New Presentation'}
-                    </button>
-                    <button
-                      onClick={() => { setShowNewMenu(false); handleCreateSpreadsheet(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <Sheet className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newSpreadsheet') || 'New Spreadsheet'}
-                    </button>
-                    <button
-                      onClick={() => { setShowNewMenu(false); handleCreateDiagram(); }}
-                      disabled={creating}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                    >
-                      <GitBranch className="h-4 w-4 text-muted-foreground" />
-                      {t('content.newDiagram') || 'New Diagram'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="px-2 py-1">
-            {sidebarView === 'library' ? (
-              <>
-                {isLoading && (
-                  <div className="space-y-1 px-1 py-2">
-                    {[...Array(6)].map((_, i) => (
-                      <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
-                        <div className="w-4 h-4 rounded bg-muted shrink-0" />
-                        <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Search mode */}
-                {displaySearchItems && (
-                  displaySearchItems.length === 0 ? (
-                    <p className="p-3 text-xs text-muted-foreground">{t('content.noMatch')}</p>
-                  ) : (
-                    displaySearchItems.map(item => (
-                      <TreeNodeItem
-                        key={item.id}
-                        nodeId={item.id}
-                        node={item}
-                        isSelected={selection?.type === item.type && selection?.id === item.rawId}
-                        onSelect={() => handleSelect(item.id)}
-                        hasChildren={false}
-                        isExpanded={false}
-                        onToggle={() => {}}
-                        depth={0}
-                        onCreateChild={() => {}}
-                      />
-                    ))
-                  )
-                )}
-
-                {/* Tree mode with DnD */}
-                {!displaySearchItems && !isLoading && (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragStart={handleDragStart}
-                    onDragOver={updateDropIntent}
-                    onDragMove={updateDropIntent}
-                    onDragEnd={handleDragEnd}
-                  >
-                    {rootIds.map(nodeId => (
+                    {!pinnedCollapsed && pinnedIds.map(nodeId => (
                       <TreeNodeRecursive
                         key={nodeId}
                         nodeId={nodeId}
@@ -1032,109 +1018,266 @@ export default function ContentPage() {
                         onToggle={toggleExpand}
                         onCreateDoc={handleCreateDoc}
                         onCreateTable={handleCreateTable}
-                        onCreateBoard={handleCreateBoard}
                         onCreatePresentation={handleCreatePresentation}
-                        onCreateSpreadsheet={handleCreateSpreadsheet}
                         onCreateDiagram={handleCreateDiagram}
                         onRequestDelete={requestDelete}
+                        onTogglePin={handleTogglePin}
                         depth={0}
                         creating={creating}
                         dropIntent={dropIntent}
                         dragActiveId={dragActiveId}
                       />
                     ))}
-
-                    <DragOverlay dropAnimation={null}>
-                      {dragActiveNode && (
-                        <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
-                          {dragActiveNode.type === 'table'
-                            ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                            : dragActiveNode.type === 'board'
-                            ? <Pencil className="h-4 w-4 text-muted-foreground shrink-0" />
-                            : dragActiveNode.type === 'presentation'
-                            ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
-                            : dragActiveNode.type === 'spreadsheet'
-                            ? <Sheet className="h-4 w-4 text-muted-foreground shrink-0" />
-                            : dragActiveNode.type === 'diagram'
-                            ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
-                            : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                          }
-                          <span className="truncate">{dragActiveNode.title}</span>
-                        </div>
-                      )}
-                    </DragOverlay>
-                  </DndContext>
+                  </>
                 )}
-              </>
-            ) : (
-              /* Trash view */
-              <>
-                {deletedLoading && (
-                  <div className="space-y-1 px-1 py-2">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
-                        <div className="w-4 h-4 rounded bg-muted shrink-0" />
-                        <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
-                      </div>
-                    ))}
-                  </div>
+                {/* Library section */}
+                {pinnedIds.length > 0 && unpinnedIds.length > 0 && (
+                  <button
+                    onClick={() => setLibraryCollapsed(v => !v)}
+                    className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
+                  >
+                    Library
+                    <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', libraryCollapsed && '-rotate-90')} />
+                  </button>
                 )}
-                {(() => {
-                  if (deletedLoading) return null;
-                  const entries = (deletedItems || []).map(item => ({
-                    key: item.id,
-                    type: item.type as 'doc' | 'table',
-                    nodeId: item.id,
-                    title: item.title,
-                    deletedAt: item.deleted_at || '',
-                  }));
-                  entries.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+                {!libraryCollapsed && unpinnedIds.map(nodeId => (
+                  <TreeNodeRecursive
+                    key={nodeId}
+                    nodeId={nodeId}
+                    nodes={effectiveNodes}
+                    childrenMap={childrenMap}
+                    selection={selection}
+                    expandedIds={expandedIds}
+                    onSelect={handleSelect}
+                    onToggle={toggleExpand}
+                    onCreateDoc={handleCreateDoc}
+                    onCreateTable={handleCreateTable}
+                    onCreatePresentation={handleCreatePresentation}
+                    onCreateDiagram={handleCreateDiagram}
+                    onRequestDelete={requestDelete}
+                    onTogglePin={handleTogglePin}
+                    depth={0}
+                    creating={creating}
+                    dropIntent={dropIntent}
+                    dragActiveId={dragActiveId}
+                  />
+                ))}
 
-                  if (entries.length === 0) {
-                    return (
-                      <p className="p-3 text-xs text-muted-foreground text-center">
-                        {t('content.trashEmpty') || 'Trash is empty'}
-                      </p>
-                    );
-                  }
-
-                  return entries.map(entry => (
-                    <TrashItem
-                      key={entry.key}
-                      title={entry.title}
-                      icon={entry.type === 'table'
+                <DragOverlay dropAnimation={null}>
+                  {dragActiveNode && (
+                    <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
+                      {dragActiveNode.type === 'table'
                         ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : dragActiveNode.type === 'presentation'
+                        ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : dragActiveNode.type === 'diagram'
+                        ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
                         : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       }
-                      deletedAt={entry.deletedAt}
-                      onRestore={async () => {
-                        try {
-                          await gw.restoreContentItem(entry.nodeId);
-                          queryClient.invalidateQueries({ queryKey: ['content-items'] });
-                          queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
-                        } catch (err) { console.error('Restore failed:', err); }
-                      }}
-                      onPermanentDelete={async () => {
-                        const msg = t('content.permanentDeleteConfirm') || 'Permanently delete? This cannot be undone.';
-                        if (!confirm(msg)) return;
-                        try {
-                          await gw.permanentlyDeleteContentItem(entry.nodeId);
-                          queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
-                        } catch (err) { console.error('Permanent delete failed:', err); }
-                      }}
-                    />
-                  ));
-                })()}
-              </>
+                      <span className="truncate">{dragActiveNode.title}</span>
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
             )}
-          </div>
-        </ScrollArea>
-      </div>
+          </>
+        ) : (
+          /* Trash view */
+          <>
+            {deletedLoading && (
+              <div className="space-y-1 px-1 py-2">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
+                    <div className="w-4 h-4 rounded bg-muted shrink-0" />
+                    <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {(() => {
+              if (deletedLoading) return null;
+              const entries = (deletedItems || []).map(item => ({
+                key: item.id,
+                type: item.type as 'doc' | 'table',
+                nodeId: item.id,
+                title: item.title,
+                deletedAt: item.deleted_at || '',
+              }));
+              entries.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
 
-      {/* Detail area */}
-      <div className={cn(
-        'flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-card',
-        mobileView === 'detail' ? 'flex' : 'hidden md:flex'
+              if (entries.length === 0) {
+                return (
+                  <p className="p-3 text-xs text-muted-foreground text-center">
+                    {t('content.trashEmpty') || 'Trash is empty'}
+                  </p>
+                );
+              }
+
+              return entries.map(entry => (
+                <TrashItem
+                  key={entry.key}
+                  title={entry.title}
+                  icon={entry.type === 'table'
+                    ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                  }
+                  deletedAt={entry.deletedAt}
+                  onRestore={async () => {
+                    try {
+                      await gw.restoreContentItem(entry.nodeId);
+                      queryClient.invalidateQueries({ queryKey: ['content-items'] });
+                      queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
+                    } catch (err) { showError('Restore failed', err); }
+                  }}
+                  onPermanentDelete={async () => {
+                    const msg = t('content.permanentDeleteConfirm') || 'Permanently delete? This cannot be undone.';
+                    if (!confirm(msg)) return;
+                    try {
+                      await gw.permanentlyDeleteContentItem(entry.nodeId);
+                      queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
+                    } catch (err) { showError('Permanent delete failed', err); }
+                  }}
+                />
+              ));
+            })()}
+          </>
+        )}
+      </ContentSidebar>
+
+      {/* Mobile sidebar (only visible on mobile when in list view) */}
+      {mobileView === 'list' && (
+        <div className="md:hidden w-full bg-white dark:bg-sidebar flex flex-col min-h-0 overflow-hidden">
+          <MobileNav
+            userName={actor?.display_name || actor?.username || ''}
+            avatarUrl={actor?.avatar_url}
+            unreadCount={mobileUnreadCount}
+            onSearch={() => window.dispatchEvent(new Event('open-command-palette'))}
+            onNotifications={() => setShowMobileNotifications(true)}
+            onProfile={() => setShowMobileProfile(true)}
+            onAgents={() => setShowMobileAgents(true)}
+          />
+          {/* Section header removed — Figma shows Pinned/Library inline with tree items */}
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="px-2 py-1">
+              {/* Reuse same tree content for mobile - simplified without DnD for now */}
+              {isLoading && (
+                <div className="space-y-1 px-1 py-2">
+                  {[...Array(6)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
+                      <div className="w-4 h-4 rounded bg-muted shrink-0" />
+                      <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!isLoading && sidebarView === 'library' && (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragOver={updateDropIntent}
+                  onDragMove={updateDropIntent}
+                  onDragEnd={handleDragEnd}
+                >
+                  {pinnedIds.length > 0 && (
+                    <>
+                      <button onClick={() => setPinnedCollapsed(v => !v)} className="px-2 pt-3 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
+                        Pinned <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', pinnedCollapsed && '-rotate-90')} />
+                      </button>
+                      {!pinnedCollapsed && pinnedIds.map(nodeId => (
+                        <TreeNodeRecursive key={nodeId} nodeId={nodeId} nodes={effectiveNodes} childrenMap={childrenMap} selection={selection} expandedIds={expandedIds} onSelect={handleSelect} onToggle={toggleExpand} onCreateDoc={handleCreateDoc} onCreateTable={handleCreateTable} onCreatePresentation={handleCreatePresentation} onCreateDiagram={handleCreateDiagram} onRequestDelete={requestDelete} onTogglePin={handleTogglePin} depth={0} creating={creating} dropIntent={dropIntent} dragActiveId={dragActiveId} />
+                      ))}
+                      <div className="hidden md:block border-t border-border/50 my-1.5 mx-2" />
+                    </>
+                  )}
+                  {pinnedIds.length > 0 && unpinnedIds.length > 0 && (
+                    <button onClick={() => setLibraryCollapsed(v => !v)} className="px-2 pt-1 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
+                      Library <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', libraryCollapsed && '-rotate-90')} />
+                    </button>
+                  )}
+                  {!libraryCollapsed && unpinnedIds.map(nodeId => (
+                    <TreeNodeRecursive key={nodeId} nodeId={nodeId} nodes={effectiveNodes} childrenMap={childrenMap} selection={selection} expandedIds={expandedIds} onSelect={handleSelect} onToggle={toggleExpand} onCreateDoc={handleCreateDoc} onCreateTable={handleCreateTable} onCreatePresentation={handleCreatePresentation} onCreateDiagram={handleCreateDiagram} onRequestDelete={requestDelete} onTogglePin={handleTogglePin} depth={0} creating={creating} dropIntent={dropIntent} dragActiveId={dragActiveId} />
+                  ))}
+                  <DragOverlay dropAnimation={null}>
+                    {dragActiveNode && (
+                      <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
+                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        <span className="truncate">{dragActiveNode.title}</span>
+                      </div>
+                    )}
+                  </DragOverlay>
+                </DndContext>
+              )}
+            </div>
+          </ScrollArea>
+          {/* @suite watermark — Figma: bottom-left logo image */}
+          <div className="px-6 py-4 mt-auto">
+            <img src="/icons/asuite-watermark.png" alt="@suite" className="h-6 opacity-30 dark:invert dark:opacity-20 select-none pointer-events-none" draggable={false} />
+          </div>
+        </div>
+      )}
+
+      {/* Mobile FAB for creating new content — Figma: 64x64 green circle */}
+      {mobileView === 'list' && (
+        <div className="md:hidden">
+          {/* FAB button — Figma: white 64x64 circle with shadow */}
+          <button
+            onClick={() => setShowMobileFabMenu(v => !v)}
+            className={cn(
+              'fixed z-50 w-16 h-16 rounded-full bg-white dark:bg-card text-foreground shadow-[0px_8px_20px_0px_rgba(0,0,0,0.1)]',
+              'flex items-center justify-center',
+              'active:scale-95 transition-transform duration-100',
+              showMobileFabMenu && 'rotate-45'
+            )}
+            style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)', right: '16px' }}
+            aria-label={t('common.new')}
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+          {/* FAB menu — BottomSheet */}
+          <BottomSheet open={showMobileFabMenu} onClose={() => setShowMobileFabMenu(false)} title={t('common.new')}>
+            <div className="py-2">
+              <button
+                onClick={() => { setShowMobileFabMenu(false); handleCreateDoc(); }}
+                disabled={creating}
+                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
+              >
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                {t('actions.newDoc')}
+              </button>
+              <button
+                onClick={() => { setShowMobileFabMenu(false); handleCreateTable(); }}
+                disabled={creating}
+                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
+              >
+                <Table2 className="h-5 w-5 text-muted-foreground" />
+                {t('actions.newTable')}
+              </button>
+              <button
+                onClick={() => { setShowMobileFabMenu(false); handleCreatePresentation(); }}
+                disabled={creating}
+                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
+              >
+                <Presentation className="h-5 w-5 text-muted-foreground" />
+                {t('actions.newSlides')}
+              </button>
+              <button
+                onClick={() => { setShowMobileFabMenu(false); handleCreateDiagram(); }}
+                disabled={creating}
+                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
+              >
+                <GitBranch className="h-5 w-5 text-muted-foreground" />
+                {t('actions.newFlowchart')}
+              </button>
+            </div>
+          </BottomSheet>
+        </div>
+      )}
+
+      {/* Detail area — content editors render card styling on their own left column */}
+      <SwipeBack onBack={handleMobileBack} enabled={mobileView === 'detail'} className={cn(
+        'flex-1 flex flex-col min-w-0 min-h-0',
+        mobileView === 'list' ? 'hidden md:flex' : 'flex'
       )}>
         {selectedDoc && selection?.type === 'doc' ? (
           <DocPanel
@@ -1142,10 +1285,10 @@ export default function ContentPage() {
             doc={selectedDoc}
             customIcon={customIcons?.[selectedDoc.id]}
             breadcrumb={getBreadcrumb(selectedDoc.id)}
-            onBack={() => setMobileView('list')}
+            onBack={handleMobileBack}
             onSaved={refreshDocs}
             onDeleted={() => { requestDelete(`doc:${selectedDoc.id}`); }}
-            onNavigate={(docId) => { const sel = { type: 'doc' as const, id: docId }; setSelection(sel); syncSelectionToURL(sel); }}
+            onNavigate={navigateToBreadcrumb}
             docListVisible={docListVisible}
             onToggleDocList={() => setDocListVisible(v => !v)}
           />
@@ -1163,9 +1306,9 @@ export default function ContentPage() {
               }
               return path;
             })()}
-            onBack={() => setMobileView('list')}
+            onBack={handleMobileBack}
             onDeleted={() => {
-              setSelection(null); setMobileView('list');
+              setSelection(null); syncSelectionToURL(null); setMobileView('list');
               queryClient.invalidateQueries({ queryKey: ['content-items'] });
             }}
             onCopyLink={() => {
@@ -1173,31 +1316,7 @@ export default function ContentPage() {
             }}
             docListVisible={docListVisible}
             onToggleDocList={() => setDocListVisible(v => !v)}
-          />
-        ) : selectedBoardId ? (
-          <BoardEditor
-            boardId={selectedBoardId}
-            breadcrumb={(() => {
-              const path: { id: string; title: string }[] = [];
-              let nodeId: string | null = `board:${selectedBoardId}`;
-              while (nodeId) {
-                const node = effectiveNodes.get(nodeId);
-                if (!node) break;
-                path.unshift({ id: node.rawId, title: node.title });
-                nodeId = node.parentId;
-              }
-              return path;
-            })()}
-            onBack={() => setMobileView('list')}
-            onDeleted={() => {
-              setSelection(null); setMobileView('list');
-              queryClient.invalidateQueries({ queryKey: ['content-items'] });
-            }}
-            onCopyLink={() => {
-              navigator.clipboard.writeText(buildContentLink({ type: 'board', id: selectedBoardId }));
-            }}
-            docListVisible={docListVisible}
-            onToggleDocList={() => setDocListVisible(v => !v)}
+            onNavigate={navigateToBreadcrumb}
           />
         ) : selectedPresentationId ? (
           <PresentationEditor
@@ -1213,9 +1332,9 @@ export default function ContentPage() {
               }
               return path;
             })()}
-            onBack={() => setMobileView('list')}
+            onBack={handleMobileBack}
             onDeleted={() => {
-              setSelection(null); setMobileView('list');
+              setSelection(null); syncSelectionToURL(null); setMobileView('list');
               queryClient.invalidateQueries({ queryKey: ['content-items'] });
             }}
             onCopyLink={() => {
@@ -1223,34 +1342,10 @@ export default function ContentPage() {
             }}
             docListVisible={docListVisible}
             onToggleDocList={() => setDocListVisible(v => !v)}
-          />
-        ) : selectedSpreadsheetId ? (
-          <SpreadsheetEditor
-            spreadsheetId={selectedSpreadsheetId}
-            breadcrumb={(() => {
-              const path: { id: string; title: string }[] = [];
-              let nodeId: string | null = `spreadsheet:${selectedSpreadsheetId}`;
-              while (nodeId) {
-                const node = effectiveNodes.get(nodeId);
-                if (!node) break;
-                path.unshift({ id: node.rawId, title: node.title });
-                nodeId = node.parentId;
-              }
-              return path;
-            })()}
-            onBack={() => setMobileView('list')}
-            onDeleted={() => {
-              setSelection(null); setMobileView('list');
-              queryClient.invalidateQueries({ queryKey: ['content-items'] });
-            }}
-            onCopyLink={() => {
-              navigator.clipboard.writeText(buildContentLink({ type: 'spreadsheet', id: selectedSpreadsheetId }));
-            }}
-            docListVisible={docListVisible}
-            onToggleDocList={() => setDocListVisible(v => !v)}
+            onNavigate={navigateToBreadcrumb}
           />
         ) : selectedDiagramId ? (
-          <DiagramEditor
+          <DiagramPanel
             diagramId={selectedDiagramId}
             breadcrumb={(() => {
               const path: { id: string; title: string }[] = [];
@@ -1263,9 +1358,9 @@ export default function ContentPage() {
               }
               return path;
             })()}
-            onBack={() => setMobileView('list')}
+            onBack={handleMobileBack}
             onDeleted={() => {
-              setSelection(null); setMobileView('list');
+              setSelection(null); syncSelectionToURL(null); setMobileView('list');
               queryClient.invalidateQueries({ queryKey: ['content-items'] });
             }}
             onCopyLink={() => {
@@ -1273,22 +1368,21 @@ export default function ContentPage() {
             }}
             docListVisible={docListVisible}
             onToggleDocList={() => setDocListVisible(v => !v)}
+            onNavigate={navigateToBreadcrumb}
           />
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2">
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 bg-card md:rounded-lg md:shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] md:overflow-hidden">
             <div className="flex gap-3 mb-2">
               <FileText className="h-8 w-8 opacity-20" />
               <Table2 className="h-8 w-8 opacity-20" />
-              <Pencil className="h-8 w-8 opacity-20" />
               <Presentation className="h-8 w-8 opacity-20" />
-              <Sheet className="h-8 w-8 opacity-20" />
               <GitBranch className="h-8 w-8 opacity-20" />
             </div>
             <p className="text-sm">{t('content.selectHint')}</p>
             <p className="text-xs text-muted-foreground/50">{t('content.createHint')}</p>
           </div>
         )}
-      </div>
+      </SwipeBack>
 
       {/* Delete dialog for docs with children */}
       {deleteDialog && (
@@ -1325,6 +1419,198 @@ export default function ContentPage() {
           </div>
         </>
       )}
+
+      {/* Mobile notification panel (triggered from MobileNav) */}
+      <NotificationPanel
+        open={showMobileNotifications}
+        onClose={() => setShowMobileNotifications(false)}
+      />
+
+      {/* Mobile profile BottomSheet */}
+      <BottomSheet open={showMobileProfile} onClose={() => { setShowMobileProfile(false); setMobileEditingName(false); setMobileShowLang(false); }} title={t('profile.title')}>
+        {mobileShowLang ? (
+          /* Language sub-view */
+          <div className="py-2">
+            <button onClick={() => setMobileShowLang(false)} className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground active:opacity-60">
+              <ChevronDown className="h-4 w-4 rotate-90" />
+              Back
+            </button>
+            {(Object.entries(LOCALE_LABELS) as [Locale, string][]).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => { setLocale(key); setMobileShowLang(false); }}
+                className={cn(
+                  'flex items-center w-full px-4 py-3 text-base',
+                  locale === key ? 'text-sidebar-primary font-medium' : 'text-foreground active:bg-accent'
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="py-2">
+            {/* Avatar + name + edit */}
+            <div className="flex items-center gap-3 px-4 py-3">
+              {/* Avatar with upload */}
+              <div
+                className="w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0 border border-black/10 relative cursor-pointer"
+                onClick={() => mobileAvatarInputRef.current?.click()}
+              >
+                {actor?.avatar_url ? (
+                  <img src={actor.avatar_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-lg font-medium text-muted-foreground">
+                    {(actor?.display_name || actor?.username || '?')[0].toUpperCase()}
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 active:opacity-100 transition-opacity rounded-full">
+                  <Camera className="h-5 w-5 text-white" />
+                </div>
+              </div>
+              <input
+                ref={mobileAvatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setMobileSavingProfile(true);
+                  try {
+                    await gw.uploadUserAvatar(file);
+                    await refreshActor();
+                  } catch (err) { showError('Avatar upload failed', err); }
+                  setMobileSavingProfile(false);
+                  e.target.value = '';
+                }}
+              />
+              {/* Name display or edit */}
+              {mobileEditingName ? (
+                <input
+                  autoFocus
+                  value={mobileEditNameValue}
+                  onChange={e => setMobileEditNameValue(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && mobileEditNameValue.trim().length >= 2) {
+                      setMobileSavingProfile(true);
+                      try {
+                        await gw.updateProfile({ name: mobileEditNameValue.trim() });
+                        await refreshActor();
+                      } catch (err) { showError('Name update failed', err); }
+                      setMobileSavingProfile(false);
+                      setMobileEditingName(false);
+                    }
+                  }}
+                  onBlur={() => setMobileEditingName(false)}
+                  className="text-base font-medium text-foreground bg-transparent border-b border-sidebar-primary outline-none min-w-0 flex-1"
+                  disabled={mobileSavingProfile}
+                />
+              ) : (
+                <span className="text-base font-medium text-foreground truncate flex-1">{actor?.display_name || actor?.username || 'User'}</span>
+              )}
+              <button
+                onClick={() => {
+                  if (!mobileEditingName) {
+                    setMobileEditNameValue(actor?.display_name || actor?.username || '');
+                    setMobileEditingName(true);
+                  }
+                }}
+                className="shrink-0 p-1 active:opacity-60"
+              >
+                <Pencil className="h-4 w-4 opacity-40" />
+              </button>
+            </div>
+
+            {/* Menu items */}
+            <button
+              onClick={() => { setShowMobileProfile(false); }}
+              className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
+            >
+              <Key className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
+              Password
+            </button>
+            <button
+              onClick={() => setMobileShowLang(true)}
+              className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
+            >
+              <Globe className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
+              Language
+              <ChevronRight className="h-4 w-4 ml-auto opacity-40" />
+            </button>
+            <button
+              onClick={() => { setShowMobileProfile(false); setSidebarView(sidebarView === 'trash' ? 'library' : 'trash'); }}
+              className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
+            >
+              <Trash2 className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
+              Trash
+            </button>
+            <button
+              onClick={() => { setShowMobileProfile(false); logout(); }}
+              className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
+            >
+              <LogOut className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
+              Log out
+            </button>
+
+            {/* Theme toggle */}
+            <div className="px-4 pt-3 pb-4 flex gap-1">
+              {(['light', 'dark', 'system'] as const).map((th) => (
+                <button
+                  key={th}
+                  onClick={() => setTheme(th)}
+                  className={cn(
+                    'flex items-center justify-center h-9 rounded text-sm font-medium flex-1 border',
+                    theme === th
+                      ? 'bg-sidebar-primary/10 text-sidebar-primary border-sidebar-primary/20'
+                      : 'bg-black/[0.03] dark:bg-white/[0.05] text-foreground border-black/10 dark:border-white/10 active:bg-black/[0.06]'
+                  )}
+                >
+                  {th.charAt(0).toUpperCase() + th.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* Mobile agents BottomSheet */}
+      <BottomSheet open={showMobileAgents} onClose={() => setShowMobileAgents(false)} title={t('toolbar.agents')}>
+        <div className="py-2 px-4">
+          {(() => {
+            const connected = mobileAgents?.filter(a => !a.pending_approval) || [];
+            if (!mobileAgents || connected.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <Bot className="h-10 w-10 mb-3 opacity-30" />
+                  <p className="text-sm">No agents registered</p>
+                </div>
+              );
+            }
+            return connected.map(agent => (
+              <div key={agent.agent_id || agent.name} className="flex items-center gap-3 py-3">
+                <div className="w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0 border border-black/10 relative">
+                  {agent.avatar_url ? (
+                    <img src={agent.avatar_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Bot className="h-5 w-5 text-sidebar-primary" />
+                    </div>
+                  )}
+                  <div className={cn(
+                    'absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-card',
+                    agent.online ? 'bg-green-500' : 'bg-gray-300'
+                  )} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-base font-medium text-foreground truncate block">{agent.display_name || agent.name}</span>
+                  <span className="text-sm text-muted-foreground">{agent.name}</span>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      </BottomSheet>
     </div>
   );
 }
@@ -1335,7 +1621,7 @@ export default function ContentPage() {
 
 function TreeNodeRecursive({
   nodeId, nodes, childrenMap, selection, expandedIds, onSelect, onToggle,
-  onCreateDoc, onCreateTable, onCreateBoard, onCreatePresentation, onCreateSpreadsheet, onCreateDiagram, onRequestDelete, depth, creating, dropIntent, dragActiveId,
+  onCreateDoc, onCreateTable, onCreatePresentation, onCreateDiagram, onRequestDelete, onTogglePin, depth, creating, dropIntent, dragActiveId,
 }: {
   nodeId: string;
   nodes: Map<string, ContentNode>;
@@ -1346,11 +1632,10 @@ function TreeNodeRecursive({
   onToggle: (id: string) => void;
   onCreateDoc: (parentId?: string) => void;
   onCreateTable: (parentId?: string) => void;
-  onCreateBoard: (parentId?: string) => void;
   onCreatePresentation: (parentId?: string) => void;
-  onCreateSpreadsheet: (parentId?: string) => void;
   onCreateDiagram: (parentId?: string) => void;
   onRequestDelete: (nodeId: string) => void;
+  onTogglePin: (nodeId: string) => void;
   depth: number;
   creating: boolean;
   dropIntent: DropIntent;
@@ -1382,12 +1667,11 @@ function TreeNodeRecursive({
         onCreateChild={(type) => {
           if (type === 'doc') onCreateDoc(nodeId);
           else if (type === 'table') onCreateTable(nodeId);
-          else if (type === 'board') onCreateBoard(nodeId);
           else if (type === 'presentation') onCreatePresentation(nodeId);
-          else if (type === 'spreadsheet') onCreateSpreadsheet(nodeId);
           else onCreateDiagram(nodeId);
         }}
         onRequestDelete={onRequestDelete}
+        onTogglePin={onTogglePin}
         creating={creating}
         dropPosition={dropPosition}
         isDragActive={dragActiveId === nodeId}
@@ -1406,11 +1690,10 @@ function TreeNodeRecursive({
               onToggle={onToggle}
               onCreateDoc={onCreateDoc}
               onCreateTable={onCreateTable}
-              onCreateBoard={onCreateBoard}
               onCreatePresentation={onCreatePresentation}
-              onCreateSpreadsheet={onCreateSpreadsheet}
               onCreateDiagram={onCreateDiagram}
               onRequestDelete={onRequestDelete}
+              onTogglePin={onTogglePin}
               depth={depth + 1}
               creating={creating}
               dropIntent={dropIntent}
@@ -1428,7 +1711,7 @@ function TreeNodeRecursive({
 // ═══════════════════════════════════════════════════
 
 function DraggableTreeNode({
-  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, onRequestDelete, creating, dropPosition, isDragActive,
+  nodeId, node, isSelected, onSelect, hasChildren, isExpanded, onToggle, depth, onCreateChild, onRequestDelete, onTogglePin, creating, dropPosition, isDragActive,
 }: {
   nodeId: string;
   node: ContentNode;
@@ -1438,27 +1721,56 @@ function DraggableTreeNode({
   isExpanded: boolean;
   onToggle: () => void;
   depth: number;
-  onCreateChild: (type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram') => void;
+  onCreateChild: (type: 'doc' | 'table' | 'presentation' | 'diagram') => void;
   onRequestDelete: (nodeId: string) => void;
+  onTogglePin: (nodeId: string) => void;
   creating?: boolean;
   dropPosition?: 'before' | 'after' | 'inside' | null;
   isDragActive?: boolean;
 }) {
   const { t } = useT();
   const queryClient = useQueryClient();
-  const { attributes, listeners, setNodeRef } = useDraggable({ id: nodeId });
+  const isMobile = useIsMobile();
+  const { attributes, listeners, setNodeRef } = useDraggable({ id: nodeId, disabled: isMobile });
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const iconPickerRef = useRef<HTMLDivElement>(null);
 
-  // Close icon picker on outside click
+  // Right-click context menu
+  const getContextMenuItems = useCallback((): ContextMenuItem[] => {
+    const ctx: ContentItemCtx = {
+      id: nodeId,
+      type: node.type,
+      title: node.title,
+      pinned: node.pinned ?? false,
+      url: `${window.location.origin}/content?id=${node.type}:${node.rawId}`,
+      startRename: () => {
+        setRenameValue(node.title);
+        setIsRenaming(true);
+        setTimeout(() => renameInputRef.current?.select(), 30);
+      },
+      openIconPicker: () => setShowIconPicker(true),
+      togglePin: () => onTogglePin(nodeId),
+      deleteItem: () => onRequestDelete(nodeId),
+      downloadItem: () => {},
+      shareItem: () => {},
+    };
+    return toContextMenuItems(contentItemSurfaces.contextMenu, contentActionMap, ctx, t, isMobile);
+  }, [node.pinned, node.rawId, node.type, node.title, nodeId, isMobile, onTogglePin, onRequestDelete, t]);
+
+  const { onContextMenu: handleContextMenu, onTouchStart: handleLongPressStart, onTouchEnd: handleLongPressEnd, onTouchMove: handleLongPressMove } = useContextMenu(getContextMenuItems);
+
+  // Close icon picker on outside click (desktop only — mobile uses BottomSheet close)
   useEffect(() => {
-    if (!showIconPicker) return;
+    if (!showIconPicker || isMobile) return;
     const handler = (e: MouseEvent) => {
       if (iconPickerRef.current && !iconPickerRef.current.contains(e.target as Node)) {
         setShowIconPicker(false);
@@ -1466,15 +1778,30 @@ function DraggableTreeNode({
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showIconPicker]);
+  }, [showIconPicker, isMobile]);
 
+  const iconSelectGuardRef = useRef(false);
   const handleIconSelect = async (selectedEmoji: string | null) => {
     setShowIconPicker(false);
+    // Guard against click-through: BottomSheet closing can cause touch events to fall through to tree row
+    iconSelectGuardRef.current = true;
+    setTimeout(() => { iconSelectGuardRef.current = false; }, 300);
     try {
       await gw.updateContentItem(node.id, { icon: selectedEmoji || null });
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
     } catch (e) {
-      console.error('Failed to update icon:', e);
+      showError('Failed to update icon', e);
+    }
+  };
+
+  const handleRenameCommit = async () => {
+    const trimmed = renameValue.trim();
+    setIsRenaming(false);
+    if (!trimmed || trimmed === node.title) return;
+    try {
+      await gw.updateContentItem(node.id, { title: trimmed });
+    } catch (e) {
+      showError('Rename failed', e);
     }
   };
 
@@ -1493,7 +1820,7 @@ function DraggableTreeNode({
   useLayoutEffect(() => {
     if (showMoreMenu && moreBtnRef.current && moreMenuRef.current) {
       const rect = moreBtnRef.current.getBoundingClientRect();
-      const pos = getAutoPosition(rect, 160, moreMenuRef.current.offsetHeight, { align: 'right' });
+      const pos = getAutoPosition(rect, 172, moreMenuRef.current.offsetHeight, { align: 'left' });
       moreMenuRef.current.style.top = `${pos.top}px`;
       moreMenuRef.current.style.left = `${pos.left}px`;
       if (pos.maxHeight < moreMenuRef.current.offsetHeight) moreMenuRef.current.style.maxHeight = `${pos.maxHeight}px`;
@@ -1504,35 +1831,40 @@ function DraggableTreeNode({
     if (!btnRef.current) return { top: 0, left: 0 };
     const rect = btnRef.current.getBoundingClientRect();
     // Initial position — will be corrected by useEffect after mount
-    const pos = getAutoPosition(rect, menuWidth, 0, { align: 'right' });
+    const pos = getAutoPosition(rect, menuWidth, 0, { align: 'left' });
     return { top: pos.top, left: pos.left };
   };
 
   return (
     <div ref={setNodeRef} className="relative" data-tree-id={nodeId}>
-      {/* Drop indicator: before */}
-      {dropPosition === 'before' && (
-        <div className="absolute top-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10" />
+      {/* Drop indicator: before (desktop only) */}
+      {!isMobile && dropPosition === 'before' && (
+        <div className="absolute top-0 left-2 right-2 h-0.5 bg-sidebar-primary rounded-full z-10" />
       )}
       <div
         className={cn(
-          'group relative flex items-center gap-1 py-1.5 px-1 text-sm transition-colors rounded-lg cursor-pointer',
-          isDragActive && 'opacity-40',
-          isSelected && !isDragActive
-            ? 'bg-[#D6F6DF] dark:bg-sidebar-accent text-sidebar-primary dark:text-sidebar-primary-foreground'
-            : !isDragActive && 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50',
-          dropPosition === 'inside' && 'ring-2 ring-blue-500 ring-inset bg-blue-50 dark:bg-blue-950/30'
+          'group relative flex items-center gap-2 md:gap-1 py-2.5 md:py-1.5 px-1 text-[18px] md:text-sm transition-colors rounded-lg cursor-pointer',
+          !isMobile && isDragActive && 'opacity-40',
+          isSelected && !isDragActive && !isMobile
+            ? 'bg-sidebar-primary/10 text-sidebar-primary'
+            : 'text-foreground',
+          !isMobile && !isDragActive && !isSelected && 'hover:bg-black/[0.03] dark:hover:bg-accent/50',
+          !isMobile && dropPosition === 'inside' && 'ring-2 ring-sidebar-primary ring-inset bg-sidebar-primary/10'
         )}
         style={{ paddingLeft: `${4 + depth * 16}px` }}
-        onClick={onSelect}
+        onClick={() => { if (!showIconPicker && !iconSelectGuardRef.current) onSelect(); }}
+        onContextMenu={handleContextMenu}
+        onTouchStart={handleLongPressStart}
+        onTouchEnd={handleLongPressEnd}
+        onTouchMove={handleLongPressMove}
       >
         {/* Expand/collapse toggle */}
         {hasChildren ? (
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className="p-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+            className="p-0.5 shrink-0 text-black/20 dark:text-white/20 hover:text-black/40 dark:hover:text-white/40"
           >
-            <svg className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} viewBox="0 0 16 16" fill="currentColor"><polygon points="6,3 13,8 6,13" /></svg>
+            <svg className={cn('h-3.5 w-3.5 md:h-3 md:w-3 transition-transform', isExpanded && 'rotate-90')} viewBox="0 0 16 16" fill="currentColor"><polygon points="6,3 13,8 6,13" /></svg>
           </button>
         ) : (
           <span className="w-4 shrink-0" />
@@ -1545,24 +1877,22 @@ function DraggableTreeNode({
               e.stopPropagation(); setShowIconPicker(v => !v);
             }}
             className="shrink-0 hover:opacity-70 transition-opacity"
-            title="Change icon"
+            title={t('icon.changeIcon')}
           >
             {node.emoji ? (
               node.emoji.startsWith('/api/') || node.emoji.startsWith('http') ? (
-                <img src={node.emoji} alt="" className="w-4 h-4 rounded object-cover" />
+                <img src={node.emoji} alt="" className="w-6 h-6 md:w-4 md:h-4 rounded object-cover" />
               ) : (
-                <span className="text-sm leading-none">{node.emoji}</span>
+                <span className="text-base md:text-sm leading-none">{node.emoji}</span>
               )
             ) : node.type === 'table'
-              ? <Table2 className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-              : node.type === 'board'
-              ? <Pencil className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+              ? <Table2 className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : node.type === 'presentation'
-              ? <Presentation className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-              : <FileText className={cn('h-4 w-4', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+              ? <Presentation className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+              : <FileText className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
             }
           </button>
-          {showIconPicker && (
+          {showIconPicker && !isMobile && (
             <div className="fixed z-50 rounded-lg shadow-xl overflow-hidden" style={(() => {
               const rect = iconPickerRef.current?.getBoundingClientRect();
               return rect ? { top: rect.bottom + 4, left: Math.max(4, rect.left - 80) } : { top: 0, left: 0 };
@@ -1577,19 +1907,45 @@ function DraggableTreeNode({
               />
             </div>
           )}
+          {showIconPicker && isMobile && (
+            <MobileIconPicker
+              onSelect={(em) => handleIconSelect(em)}
+              onRemove={node.emoji ? () => handleIconSelect(null) : undefined}
+              onUploadImage={node.type === 'doc' ? async (file) => {
+                const result = await docApi.uploadFile(file, node.rawId);
+                return result.url;
+              } : undefined}
+              onClose={() => setShowIconPicker(false)}
+            />
+          )}
         </div>
 
         {/* Title — drag handle */}
-        <span className="truncate flex-1 select-none" {...attributes} {...listeners}>{node.title}</span>
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            className="flex-1 min-w-0 bg-transparent border-b border-sidebar-primary outline-none text-sm font-medium"
+            value={renameValue}
+            onChange={e => setRenameValue(e.target.value)}
+            onBlur={handleRenameCommit}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); handleRenameCommit(); }
+              if (e.key === 'Escape') { e.preventDefault(); setIsRenaming(false); }
+            }}
+            onClick={e => e.stopPropagation()}
+          />
+        ) : (
+          <span className="truncate flex-1 select-none" {...attributes} {...listeners}>{node.title}</span>
+        )}
 
-        {/* Hover actions: Add + More */}
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
+        {/* Hover actions: Add + More (desktop only — mobile uses long-press context menu) */}
+        <div className="hidden md:flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity">
           <div className="relative">
             <button
               ref={addBtnRef}
               onClick={(e) => { e.stopPropagation(); setShowAddMenu(v => !v); }}
               className="p-0.5 text-muted-foreground hover:text-foreground rounded"
-              title="Add child"
+              title={t('tree.addChild')}
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
@@ -1603,7 +1959,7 @@ function DraggableTreeNode({
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newDoc')}
+                    {t('actions.newDoc')}
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('table'); }}
@@ -1611,15 +1967,7 @@ function DraggableTreeNode({
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newTable')}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('board'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newBoard')}
+                    {t('actions.newTable')}
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('presentation'); }}
@@ -1627,15 +1975,7 @@ function DraggableTreeNode({
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <Presentation className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newPresentation') || 'New Presentation'}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('spreadsheet'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <Sheet className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newSpreadsheet') || 'New Spreadsheet'}
+                    {t('actions.newSlides')}
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('diagram'); }}
@@ -1643,7 +1983,7 @@ function DraggableTreeNode({
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('content.newDiagram') || 'New Diagram'}
+                    {t('actions.newFlowchart')}
                   </button>
                 </div>
               </>
@@ -1654,35 +1994,47 @@ function DraggableTreeNode({
               ref={moreBtnRef}
               onClick={(e) => { e.stopPropagation(); setShowMoreMenu(v => !v); }}
               className="p-0.5 text-muted-foreground hover:text-foreground rounded"
-              title="More"
+              title={t('toolbar.more')}
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
             {showMoreMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setShowMoreMenu(false); }} />
-                <div ref={moreMenuRef} className="fixed z-50 bg-card border border-border rounded-lg shadow-xl py-1 w-40 overflow-y-auto" style={getMenuPos(moreBtnRef, moreMenuRef, 160)}>
-                  <div className="border-t border-border my-0.5" />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMoreMenu(false);
-                      onRequestDelete(nodeId);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-accent transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    {t('content.delete')}
-                  </button>
+                <div ref={moreMenuRef} className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-white/10 rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-[172px] overflow-y-auto" style={getMenuPos(moreBtnRef, moreMenuRef, 172)}>
+                  {toContentMenuItems(contentItemSurfaces.topBarMore, contentActionMap, {
+                    id: nodeId,
+                    type: node.type,
+                    title: node.title,
+                    pinned: node.pinned ?? false,
+                    url: `${window.location.origin}/content?id=${node.type}:${node.rawId}`,
+                    startRename: () => {},
+                    openIconPicker: () => {},
+                    togglePin: () => onTogglePin(nodeId),
+                    deleteItem: () => onRequestDelete(nodeId),
+                    downloadItem: () => {},
+                    shareItem: () => {},
+                  }, t).map((item, i) => (
+                    <React.Fragment key={i}>
+                      {item.separator && <div className="border-t border-black/10 dark:border-white/10 my-0.5" />}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowMoreMenu(false); item.onClick(); }}
+                        className={`w-full flex items-center gap-3 px-4 h-10 text-sm font-medium hover:bg-black/[0.04] dark:hover:bg-accent transition-colors ${item.danger ? 'text-destructive' : 'text-black/70 dark:text-white/70'}`}
+                      >
+                        {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
+                        {item.label}
+                      </button>
+                    </React.Fragment>
+                  ))}
                 </div>
               </>
             )}
           </div>
         </div>
       </div>
-      {/* Drop indicator: after */}
-      {dropPosition === 'after' && (
-        <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-500 rounded-full z-10" />
+      {/* Drop indicator: after (desktop only) */}
+      {!isMobile && dropPosition === 'after' && (
+        <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-sidebar-primary rounded-full z-10" />
       )}
     </div>
   );
@@ -1708,8 +2060,8 @@ function TreeNodeItem({
       className={cn(
         'w-full flex items-center gap-1.5 py-1.5 px-2 text-left text-sm transition-colors rounded-lg',
         isSelected
-          ? 'bg-[#D6DFF6] dark:bg-sidebar-accent text-sidebar-primary dark:text-sidebar-primary-foreground'
-          : 'text-foreground hover:bg-black/[0.03] dark:hover:bg-accent/50'
+          ? 'bg-sidebar-primary/10 text-sidebar-primary'
+          : 'text-black/70 dark:text-white/70 hover:bg-black/[0.03] dark:hover:bg-accent/50'
       )}
       style={{ paddingLeft: `${8 + depth * 16}px` }}
     >
@@ -1720,17 +2072,13 @@ function TreeNodeItem({
         ) : (
           <span className="text-sm shrink-0 leading-none">{node.emoji}</span>
         )
-      ) : node.type === 'table'
-        ? <Table2 className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-        : node.type === 'board'
-        ? <Pencil className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-        : node.type === 'presentation'
-        ? <Presentation className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-        : node.type === 'spreadsheet'
-        ? <Sheet className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-        : node.type === 'diagram'
-        ? <GitBranch className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
-        : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-muted-foreground')} />
+      ) : (node.type as string) === 'table'
+        ? <Table2 className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        : (node.type as string) === 'presentation'
+        ? <Presentation className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        : (node.type as string) === 'diagram'
+        ? <GitBranch className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
       }
       <span className="truncate">{node.title}</span>
     </button>
@@ -1749,6 +2097,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
   onPermanentDelete: () => Promise<void>;
 }) {
   const [loading, setLoading] = useState(false);
+  const { t } = useT();
 
   const handleAction = async (action: () => Promise<void>) => {
     if (loading) return;
@@ -1756,7 +2105,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
     try { await action(); } finally { setLoading(false); }
   };
 
-  const deletedDate = deletedAt ? new Date(deletedAt).toLocaleDateString() : '';
+  const deletedDate = deletedAt ? formatDate(deletedAt) : '';
 
   return (
     <div className={cn(
@@ -1775,7 +2124,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
           onClick={() => handleAction(onRestore)}
           disabled={loading}
           className="p-1 text-muted-foreground hover:text-foreground rounded"
-          title="Restore"
+          title={t('trash.restore')}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </button>
@@ -1783,7 +2132,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
           onClick={() => handleAction(onPermanentDelete)}
           disabled={loading}
           className="p-1 text-destructive hover:text-destructive/80 rounded"
-          title="Delete permanently"
+          title={t('trash.deletePermanently')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -1792,694 +2141,6 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
   );
 }
 
-// ═══════════════════════════════════════════════════
-// Document sub-components
-// ═══════════════════════════════════════════════════
-
-/* Emoji picker is now a separate component: @/components/EmojiPicker */
-
-function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onNavigate, docListVisible, onToggleDocList }: {
-  doc: DocType;
-  customIcon?: string;
-  breadcrumb: { id: string; title: string }[];
-  onBack: () => void;
-  onSaved: () => void;
-  onDeleted: () => void;
-  onNavigate: (docId: string) => void;
-  docListVisible?: boolean;
-  onToggleDocList?: () => void;
-}) {
-  const { t } = useT();
-  const queryClient = useQueryClient();
-
-  // Shared comment fetch function — used by both highlight extraction and Comments component
-  const fetchDocComments = useCallback(async () => {
-    const comments = await docApi.listComments(doc.id);
-    return comments.map(c => ({
-      id: c.id,
-      text: docApi.proseMirrorToText(c.data),
-      actor: c.createdBy?.name || 'Unknown',
-      parent_id: c.parentCommentId || null,
-      resolved_by: c.resolvedBy || null,
-      resolved_at: c.resolvedAt || null,
-      created_at: c.createdAt,
-      updated_at: c.updatedAt,
-    }));
-  }, [doc.id]);
-
-  // Fetch comments — shared query key with Comments component so invalidation works
-  const { data: docComments = [] } = useQuery({
-    queryKey: ['doc-comments', doc.id],
-    queryFn: fetchDocComments,
-  });
-  // Extract quoted text from comments for editor highlighting (skip resolved comments)
-  const commentHighlightQuotes = useMemo(() => {
-    return docComments
-      .filter(c => !c.resolved_by) // Don't highlight resolved comments
-      .map(c => {
-        const match = c.text.match(/^>\s(.+?)(?:\n\n)/);
-        return match ? { id: c.id, text: match[1] } : null;
-      })
-      .filter((q): q is { id: string; text: string } => q !== null);
-  }, [docComments]);
-
-  const [showComments, setShowComments] = useState(false);
-  const [showDocMenu, setShowDocMenu] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [commentQuote, setCommentQuote] = useState('');
-  const [title, setTitle] = useState(doc.title);
-  const [emoji, setEmoji] = useState<string | null>(customIcon || doc.icon?.trim() || null);
-  const [text, setText] = useState(doc.text);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showTitleIcon, setShowTitleIcon] = useState(false);
-  const [editorKey, setEditorKey] = useState(0);
-  const [fullWidth, setFullWidth] = useState(doc.full_width ?? false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchWithReplace, setSearchWithReplace] = useState(false);
-  const [focusedCommentId, setFocusedCommentId] = useState<string | null>(null);
-  const [commentTopOffset, setCommentTopOffset] = useState<number | null>(null);
-  const [insightsEnabled, setInsightsEnabled] = useState(true);
-  const [previewRevision, setPreviewRevision] = useState<DocRevision | null>(null);
-  const [prevRevision, setPrevRevision] = useState<DocRevision | null>(null);
-  const [highlightChanges, setHighlightChanges] = useState(false);
-  const titleSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const textSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleVersionRef = useRef(0);
-  const textVersionRef = useRef(0);
-  const docIdRef = useRef(doc.id);
-  const latestTitleRef = useRef(doc.title);
-  const latestTextRef = useRef(doc.text);
-  const latestEmojiRef = useRef((customIcon || doc.icon || null) as string | null);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
-
-  // Update sidebar doc list via Gateway when title/emoji change
-  const updateDocCache = useCallback((newTitle: string, newEmoji: string | null) => {
-    gw.updateContentItem(`doc:${doc.id}`, { title: newTitle, icon: newEmoji }).then(() => {
-      queryClient.invalidateQueries({ queryKey: ['content-items'] });
-    }).catch(() => {});
-  }, [doc.id, queryClient]);
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.text) {
-        setCommentQuote(detail.text);
-        setShowComments(true);
-        // Calculate top offset of the selection for sidebar alignment
-        const editorArea = document.querySelector('.outline-editor');
-        if (editorArea) {
-          const editorRect = editorArea.getBoundingClientRect();
-          // Try selection range first (inline comments), then blockRect (block comments)
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            const rangeRect = sel.getRangeAt(0).getBoundingClientRect();
-            if (rangeRect.height > 0) {
-              setCommentTopOffset(rangeRect.top - editorRect.top);
-              return;
-            }
-          }
-          if (detail.blockRect) {
-            setCommentTopOffset(detail.blockRect.top - editorRect.top);
-          }
-        }
-      }
-    };
-    window.addEventListener('editor-comment', handler);
-    return () => window.removeEventListener('editor-comment', handler);
-  }, []);
-
-  // Click handler for comment marks in editor — highlight and open sidebar
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const commentEl = target.closest('.comment-marker') as HTMLElement | null;
-      if (!commentEl) {
-        // Clicked outside a comment mark — clear focus
-        if (focusedCommentId) {
-          document.querySelectorAll('.comment-marker.comment-focused').forEach(el =>
-            el.classList.remove('comment-focused')
-          );
-          setFocusedCommentId(null);
-        }
-        return;
-      }
-      const id = commentEl.id.replace('comment-', '');
-      const resolved = commentEl.getAttribute('data-resolved');
-      if (resolved) return;
-
-      // Clear previous focus
-      document.querySelectorAll('.comment-marker.comment-focused').forEach(el =>
-        el.classList.remove('comment-focused')
-      );
-
-      // Add focus to all spans of this comment (may span multiple nodes)
-      document.querySelectorAll(`#comment-${id}`).forEach(el =>
-        el.classList.add('comment-focused')
-      );
-      setFocusedCommentId(id);
-
-      // Calculate offset for sidebar alignment
-      const editorArea = document.querySelector('.outline-editor');
-      if (editorArea) {
-        const editorRect = editorArea.getBoundingClientRect();
-        const markRect = commentEl.getBoundingClientRect();
-        setCommentTopOffset(markRect.top - editorRect.top);
-      }
-
-      // Open comments sidebar if not already open
-      if (!showComments) setShowComments(true);
-    };
-    document.addEventListener('mouseup', handler);
-    return () => document.removeEventListener('mouseup', handler);
-  }, [focusedCommentId, showComments]);
-
-  // Global Cmd+F / Cmd+H to open search bar
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === 'f') {
-        // Only intercept if not already inside ProseMirror (editor handles its own)
-        if ((e.target as HTMLElement)?.closest?.('.ProseMirror')) return;
-        e.preventDefault();
-        setShowSearch(true);
-        setSearchWithReplace(false);
-      }
-      if (mod && e.key === 'h') {
-        if ((e.target as HTMLElement)?.closest?.('.ProseMirror')) return;
-        e.preventDefault();
-        setShowSearch(true);
-        setSearchWithReplace(true);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  // Reset local state and cancel pending saves when switching to a different document
-  useEffect(() => {
-    // Cancel any pending saves from previous doc
-    if (titleSaveTimerRef.current) { clearTimeout(titleSaveTimerRef.current); titleSaveTimerRef.current = null; }
-    if (textSaveTimerRef.current) { clearTimeout(textSaveTimerRef.current); textSaveTimerRef.current = null; }
-    docIdRef.current = doc.id;
-    setTitle(doc.title);
-    setEmoji(customIcon || doc.icon?.trim() || null);
-    setText(doc.text);
-    latestTitleRef.current = doc.title;
-    latestTextRef.current = doc.text;
-    latestEmojiRef.current = (customIcon || doc.icon || null) as string | null;
-    setSaveStatus('saved');
-    setShowHistory(false);
-    setPreviewRevision(null);
-    setPrevRevision(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.id]);
-
-  // Close emoji picker on outside click
-  useEffect(() => {
-    if (!showEmojiPicker) return;
-    const handler = (e: MouseEvent) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
-        setShowEmojiPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showEmojiPicker]);
-
-  // Shared save execution — sends current latestRefs to Outline API
-  const executeSave = useCallback(async (saveDocId: string, titleVersion: number, textVersion: number) => {
-    if (saveDocId !== docIdRef.current) return;
-    setSaveStatus('saving');
-    try {
-      const savingTitle = latestTitleRef.current;
-      const savingText = latestTextRef.current;
-      const savingEmoji = latestEmojiRef.current;
-      const outlineEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
-      const titleToSave = savingTitle ?? '';
-      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, outlineEmoji);
-      // Only update cache if no newer save of either type has been scheduled
-      if (titleVersionRef.current !== titleVersion || textVersionRef.current !== textVersion) return;
-      const confirmedTitle = savedDoc.title;
-      const confirmedEmoji = savingEmoji;
-      queryClient.setQueryData<DocType>(['document', saveDocId], (old) =>
-        old ? { ...old, title: confirmedTitle, text: savingText, icon: confirmedEmoji } : old
-      );
-      queryClient.invalidateQueries({ queryKey: ['content-items'] });
-      if (saveDocId === docIdRef.current) {
-        setSaveStatus('saved');
-      }
-    } catch (e) {
-      console.error('Auto-save failed:', e);
-      if (saveDocId === docIdRef.current) setSaveStatus('error');
-    }
-  }, [queryClient]);
-
-  // Schedule title save — only updates title ref, does not touch text ref
-  const scheduleTitleSave = useCallback((newTitle: string, newEmoji?: string | null) => {
-    latestTitleRef.current = newTitle;
-    if (newEmoji !== undefined) latestEmojiRef.current = newEmoji;
-    setSaveStatus('unsaved');
-    if (titleSaveTimerRef.current) clearTimeout(titleSaveTimerRef.current);
-    // Also cancel any pending text save — the combined save will include both
-    if (textSaveTimerRef.current) { clearTimeout(textSaveTimerRef.current); textSaveTimerRef.current = null; }
-    const saveDocId = docIdRef.current;
-    const tv = ++titleVersionRef.current;
-    const xv = textVersionRef.current;
-    titleSaveTimerRef.current = setTimeout(() => executeSave(saveDocId, tv, xv), 1500);
-  }, [executeSave]);
-
-  // Schedule text save — only updates text ref, does not touch title ref
-  const scheduleTextSave = useCallback((newText: string) => {
-    latestTextRef.current = newText;
-    setSaveStatus('unsaved');
-    if (textSaveTimerRef.current) clearTimeout(textSaveTimerRef.current);
-    // Also cancel any pending title save — the combined save will include both
-    if (titleSaveTimerRef.current) { clearTimeout(titleSaveTimerRef.current); titleSaveTimerRef.current = null; }
-    const saveDocId = docIdRef.current;
-    const tv = titleVersionRef.current;
-    const xv = ++textVersionRef.current;
-    textSaveTimerRef.current = setTimeout(() => executeSave(saveDocId, tv, xv), 1500);
-  }, [executeSave]);
-
-  useEffect(() => {
-    return () => {
-      if (titleSaveTimerRef.current) clearTimeout(titleSaveTimerRef.current);
-      if (textSaveTimerRef.current) clearTimeout(textSaveTimerRef.current);
-    };
-  }, [doc.id]);
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTitle = e.target.value;
-    setTitle(newTitle);
-    updateDocCache(newTitle, emoji);
-    scheduleTitleSave(newTitle);
-  };
-
-  const handleEmojiSelect = async (selectedEmoji: string | null) => {
-    setEmoji(selectedEmoji);
-    setShowEmojiPicker(false);
-    updateDocCache(title, selectedEmoji);
-
-    const isUrl = selectedEmoji && (selectedEmoji.startsWith('/api/') || selectedEmoji.startsWith('http'));
-
-    if (isUrl) {
-      // Image-based icon: save to NocoDB (Outline doesn't support URL icons)
-      // Clear Outline's native icon
-      scheduleTitleSave(title, null);
-      try {
-        await gw.setDocIcon(doc.id, selectedEmoji);
-        queryClient.invalidateQueries({ queryKey: ['content-items'] });
-      } catch (e) {
-        console.error('Failed to save custom icon:', e);
-      }
-    } else {
-      // Unicode emoji or null (remove): save to Outline, remove custom icon
-      scheduleTitleSave(title, selectedEmoji);
-      try {
-        await gw.removeDocIcon(doc.id);
-        queryClient.invalidateQueries({ queryKey: ['content-items'] });
-      } catch (e) {
-        // Ignore if no custom icon existed
-      }
-    }
-  };
-
-  const handleTextChange = (newText: string) => {
-    setText(newText);
-    scheduleTextSave(newText);
-  };
-
-  const handleDelete = () => {
-    onDeleted(); // delegate to parent — handles children dialog, trash, navigation
-  };
-
-  const statusText = saveStatus === 'saving' ? t('content.saving') : saveStatus === 'unsaved' ? t('content.unsaved') : saveStatus === 'error' ? t('content.saveFailed') : '';
-
-  return (
-    <div className="flex flex-row h-full overflow-hidden">
-    <div className="flex-1 min-w-0 flex flex-col">
-      {/* Top bar — breadcrumb + actions, split when comments open */}
-      <div className="flex items-center border-b border-border bg-white dark:bg-card shrink-0">
-        <div className="flex-1 min-w-0 flex items-center px-4 py-2">
-        {onToggleDocList && (
-          <button
-            onClick={onToggleDocList}
-            className="hidden md:flex p-1.5 -ml-1 mr-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-            title={docListVisible ? 'Collapse sidebar' : 'Expand sidebar'}
-          >
-            {docListVisible ? <ArrowLeftToLine className="h-4 w-4" /> : <ArrowRightToLine className="h-4 w-4" />}
-          </button>
-        )}
-        <button onClick={onBack} className="md:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 text-sm">
-            {breadcrumb.map((crumb, i) => (
-              <span key={crumb.id} className="flex items-center gap-1 min-w-0">
-                {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-                {i < breadcrumb.length - 1 ? (
-                  <button onClick={() => onNavigate(crumb.id)} className="text-muted-foreground hover:text-foreground truncate">
-                    {crumb.title}
-                  </button>
-                ) : (
-                  <span className="text-foreground font-medium truncate">{title || crumb.title}</span>
-                )}
-              </span>
-            ))}
-          </div>
-          {/* Timestamp + author on second line — clickable to open history */}
-          <button
-            onClick={() => setShowHistory(true)}
-            className="text-[11px] text-muted-foreground/50 mt-0.5 hover:text-muted-foreground transition-colors cursor-pointer"
-          >
-            {formatRelativeTime(doc.updated_at)}
-            {doc.updated_by && <span> · {doc.updated_by}</span>}
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {statusText && (
-            <span className={cn('text-[10px]', saveStatus === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{statusText}</span>
-          )}
-          <button
-            onClick={() => { setShowSearch(true); setSearchWithReplace(false); }}
-            className={cn('p-1.5 rounded transition-colors', showSearch ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
-            title={t('content.findReplace') || 'Find & Replace'}
-          >
-            <Search className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setShowComments(v => !v)}
-            className={cn('p-1.5 rounded transition-colors', showComments ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground')}
-            title={t('content.comments')}
-          >
-            <MessageSquareIcon className="h-4 w-4" />
-          </button>
-          <div className="relative">
-            <button onClick={() => setShowDocMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-            {showDocMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowDocMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
-                  <DocMenuBtn icon={Clock} label={t('content.versionHistory')} onClick={() => { setShowDocMenu(false); setShowHistory(true); }} />
-                  <DocMenuBtn icon={Link2} label={t('content.copyLink')} onClick={() => { navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id })); setShowDocMenu(false); }} />
-                  <DocMenuBtn icon={Download} label={t('content.download')} onClick={() => {
-                    const blob = new Blob([doc.text], { type: 'text/markdown' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
-                    URL.revokeObjectURL(url);
-                    setShowDocMenu(false);
-                  }} />
-                  <div className="border-t border-border my-1" />
-                  <DocMenuBtn icon={Trash2} label={t('content.delete')} onClick={() => { setShowDocMenu(false); handleDelete(); }} danger />
-                  <div className="border-t border-border my-1" />
-                  <DocMenuToggle icon={Maximize2} label={t('content.fullWidth')} checked={fullWidth} onChange={async (v) => {
-                    setFullWidth(v);
-                    await docApi.updateDocument(doc.id, undefined, undefined, undefined, { fullWidth: v });
-                  }} />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-        </div>
-        {/* Comment sidebar header — aligned with top bar */}
-        {showComments && !showHistory && (
-          <div className="w-80 shrink-0 flex items-center justify-between px-4 py-2 border-l border-border">
-            <h3 className="text-sm font-semibold text-foreground">{t('content.comments')}</h3>
-            <button onClick={() => setShowComments(false)} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('common.close')}>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-        {/* History sidebar — no top bar extension, sidebar has its own header */}
-      </div>
-
-      {/* Content area */}
-      <div className="flex-1 min-h-0 flex flex-row overflow-hidden">
-        <div className={cn('flex-1 min-h-0 min-w-0 flex flex-col overflow-y-auto', fullWidth && 'doc-full-width')}>
-          {/* Revision preview banner with exit button */}
-          {previewRevision && (
-            <div className="flex items-center gap-3 px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 shrink-0">
-              <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="text-sm text-amber-800 dark:text-amber-300 flex-1">
-                {t('content.previewingVersion') || 'Previewing historical version'} — {new Date(previewRevision.createdAt).toLocaleString()}
-              </span>
-              <button
-                onClick={() => { setShowHistory(false); setPreviewRevision(null); setPrevRevision(null); }}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-                {t('content.exitPreview') || 'Exit preview'}
-              </button>
-            </div>
-          )}
-          {/* Title area — Outline style: emoji inline when set, hover icon positioned outside */}
-          <div
-            className="doc-title-wrap"
-            onMouseEnter={() => setShowTitleIcon(true)}
-            onMouseLeave={() => { if (!showEmojiPicker) setShowTitleIcon(false); }}
-          >
-          <div className="doc-title-area group/title">
-            <div className="relative flex items-center" ref={emojiPickerRef}>
-              {/* Emoji or hover icon — absolute positioned to the LEFT, outside content area */}
-              {!previewRevision && emoji ? (
-                <button
-                  onClick={() => setShowEmojiPicker(v => !v)}
-                  className="absolute -left-12 top-1/2 -translate-y-1/2 text-4xl leading-none hover:opacity-70 transition-opacity"
-                  title="Change icon"
-                >
-                  {emoji.startsWith('/api/') || emoji.startsWith('http') ? (
-                    <img src={emoji} alt="icon" className="w-9 h-9 rounded object-cover" />
-                  ) : emoji}
-                </button>
-              ) : !previewRevision && showTitleIcon ? (
-                <button
-                  onClick={() => setShowEmojiPicker(v => !v)}
-                  className="absolute -left-10 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground/30 hover:text-muted-foreground hover:bg-black/5 transition-all"
-                  title="Add icon"
-                >
-                  <Smile className="h-6 w-6" />
-                </button>
-              ) : null}
-              {/* Title — show revision title (read-only) or editable input */}
-              {previewRevision ? (
-                <div className="flex-1 min-w-0 text-[2.5rem] font-bold text-foreground leading-tight opacity-70">
-                  {previewRevision.title || t('content.untitled')}
-                </div>
-              ) : (
-                <input
-                  ref={titleInputRef}
-                  autoFocus={!doc.title}
-                  value={title}
-                  onChange={handleTitleChange}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const wrapper = (e.target as HTMLElement).closest('.doc-title-wrap');
-                      const mount = wrapper?.parentElement?.querySelector('.outline-editor-mount') as any;
-                      const view = mount?.__pmView;
-                      if (view) {
-                        view.focus();
-                        // Place cursor at start of first block (pos 1 = inside first block node)
-                        const sel = view.state.selection.constructor.create(view.state.doc, 1);
-                        view.dispatch(view.state.tr.setSelection(sel));
-                      }
-                    }
-                  }}
-                  placeholder={t('content.untitled')}
-                  className="flex-1 min-w-0 text-[2.5rem] font-bold text-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 leading-tight"
-                />
-              )}
-              {/* Emoji picker dropdown */}
-              {showEmojiPicker && !previewRevision && (
-                <div className="absolute -left-12 top-full mt-1 z-50 rounded-lg shadow-xl overflow-hidden">
-                  <EmojiPicker
-                    onSelect={(em) => handleEmojiSelect(em)}
-                    onRemove={emoji ? () => handleEmojiSelect(null) : undefined}
-                    onUploadImage={async (file) => {
-                      const result = await docApi.uploadFile(file, doc.id);
-                      return result.url;
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="mb-8" />
-          </div>
-          </div>
-
-          {/* Search bar — sticky at top of scroll container */}
-          {!previewRevision && showSearch && (
-            <div className="sticky top-0 z-30 flex justify-end pr-4">
-              <SearchBar
-                getView={() => {
-                  const mount = document.querySelector('.outline-editor-mount') as any;
-                  return mount?.__pmView || null;
-                }}
-                showReplace={searchWithReplace}
-                onClose={() => setShowSearch(false)}
-              />
-            </div>
-          )}
-
-          {/* Editor / Revision preview area */}
-          <div className="relative flex-1 min-h-0">
-            {previewRevision ? (
-              <RevisionPreview
-                key={previewRevision.id + (highlightChanges ? '-diff' : '')}
-                data={previewRevision.data}
-                prevData={prevRevision?.data}
-                highlightChanges={highlightChanges}
-              />
-            ) : (
-              <Editor
-                key={`${doc.id}-${editorKey}`}
-                defaultValue={doc.text}
-                onChange={handleTextChange}
-                placeholder={t('content.editorPlaceholder')}
-                documentId={doc.id}
-                onSearchOpen={(withReplace) => { setShowSearch(true); setSearchWithReplace(withReplace); }}
-                commentQuotes={commentHighlightQuotes}
-              />
-            )}
-          </div>
-        </div>
-
-        {showComments && !showHistory && (
-          <div className="w-80 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-            <Comments
-              queryKey={['doc-comments', doc.id]}
-              fetchComments={fetchDocComments}
-              postComment={(text, parentId) => gw.commentOnDoc(doc.id, text, parentId)}
-              editComment={async (commentId, text) => {
-                await docApi.updateComment(commentId, docApi.textToProseMirror(text));
-              }}
-              deleteComment={async (commentId) => {
-                await docApi.deleteComment(commentId);
-              }}
-              resolveComment={async (commentId) => {
-                await docApi.resolveComment(commentId);
-              }}
-              unresolveComment={async (commentId) => {
-                await docApi.unresolveComment(commentId);
-              }}
-              uploadImage={async (file) => {
-                const result = await docApi.uploadFile(file, doc.id);
-                return result.url;
-              }}
-              initialQuote={commentQuote}
-              onQuoteConsumed={() => setCommentQuote('')}
-              topOffset={commentTopOffset}
-            />
-          </div>
-        )}
-
-      </div>
-    </div>
-
-    {/* History sidebar — full height, independent from top bar */}
-    {showHistory && (
-      <div className="w-72 border-l border-border bg-card flex flex-col shrink-0 overflow-hidden">
-        <RevisionHistory
-          doc={doc as any}
-          onClose={() => { setShowHistory(false); setPreviewRevision(null); setPrevRevision(null); }}
-          onRestored={async () => {
-            await queryClient.invalidateQueries({ queryKey: ['document', doc.id] });
-            await queryClient.invalidateQueries({ queryKey: ['content-items'] });
-            const restored = await queryClient.fetchQuery({ queryKey: ['document', doc.id], queryFn: () => docApi.getDocument(doc.id) });
-            setTitle(restored.title);
-            setText(restored.text);
-            latestTitleRef.current = restored.title;
-            latestTextRef.current = restored.text;
-            latestEmojiRef.current = (restored.icon || null) as string | null;
-            setEditorKey(k => k + 1);
-            onSaved();
-          }}
-          onSelect={(rev, prev) => { setPreviewRevision(rev as any); setPrevRevision(prev as any); }}
-          highlightChanges={highlightChanges}
-          onHighlightChangesToggle={() => setHighlightChanges(v => !v)}
-        />
-      </div>
-    )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════
-
-function DocMenuBtn({ icon: Icon, label, onClick, danger }: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2 px-3 py-1.5 text-sm transition-colors',
-        danger ? 'text-destructive hover:bg-destructive/10' : 'text-foreground hover:bg-accent'
-      )}
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      {label}
-    </button>
-  );
-}
-
-function DocMenuToggle({ icon: Icon, label, checked, onChange }: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <button
-      onClick={() => onChange(!checked)}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors"
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="flex-1 text-left">{label}</span>
-      <span className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors',
-        checked ? 'bg-primary' : 'bg-muted'
-      )}>
-        <span className={cn(
-          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform mt-0.5 ml-0.5',
-          checked ? 'translate-x-4' : 'translate-x-0'
-        )} />
-      </span>
-    </button>
-  );
-}
-
-function formatDate(isoStr: string): string {
-  const d = new Date(isoStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
-}
-
-function formatRelativeTime(isoStr: string): string {
-  const d = new Date(isoStr);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} minutes ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} days ago`;
-}
+// DocPanel and DiagramPanel have been extracted to ./components/
+// formatDate and formatRelativeTime are now imported from @/lib/utils/time
+// END_OF_EXTRACTED_MARKER

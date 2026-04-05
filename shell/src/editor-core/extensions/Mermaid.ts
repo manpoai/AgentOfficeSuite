@@ -8,6 +8,7 @@ import type { Node } from "prosemirror-model";
 import type { Transaction } from "prosemirror-state";
 import { NodeSelection, Plugin, PluginKey } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import DOMPurify from "dompurify";
 import { toast } from "sonner";
 import { isCode, isMermaid } from "../lib/isCode";
 import { isRemoteTransaction, mapDecorations } from "../lib/multiplayer";
@@ -101,7 +102,7 @@ class MermaidRenderer {
     const cache = Cache.get(cacheKey);
     if (cache) {
       element.classList.remove("parse-error", "empty");
-      element.innerHTML = cache;
+      element.innerHTML = DOMPurify.sanitize(cache, { USE_PROFILES: { svg: true, svgFilters: true } });
       return;
     }
 
@@ -173,7 +174,7 @@ class MermaidRenderer {
         Cache.set(cacheKey, svg);
       }
       element.classList.remove("parse-error", "empty");
-      element.innerHTML = svg;
+      element.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
 
       // Allow the user to interact with the diagram
       bindFunctions?.(element);

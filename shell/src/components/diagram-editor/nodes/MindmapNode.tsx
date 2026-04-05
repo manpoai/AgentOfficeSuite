@@ -115,8 +115,11 @@ export function MindmapNode({ node }: { node: Node }) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
     if (e.key === 'Escape') { cancelEdit(); }
-    // Stop propagation so graph keyboard handler doesn't fire
+    // Stop React synthetic propagation
     e.stopPropagation();
+    // Also stop the native event from reaching document-level listeners
+    // (the graph keyboard handler is on document, not inside React's tree)
+    e.nativeEvent.stopImmediatePropagation();
   }, [commitEdit, cancelEdit]);
 
   const size = node.getSize();
@@ -181,6 +184,11 @@ export function MindmapNode({ node }: { node: Node }) {
             zIndex: 10,
           }}
           data-action="toggle-collapse"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            // Signal collapse toggle via data — picked up by cell:change:data handler
+            node.setData({ ...node.getData(), _collapseToggle: Date.now() });
+          }}
         >
           {d.collapsed ? d.childCount : '−'}
         </div>

@@ -6,6 +6,10 @@
 import type { Node as PMNode } from 'prosemirror-model';
 import { NodeSelection, Selection } from 'prosemirror-state';
 import type { EditorView, NodeView } from 'prosemirror-view';
+import DOMPurify from 'dompurify';
+import { ContentLinkView } from './content-link-node';
+import { DiagramEmbedView } from './diagram-embed-node';
+import { pickFile } from '@/lib/utils/pick-file';
 
 /** Lazy-load mermaid via CDN <script> tag (avoids webpack bundling issues). */
 let mermaidPromise: Promise<any> | null = null;
@@ -334,11 +338,8 @@ class ImageNodeView implements NodeView {
   }
 
   private replaceImage() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
+    pickFile({ accept: 'image/*' }).then((files) => {
+      const file = files[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
@@ -353,7 +354,6 @@ class ImageNodeView implements NodeView {
       };
       reader.readAsDataURL(file);
     });
-    input.click();
   }
 
   private deleteImage() {
@@ -449,7 +449,8 @@ class ImageNodeView implements NodeView {
     this.dom.style.background = 'transparent';
     this.img.style.outline = '2px solid hsl(var(--primary, 220 90% 56%))';
     this.img.style.outlineOffset = '2px';
-    this.showToolbar();
+    // Use unified React toolbar instead of vanilla DOM toolbar
+    this.emitImageToolbar(true);
     if (this.captionContainer) this.captionContainer.style.display = 'block';
     if (this.captionInput) {
       (this.captionInput as unknown as HTMLElement).textContent = this.node.attrs.alt || '';
@@ -464,10 +465,28 @@ class ImageNodeView implements NodeView {
     this.dom.style.background = '';
     this.img.style.outline = 'none';
     this.img.style.outlineOffset = '';
-    this.hideToolbar();
+    this.emitImageToolbar(false);
     // Hide caption if no content
     const hasContent = !!(this.node.attrs.alt?.trim());
     if (this.captionContainer) this.captionContainer.style.display = hasContent ? 'block' : 'none';
+  }
+
+  private emitImageToolbar(show: boolean) {
+    const editorMount = this.view.dom.parentElement;
+    if (!editorMount) return;
+    if (show) {
+      const imgRect = this.img.getBoundingClientRect();
+      const pos = this.getPos();
+      editorMount.dispatchEvent(new CustomEvent('image-toolbar', {
+        detail: {
+          anchor: { top: imgRect.top, left: imgRect.left, width: imgRect.width },
+          nodePos: pos,
+          view: this.view,
+        },
+      }));
+    } else {
+      editorMount.dispatchEvent(new CustomEvent('image-toolbar', { detail: null }));
+    }
   }
 
   destroy() {
@@ -661,7 +680,7 @@ class MermaidBlockView implements NodeView {
       });
       const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const { svg } = await mermaid.render(id, code);
-      this.preview.innerHTML = svg;
+      this.preview.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
       // Constrain SVG to its natural size — don't stretch to fill container
       const svgEl = this.preview.querySelector('svg');
       if (svgEl) {
@@ -689,7 +708,10 @@ class MermaidBlockView implements NodeView {
         }
       }
     } catch (err) {
-      this.preview.innerHTML = `<pre style="color: hsl(var(--destructive)); font-size: 12px; margin: 0;">${(err as Error).message || 'Mermaid render error'}</pre>`;
+      const errMsg = document.createElement('span');
+      errMsg.textContent = (err as Error).message || 'Mermaid render error';
+      this.preview.innerHTML = `<pre style="color: hsl(var(--destructive)); font-size: 12px; margin: 0;"></pre>`;
+      this.preview.querySelector('pre')!.appendChild(errMsg);
     }
   }
 
@@ -751,6 +773,10 @@ export function createNodeViews() {
       new ImageNodeView(node, view, getPos),
     checkbox_item: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
       new CheckboxItemView(node, view, getPos),
+    content_link: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
+      new ContentLinkView(node, view, getPos),
+    diagram_embed: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
+      new DiagramEmbedView(node, view, getPos),
     code_block: (node: PMNode, view: EditorView, getPos: () => number | undefined) => {
       // Only use MermaidBlockView for mermaid code blocks
       if (node.attrs.language === 'mermaid') {

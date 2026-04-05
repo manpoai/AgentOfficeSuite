@@ -1,22 +1,31 @@
 -- ASuite Gateway Database Schema
 
-CREATE TABLE IF NOT EXISTS agent_accounts (
+-- Unified identity: humans + agents
+CREATE TABLE IF NOT EXISTS actors (
   id          TEXT PRIMARY KEY,
-  name        TEXT UNIQUE NOT NULL,
+  type        TEXT NOT NULL CHECK(type IN ('human', 'agent')),
+  username    TEXT UNIQUE NOT NULL,
   display_name TEXT NOT NULL,
-  token_hash  TEXT NOT NULL,
+  avatar_url  TEXT,
+  -- human auth
+  password_hash TEXT,
+  role        TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+  -- agent auth
+  token_hash  TEXT,
   capabilities TEXT,
   webhook_url TEXT,
   webhook_secret TEXT,
   online      INTEGER DEFAULT 0,
   last_seen_at INTEGER,
+  br_password TEXT,
+  pending_approval INTEGER DEFAULT 0,
+  -- shared
   created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  avatar_url  TEXT,
-  ol_token    TEXT,   -- per-agent Outline API token
-  plane_token TEXT,   -- per-agent Plane API token
-  nc_password TEXT    -- per-agent NocoDB password (agent email = name@nc-agents.local)
+  updated_at  INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_actors_type ON actors(type);
+CREATE INDEX IF NOT EXISTS idx_actors_token_hash ON actors(token_hash);
 
 CREATE TABLE IF NOT EXISTS tickets (
   id          TEXT PRIMARY KEY,
@@ -54,23 +63,26 @@ CREATE TABLE IF NOT EXISTS thread_links (
 CREATE INDEX IF NOT EXISTS idx_thread_links_thread ON thread_links(thread_id);
 CREATE INDEX IF NOT EXISTS idx_thread_links_link ON thread_links(link_type, link_id);
 
--- Table comments (table-level and row-level comments stored locally)
-CREATE TABLE IF NOT EXISTS table_comments (
+-- Unified comments (all comment types: doc, table, presentation, diagram, cell)
+CREATE TABLE IF NOT EXISTS comments (
   id          TEXT PRIMARY KEY,
-  table_id    TEXT NOT NULL,
-  row_id      TEXT,              -- NULL for table-level comments, row ID for row-level
-  parent_id   TEXT,              -- NULL for top-level, comment ID for replies
-  text        TEXT NOT NULL,
-  actor       TEXT NOT NULL,     -- display name of commenter
-  actor_id    TEXT,              -- agent_id or user_id
+  target_type TEXT NOT NULL,     -- 'doc' | 'table' | 'presentation' | 'diagram' | 'cell'
+  target_id   TEXT NOT NULL,     -- resource ID (doc ID, table ID, content_items ID, etc.)
+  row_id      TEXT,              -- table-specific: row ID (NULL for non-table or table-level)
+  text        TEXT,
+  html        TEXT,
+  data_json   TEXT,              -- ProseMirror JSON (for doc comments)
+  actor       TEXT,
+  actor_id    TEXT,
+  parent_id   TEXT,
   resolved_by TEXT,
-  resolved_at INTEGER,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  resolved_at TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_table_comments_table ON table_comments(table_id, row_id);
-CREATE INDEX IF NOT EXISTS idx_table_comments_parent ON table_comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
 
 -- Doc/table custom icons (emoji per document or table)
 CREATE TABLE IF NOT EXISTS doc_icons (
@@ -79,25 +91,27 @@ CREATE TABLE IF NOT EXISTS doc_icons (
   updated_at  INTEGER NOT NULL
 );
 
--- Table snapshots (history versioning for tables)
-CREATE TABLE IF NOT EXISTS table_snapshots (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  table_id    TEXT NOT NULL,
-  version     INTEGER NOT NULL,
-  schema_json TEXT NOT NULL,
-  data_json   TEXT NOT NULL,
-  trigger_type TEXT NOT NULL,
-  agent       TEXT,
-  row_count   INTEGER DEFAULT 0,
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+-- Unified content snapshots (history versioning for tables, docs, presentations, diagrams)
+CREATE TABLE IF NOT EXISTS content_snapshots (
+  id            TEXT PRIMARY KEY,
+  content_type  TEXT NOT NULL,      -- 'doc' | 'table' | 'presentation' | 'diagram'
+  content_id    TEXT NOT NULL,
+  version       INTEGER,
+  title         TEXT,               -- doc title at snapshot time
+  data_json     TEXT NOT NULL,
+  schema_json   TEXT,               -- table schema at snapshot time (table-specific)
+  trigger_type  TEXT,               -- 'auto' | 'manual' | 'pre_restore'
+  row_count     INTEGER,            -- table-specific
+  actor_id      TEXT,
+  created_at    TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_snapshots_table ON table_snapshots(table_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_content_snapshots_content ON content_snapshots(content_type, content_id, created_at DESC);
 
 -- Content items: unified doc/table metadata for sidebar (source of truth for Shell)
 CREATE TABLE IF NOT EXISTS content_items (
   id          TEXT PRIMARY KEY,       -- 'doc:<uuid>' or 'table:<uuid>'
-  raw_id      TEXT NOT NULL,          -- original Outline doc ID or NocoDB table ID
+  raw_id      TEXT NOT NULL,          -- original doc ID or Baserow table ID
   type        TEXT NOT NULL,          -- 'doc' or 'table'
   title       TEXT NOT NULL DEFAULT '',
   icon        TEXT,                   -- emoji or icon URL
@@ -109,23 +123,29 @@ CREATE TABLE IF NOT EXISTS content_items (
   created_at  TEXT,                   -- ISO timestamp from upstream
   updated_at  TEXT,                   -- ISO timestamp from upstream
   deleted_at  TEXT,                   -- soft-delete timestamp
+  pinned      INTEGER DEFAULT 0,     -- 1 = pinned to top of sidebar
   synced_at   INTEGER NOT NULL        -- last sync epoch ms
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_items_type ON content_items(type);
 CREATE INDEX IF NOT EXISTS idx_content_items_parent ON content_items(parent_id);
 
--- Boards (Excalidraw drawings stored as JSON)
-CREATE TABLE IF NOT EXISTS boards (
-  id          TEXT PRIMARY KEY,
-  data_json   TEXT NOT NULL DEFAULT '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}',
-  created_by  TEXT,
-  updated_by  TEXT,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+-- Notifications
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  actor_id TEXT,                -- who triggered it (nullable for system notifications)
+  target_actor_id TEXT NOT NULL, -- who receives it
+  type TEXT NOT NULL,            -- 'comment_reply', 'mention', 'agent_action', 'system'
+  title TEXT NOT NULL,
+  body TEXT,
+  link TEXT,                     -- URL to navigate to (e.g., /content?id=doc:xxx)
+  read INTEGER DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
--- View column settings (field visibility/width per NocoDB view)
+CREATE INDEX IF NOT EXISTS idx_notifications_target ON notifications(target_actor_id, read, created_at DESC);
+
+-- View column settings (field visibility/width per view)
 CREATE TABLE IF NOT EXISTS view_column_settings (
   view_id     TEXT NOT NULL,
   column_id   TEXT NOT NULL,

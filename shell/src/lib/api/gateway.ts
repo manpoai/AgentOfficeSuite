@@ -4,8 +4,21 @@
 
 const BASE = '/api/gateway';
 
+/** Get auth headers for direct fetch calls to /api/gateway/* */
+export function gwAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function gwFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`Gateway API ${path}: ${res.status}`);
   return res.json();
 }
@@ -22,21 +35,34 @@ export interface Agent {
   capabilities?: string[];
   registered_at?: string;
   last_seen_at?: number | null;
+  pending_approval?: boolean;
 }
 
-export interface Task {
-  task_id: string;
-  title: string;
-  description?: string;
-  status: 'todo' | 'in_progress' | 'done' | 'cancelled' | null;
-  priority?: string;
-  assignee_name?: string;
-  assignees?: string[];
-  start_date?: string | null;
-  target_date?: string | null;
-  url?: string;
-  created_at?: number;
-  updated_at?: number;
+// ── User Profile ──
+
+/** Update own human profile (name syncs username + display_name) */
+export async function updateProfile(fields: { name?: string }): Promise<any> {
+  return gwFetch('/auth/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+}
+
+/** Upload own avatar (human) */
+export async function uploadUserAvatar(file: File): Promise<{ avatar_url: string }> {
+  const form = new FormData();
+  form.append('avatar', file);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/auth/avatar`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload avatar: ${res.status}`);
+  return res.json();
 }
 
 // ── Agents ──
@@ -44,6 +70,27 @@ export interface Task {
 export async function listAgents(): Promise<Agent[]> {
   const data = await gwFetch<{ agents: Agent[] }>('/agents');
   return data.agents;
+}
+
+/** Admin: list all agents including pending approval */
+export async function listAllAgents(): Promise<Agent[]> {
+  const data = await gwFetch<{ agents: Agent[] }>('/admin/agents');
+  return data.agents;
+}
+
+/** Admin: approve a pending agent */
+export async function approveAgent(agentId: string): Promise<void> {
+  await gwFetch(`/admin/agents/${agentId}/approve`, { method: 'POST' });
+}
+
+/** Admin: reset an agent's token */
+export async function resetAgentToken(agentId: string): Promise<{ token: string }> {
+  return gwFetch(`/admin/agents/${agentId}/reset-token`, { method: 'POST' });
+}
+
+/** Get agent skills info including onboarding prompt */
+export async function getAgentSkills(): Promise<{ onboarding_prompt?: string; [key: string]: unknown }> {
+  return gwFetch('/agent-skills');
 }
 
 export async function getAgent(name: string): Promise<Agent> {
@@ -64,71 +111,16 @@ export async function updateAgentProfile(name: string, fields: {
 export async function uploadAgentAvatar(name: string, file: File): Promise<{ avatar_url: string }> {
   const form = new FormData();
   form.append('avatar', file);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/agents/${name}/avatar`, {
     method: 'POST',
+    headers,
     body: form,
   });
   if (!res.ok) throw new Error(`Upload avatar: ${res.status}`);
   return res.json();
-}
-
-// ── Tasks ──
-
-export async function listTasks(): Promise<Task[]> {
-  const data = await gwFetch<{ tasks: Task[] }>('/tasks');
-  return data.tasks;
-}
-
-export async function createTask(title: string, opts?: {
-  description?: string;
-  assignee?: string;
-  priority?: string;
-  start_date?: string;
-  target_date?: string;
-}): Promise<Task> {
-  return gwFetch('/tasks', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      title,
-      description: opts?.description,
-      assignee_name: opts?.assignee,
-      priority: opts?.priority,
-      start_date: opts?.start_date,
-      target_date: opts?.target_date,
-    }),
-  });
-}
-
-export async function updateTask(taskId: string, fields: {
-  title?: string;
-  description?: string;
-  priority?: string;
-  assignee_name?: string;
-  start_date?: string | null;
-  target_date?: string | null;
-}): Promise<Task> {
-  return gwFetch(`/tasks/${taskId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(fields),
-  });
-}
-
-export async function updateTaskStatus(taskId: string, status: string): Promise<void> {
-  await gwFetch(`/tasks/${taskId}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-}
-
-export async function commentOnTask(taskId: string, text: string): Promise<void> {
-  await gwFetch(`/tasks/${taskId}/comments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
 }
 
 // ── Comments ──
@@ -145,11 +137,6 @@ export interface Comment {
   updated_at?: string;
 }
 
-export async function listTaskComments(taskId: string): Promise<Comment[]> {
-  const data = await gwFetch<{ comments: Comment[] }>(`/tasks/${taskId}/comments`);
-  return data.comments;
-}
-
 export async function listDocComments(docId: string): Promise<Comment[]> {
   const data = await gwFetch<{ comments: Comment[] }>(`/docs/${docId}/comments`);
   return data.comments;
@@ -163,7 +150,7 @@ export async function commentOnDoc(docId: string, text: string, parentId?: strin
   });
 }
 
-// ── Table Comments (SQLite-backed, for NocoDB tables) ──
+// ── Table Comments (SQLite-backed, for Baserow tables) ──
 
 export interface TableComment extends Comment {
   row_id?: string | null;
@@ -217,8 +204,8 @@ export async function listCommentedRows(tableId: string): Promise<{ row_id: stri
 
 export interface ContentItem {
   id: string;          // 'doc:<uuid>' or 'table:<uuid>'
-  raw_id: string;      // original Outline doc ID or NocoDB table ID
-  type: 'doc' | 'table';
+  raw_id: string;      // original Outline doc ID or Baserow table ID
+  type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   icon: string | null;
   parent_id: string | null;
@@ -229,7 +216,13 @@ export interface ContentItem {
   created_at: string | null;
   updated_at: string | null;
   deleted_at: string | null;
+  pinned: number;
   synced_at: number;
+}
+
+export async function getContentItem(id: string): Promise<ContentItem> {
+  const data = await gwFetch<{ item: ContentItem }>(`/content-items/${encodeURIComponent(id)}`);
+  return data.item;
 }
 
 export async function listContentItems(): Promise<ContentItem[]> {
@@ -243,11 +236,12 @@ export async function listDeletedContentItems(): Promise<ContentItem[]> {
 }
 
 export async function createContentItem(opts: {
-  type: 'doc' | 'table' | 'board' | 'presentation' | 'spreadsheet' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   parent_id?: string | null;
   collection_id?: string;
   columns?: { title: string; uidt: string }[];
+  embedded?: boolean;
 }): Promise<ContentItem> {
   const data = await gwFetch<{ item: ContentItem }>('/content-items', {
     method: 'POST',
@@ -281,6 +275,7 @@ export async function updateContentItem(id: string, fields: {
   parent_id?: string | null;
   sort_order?: number;
   title?: string;
+  pinned?: boolean;
 }): Promise<ContentItem> {
   return gwFetch(`/content-items/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -343,7 +338,7 @@ export async function setPreference<T = unknown>(key: string, value: T): Promise
 // ── Table Snapshots (History Versioning) ──
 
 export interface TableSnapshot {
-  id: number;
+  id: string;
   version: number;
   table_id: string;
   trigger_type: 'auto' | 'manual' | 'pre_bulk' | 'pre_restore';
@@ -359,7 +354,7 @@ export async function listTableSnapshots(tableId: string): Promise<TableSnapshot
   return data.snapshots;
 }
 
-export async function getTableSnapshot(tableId: string, snapshotId: number): Promise<TableSnapshot> {
+export async function getTableSnapshot(tableId: string, snapshotId: string): Promise<TableSnapshot> {
   return gwFetch(`/data/${tableId}/snapshots/${snapshotId}`);
 }
 
@@ -371,31 +366,11 @@ export async function createTableSnapshot(tableId: string): Promise<TableSnapsho
   });
 }
 
-export async function restoreTableSnapshot(tableId: string, snapshotId: number): Promise<{ success: boolean; restored_rows: number; pre_restore_snapshot_id: number }> {
+export async function restoreTableSnapshot(tableId: string, snapshotId: string): Promise<{ success: boolean; restored_rows: number; pre_restore_snapshot_id: string }> {
   return gwFetch(`/data/${tableId}/snapshots/${snapshotId}/restore`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
-  });
-}
-
-// ─── Boards (Excalidraw) ─────────────────────────
-export async function getBoard(boardId: string): Promise<{
-  id: string;
-  data: Record<string, unknown>;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: number;
-  updated_at: number;
-}> {
-  return gwFetch(`/boards/${boardId}`);
-}
-
-export async function saveBoard(boardId: string, data: Record<string, unknown>): Promise<{ saved: boolean; updated_at: number }> {
-  return gwFetch(`/boards/${boardId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data }),
   });
 }
 
@@ -419,26 +394,6 @@ export async function savePresentation(presId: string, data: { slides: any[] }):
   });
 }
 
-// ─── Spreadsheets (Univer) ─────────────────────────
-export async function getSpreadsheet(sheetId: string): Promise<{
-  id: string;
-  data: any;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: number;
-  updated_at: number;
-}> {
-  return gwFetch(`/spreadsheets/${sheetId}`);
-}
-
-export async function saveSpreadsheet(sheetId: string, data: any): Promise<{ saved: boolean; updated_at: number }> {
-  return gwFetch(`/spreadsheets/${sheetId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data }),
-  });
-}
-
 // ─── Diagrams (ReactFlow) ─────────────────────────
 export async function getDiagram(diagramId: string): Promise<{
   id: string;
@@ -456,5 +411,119 @@ export async function saveDiagram(diagramId: string, data: { nodes: any[]; edges
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Global Search ──────────────────────────────────
+
+export interface SearchResult {
+  id: string;
+  type: string;
+  title: string;
+  snippet?: string;
+  updated_at?: string;
+}
+
+export async function globalSearch(query: string, limit = 20): Promise<{ results: SearchResult[] }> {
+  return gwFetch(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+}
+
+// ─── Notifications ──────────────────────────────────
+
+export interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body?: string;
+  link?: string;
+  actor?: string;
+  read: boolean;
+  created_at: string;
+}
+
+export async function getNotifications(unread?: boolean, limit?: number): Promise<Notification[]> {
+  const params = new URLSearchParams();
+  if (unread !== undefined) params.set('unread', String(unread));
+  if (limit !== undefined) params.set('limit', String(limit));
+  const qs = params.toString();
+  const data = await gwFetch<{ notifications: Notification[] }>(`/notifications${qs ? `?${qs}` : ''}`);
+  return data.notifications;
+}
+
+export async function getUnreadCount(): Promise<number> {
+  const data = await gwFetch<{ count: number }>('/notifications/unread-count');
+  return data.count;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await gwFetch(`/notifications/${id}/read`, { method: 'POST' });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  await gwFetch('/notifications/read-all', { method: 'POST' });
+}
+
+// ─── Content Comments (Generic — presentations, diagrams, etc.) ─────────
+
+export async function listContentComments(contentId: string): Promise<Comment[]> {
+  const data = await gwFetch<{ comments: Comment[] }>(`/content-items/${encodeURIComponent(contentId)}/comments`);
+  return data.comments;
+}
+
+export async function createContentComment(contentId: string, text: string, parentId?: string): Promise<Comment> {
+  return gwFetch<Comment>(`/content-items/${encodeURIComponent(contentId)}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, parent_comment_id: parentId }),
+  });
+}
+
+export async function editContentComment(commentId: string, text: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+}
+
+export async function deleteContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}`, { method: 'DELETE' });
+}
+
+export async function resolveContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}/resolve`, { method: 'POST' });
+}
+
+export async function unresolveContentComment(commentId: string): Promise<void> {
+  await gwFetch(`/content-comments/${commentId}/unresolve`, { method: 'POST' });
+}
+
+// ─── Content Revisions (Generic — presentations, diagrams, etc.) ─────────
+
+export interface ContentRevision {
+  id: string;
+  content_id: string;
+  data: any;
+  created_at: string;
+  created_by: string | null;
+}
+
+export async function listContentRevisions(contentId: string): Promise<ContentRevision[]> {
+  const data = await gwFetch<{ revisions: ContentRevision[] }>(`/content-items/${encodeURIComponent(contentId)}/revisions`);
+  return data.revisions;
+}
+
+export async function createContentRevision(contentId: string, data: any): Promise<ContentRevision> {
+  return gwFetch<ContentRevision>(`/content-items/${encodeURIComponent(contentId)}/revisions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+export async function restoreContentRevision(contentId: string, revisionId: string): Promise<{ data: any }> {
+  return gwFetch<{ data: any }>(`/content-items/${encodeURIComponent(contentId)}/revisions/${revisionId}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
   });
 }

@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Clock, X, Plus, Database, Bot, Timer, Shield } from 'lucide-react';
 import * as gw from '@/lib/api/gateway';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
+import { formatRelativeTime, formatDateTime } from '@/lib/utils/time';
 import { useT } from '@/lib/i18n';
 
 export interface SnapshotPreview {
-  snapshotId: number;
+  snapshotId: string;
   version: number;
   createdAt: string;
   schema: { title: string; uidt: string }[];
@@ -19,7 +21,7 @@ interface Props {
   onClose: () => void;
   onRestored: () => void;
   onSelectVersion: (preview: SnapshotPreview | null) => void;
-  selectedSnapshotId?: number | null;
+  selectedSnapshotId?: string | null;
 }
 
 const TRIGGER_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -42,7 +44,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [loadingSnapshotId, setLoadingSnapshotId] = useState<number | null>(null);
+  const [loadingSnapshotId, setLoadingSnapshotId] = useState<string | null>(null);
 
   const loadSnapshots = useCallback(async () => {
     try {
@@ -89,7 +91,8 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
         schema,
         rows,
       });
-    } catch {
+    } catch (e) {
+      showError('Load snapshot failed', e);
       onSelectVersion(null);
     } finally {
       setLoadingSnapshotId(null);
@@ -100,15 +103,10 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
     const d = new Date(iso);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-
-    if (mins < 1) return t('time.justNow');
-    if (mins < 60) return t('time.minutesAgo', { n: mins });
-    if (hours < 24) return t('time.hoursAgo', { n: hours });
-    if (days < 7) return t('time.daysAgo', { n: days });
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // For recent items use relative time; for older items show full date+time
+    if (days < 7) return formatRelativeTime(iso);
+    return formatDateTime(iso);
   };
 
   return (

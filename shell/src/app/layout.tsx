@@ -2,11 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 import '@/components/editor/editor-styles.css';
 import { Providers } from './providers';
-import { Inter, Allura } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import { cn } from '@/lib/utils';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
-const allura = Allura({ weight: '400', subsets: ['latin'], variable: '--font-allura' });
 
 export const metadata: Metadata = {
   title: 'ASuite',
@@ -25,11 +24,12 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
     title: 'ASuite',
   },
+  themeColor: '#ffffff',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${allura.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable}`} suppressHydrationWarning>
       <body className="font-sans">
         <Providers>{children}</Providers>
       </body>

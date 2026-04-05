@@ -1,12 +1,19 @@
 /**
  * Documents API client — calls through /api/gateway/* proxy to Gateway SQLite
- * Replaces the old Outline API client (outline.ts)
+ * Calls through /api/gateway/* proxy to Gateway SQLite
  */
 
 const BASE = '/api/gateway';
 
 async function docFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`Documents API ${path}: ${res.status}`);
   return res.json();
 }
@@ -142,8 +149,12 @@ export async function unresolveComment(id: string): Promise<void> {
 export async function uploadFile(file: File, _documentId?: string): Promise<{ url: string; name: string; size: number }> {
   const form = new FormData();
   form.append('file', file);
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/uploads`, {
     method: 'POST',
+    headers,
     body: form,
   });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);

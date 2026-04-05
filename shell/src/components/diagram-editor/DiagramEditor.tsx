@@ -10,6 +10,7 @@ import {
   LayoutGrid, GitBranch, Minus, Plus as PlusIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import {
   ReactFlow,
@@ -71,7 +72,7 @@ function FlowchartNode({ data, selected }: { data: any; selected?: boolean }) {
     return (
       <div className="relative" style={{ width: 120, height: 80 }}>
         <div
-          className={cn('absolute inset-0 border-2', selected && 'ring-2 ring-blue-500')}
+          className={cn('absolute inset-0 border-2', selected && 'ring-2 ring-sidebar-primary')}
           style={{
             backgroundColor: bgColor,
             borderColor,
@@ -96,7 +97,7 @@ function FlowchartNode({ data, selected }: { data: any; selected?: boolean }) {
         shapeClasses[shape] || 'rounded-lg',
         shape === 'mindmap-root' && 'px-6 py-3 text-base font-bold',
         shape === 'mindmap' && 'px-3 py-1.5 text-sm border',
-        selected && 'ring-2 ring-blue-500',
+        selected && 'ring-2 ring-sidebar-primary',
       )}
       style={{
         backgroundColor: bgColor,
@@ -244,7 +245,7 @@ function DiagramEditorInner({
         edges: edges.map(e => ({ ...e, selected: undefined })),
         viewport,
       }).catch((err: Error) => {
-        console.error('Diagram auto-save failed:', err);
+        showError('Diagram auto-save failed', err);
       });
     }, 1000);
   }, [diagramId, nodes, edges, reactFlowInstance]);
@@ -402,13 +403,13 @@ function DiagramEditorInner({
   if (!diagram) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-sm">Diagram not found</div>
+        <div className="text-sm">{t('diagram.notFound')}</div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-card">
+    <div className="flex-1 flex flex-col min-h-0 bg-card">
       {/* ─── Header Bar ─── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <button onClick={onBack} className="md:hidden p-1 text-muted-foreground hover:text-foreground">
@@ -509,13 +510,13 @@ function DiagramEditorInner({
             markerEnd: { type: MarkerType.ArrowClosed },
             style: { strokeWidth: 2 },
           }}
-          className="bg-gray-50 dark:bg-zinc-900"
+          className="bg-muted"
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls />
           <MiniMap
             nodeStrokeWidth={3}
-            className="!bg-white dark:!bg-zinc-800 !border-border"
+            className="!bg-card !border-border"
           />
 
           {/* ─── Toolbar Panel ─── */}
@@ -524,7 +525,7 @@ function DiagramEditorInner({
               {/* Flowchart shapes */}
               <ToolBtn
                 icon={Square}
-                title="Rectangle"
+                title={t('diagram.rectangle')}
                 active={activeTool === 'rectangle'}
                 onClick={() => setActiveTool(activeTool === 'rectangle' ? 'select' : 'rectangle')}
               />
@@ -534,19 +535,19 @@ function DiagramEditorInner({
                     <div className="w-3 h-3 border-2 border-current rounded" />
                   </div>
                 )}
-                title="Rounded Rectangle"
+                title={t('diagram.roundedRectangle')}
                 active={activeTool === 'rounded'}
                 onClick={() => setActiveTool(activeTool === 'rounded' ? 'select' : 'rounded')}
               />
               <ToolBtn
                 icon={Diamond}
-                title="Diamond (Decision)"
+                title={t('diagram.diamond')}
                 active={activeTool === 'diamond'}
                 onClick={() => setActiveTool(activeTool === 'diamond' ? 'select' : 'diamond')}
               />
               <ToolBtn
                 icon={Circle}
-                title="Circle"
+                title={t('diagram.circle')}
                 active={activeTool === 'circle'}
                 onClick={() => setActiveTool(activeTool === 'circle' ? 'select' : 'circle')}
               />
@@ -556,13 +557,13 @@ function DiagramEditorInner({
               {/* Mind map */}
               <ToolBtn
                 icon={GitBranch}
-                title="Mind Map Root"
+                title={t('diagram.mindMapRoot')}
                 active={activeTool === 'mindmap-root'}
                 onClick={() => setActiveTool(activeTool === 'mindmap-root' ? 'select' : 'mindmap-root')}
               />
               <ToolBtn
                 icon={Type}
-                title="Mind Map Branch"
+                title={t('diagram.mindMapBranch')}
                 active={activeTool === 'mindmap'}
                 onClick={() => setActiveTool(activeTool === 'mindmap' ? 'select' : 'mindmap')}
               />
@@ -574,10 +575,10 @@ function DiagramEditorInner({
                 <button
                   onClick={() => setShowColorPicker(v => !v)}
                   className="p-1.5 rounded hover:bg-accent transition-colors"
-                  title="Node Color"
+                  title={t('diagram.nodeColor')}
                 >
                   <div
-                    className="w-4 h-4 rounded border border-gray-300"
+                    className="w-4 h-4 rounded border border-border"
                     style={{ backgroundColor: selectedColor.bg }}
                   />
                 </button>
@@ -591,7 +592,7 @@ function DiagramEditorInner({
                           onClick={() => { setSelectedColor(c); setShowColorPicker(false); }}
                           className={cn(
                             'w-7 h-7 rounded border-2 transition-colors',
-                            selectedColor === c ? 'border-blue-500' : 'border-transparent hover:border-gray-300'
+                            selectedColor === c ? 'border-sidebar-primary' : 'border-transparent hover:border-border'
                           )}
                           style={{ backgroundColor: c.bg }}
                           title={c.name}
@@ -607,14 +608,14 @@ function DiagramEditorInner({
               {/* Auto layout */}
               <ToolBtn
                 icon={LayoutGrid}
-                title="Auto Layout (Top-Bottom)"
+                title={t('diagram.autoLayoutTB')}
                 onClick={() => autoLayout('TB')}
               />
               <ToolBtn
                 icon={({ className }: { className?: string }) => (
                   <ArrowRight className={className} />
                 )}
-                title="Auto Layout (Left-Right)"
+                title={t('diagram.autoLayoutLR')}
                 onClick={() => autoLayout('LR')}
               />
             </div>
@@ -637,7 +638,7 @@ function ToolBtn({ icon: Icon, title, active, onClick }: {
       onClick={onClick}
       className={cn(
         'p-1.5 rounded transition-colors',
-        active ? 'bg-blue-100 dark:bg-blue-900 text-blue-600' : 'hover:bg-accent text-foreground'
+        active ? 'bg-sidebar-accent text-sidebar-primary' : 'hover:bg-accent text-foreground'
       )}
       title={title}
     >

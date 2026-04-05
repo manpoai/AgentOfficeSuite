@@ -13,6 +13,8 @@ import markdownIt from 'markdown-it';
 import markdownItContainer from 'markdown-it-container';
 import markdownItMark from 'markdown-it-mark';
 import { schema } from './schema';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 import type { Node as PMNode } from 'prosemirror-model';
 import type Token from 'markdown-it/lib/token.mjs';
 import type MarkdownItType from 'markdown-it';
@@ -237,6 +239,62 @@ function htmlImgPlugin(mdInstance: MarkdownItType) {
   });
 }
 md.use(htmlImgPlugin);
+md.core.ruler.after('text_join', 'html_table_parse', htmlTableRule);
+
+// Convert html_block containing <div class="diagram-embed-node"> into diagram_embed tokens
+md.core.ruler.after('text_join', 'html_diagram_embed', (state) => {
+  const tokens = state.tokens;
+  const newTokens: typeof tokens = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.type === 'html_block' && /diagram-embed-node/.test(tok.content)) {
+      const idMatch = tok.content.match(/data-diagram-id="([^"]+)"/);
+      const titleMatch = tok.content.match(/data-title="([^"]+)"/);
+      if (idMatch) {
+        const dTok = new state.Token('diagram_embed', 'div', 0);
+        dTok.attrs = [
+          ['diagramId', idMatch[1]],
+          ['title', titleMatch ? titleMatch[1] : 'Untitled Diagram'],
+        ];
+        dTok.block = true;
+        newTokens.push(dTok);
+        continue;
+      }
+    }
+    newTokens.push(tok);
+  }
+  state.tokens = newTokens;
+});
+
+// Convert inline links with /content?id= href into content_link tokens
+md.core.ruler.after('text_join', 'inline_content_link', (state) => {
+  for (const blockToken of state.tokens) {
+    if (blockToken.type !== 'inline' || !blockToken.children) continue;
+    const children = blockToken.children;
+    const newChildren: Token[] = [];
+    for (let i = 0; i < children.length; i++) {
+      const tok = children[i];
+      if (tok.type === 'link_open') {
+        const href = tok.attrGet('href') || '';
+        const contentMatch = href.match(/\/content\?id=((?:doc|table|presentation|diagram)(?::|%3A)[a-zA-Z0-9_-]+)/i);
+        if (contentMatch && i + 2 < children.length && children[i + 1].type === 'text' && children[i + 2].type === 'link_close') {
+          const contentId = decodeURIComponent(contentMatch[1]);
+          const title = children[i + 1].content || contentId;
+          const clTok = new state.Token('content_link', 'span', 0);
+          clTok.attrs = [
+            ['contentId', contentId],
+            ['title', title],
+          ];
+          newChildren.push(clTok);
+          i += 2; // skip text + link_close
+          continue;
+        }
+      }
+      newChildren.push(tok);
+    }
+    blockToken.children = newChildren;
+  }
+});
 
 // Wrap table cell inline content in paragraph tokens.
 // markdown-it emits: th_open → inline → th_close (no paragraph wrapper).
@@ -558,14 +616,166 @@ export const markdownParser = new MarkdownParser(schema, md, {
   thead: { ignore: true },
   tbody: { ignore: true },
   tr: { block: 'table_row' },
-  th: { block: 'table_header' },
-  td: { block: 'table_cell' },
+  th: {
+    block: 'table_header',
+    getAttrs(tok: any) {
+      const attrs: Record<string, unknown> = {};
+      if (tok.attrs) {
+        for (const [key, val] of tok.attrs) {
+          if (key === 'colspan') attrs.colspan = parseInt(val, 10);
+          if (key === 'rowspan') attrs.rowspan = parseInt(val, 10);
+          if (key === 'data-background') attrs.background = val;
+          if (key === 'data-alignment') attrs.alignment = val;
+          if (key === 'data-colwidth') {
+            try { attrs.colwidth = JSON.parse(val); } catch {}
+          }
+        }
+      }
+      return attrs;
+    },
+  },
+  td: {
+    block: 'table_cell',
+    getAttrs(tok: any) {
+      const attrs: Record<string, unknown> = {};
+      if (tok.attrs) {
+        for (const [key, val] of tok.attrs) {
+          if (key === 'colspan') attrs.colspan = parseInt(val, 10);
+          if (key === 'rowspan') attrs.rowspan = parseInt(val, 10);
+          if (key === 'data-background') attrs.background = val;
+          if (key === 'data-alignment') attrs.alignment = val;
+          if (key === 'data-colwidth') {
+            try { attrs.colwidth = JSON.parse(val); } catch {}
+          }
+        }
+      }
+      return attrs;
+    },
+  },
+
+  // Content link (inline node)
+  content_link: { node: 'content_link', getAttrs: (tok) => ({
+    contentId: tok.attrGet('contentId') || '',
+    title: tok.attrGet('title') || '',
+  }), noCloseToken: true },
+
+  // Diagram embed
+  diagram_embed: { node: 'diagram_embed', getAttrs: (tok) => ({
+    diagramId: tok.attrGet('diagramId') || '',
+    title: tok.attrGet('title') || 'Untitled Diagram',
+  }), noCloseToken: true },
 
   // HTML inline/block tokens (e.g. <br>) — ignore to prevent parse errors
   // noCloseToken needed because these are single tokens, not open/close pairs
   html_inline: { ignore: true, noCloseToken: true },
   html_block: { ignore: true, noCloseToken: true },
 });
+
+/**
+ * Core rule: convert html_block tokens containing <table> into
+ * proper table/tr/th/td tokens so ProseMirror can parse them.
+ * Extracts style attributes (background-color, text-align) and
+ * col widths into token attrs.
+ */
+function htmlTableRule(state: any) {
+  const tokens = state.tokens;
+  const newTokens: typeof tokens = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    if (tok.type !== 'html_block' || !/<table[\s>]/i.test(tok.content)) {
+      newTokens.push(tok);
+      continue;
+    }
+
+    // Parse the HTML table
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(tok.content, 'text/html');
+    const table = doc.querySelector('table');
+    if (!table) { newTokens.push(tok); continue; }
+
+    // Extract col widths from <colgroup>
+    const colWidths: (number | null)[] = [];
+    table.querySelectorAll('colgroup col').forEach((col) => {
+      const style = (col as HTMLElement).style.width;
+      const match = style?.match(/(\d+)px/);
+      colWidths.push(match ? parseInt(match[1], 10) : null);
+    });
+
+    // table_open
+    const tableOpen = new state.Token('table_open', 'table', 1);
+    tableOpen.block = true;
+    newTokens.push(tableOpen);
+
+    let colIdx = 0;
+    table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tr').forEach((tr) => {
+      const rowOpen = new state.Token('tr_open', 'tr', 1);
+      rowOpen.block = true;
+      newTokens.push(rowOpen);
+
+      let cellColIdx = 0;
+      tr.querySelectorAll(':scope > th, :scope > td').forEach((cell) => {
+        const isHeader = cell.tagName.toLowerCase() === 'th';
+        const tag = isHeader ? 'th' : 'td';
+        const cellOpen = new state.Token(`${tag}_open`, tag, 1);
+        cellOpen.block = true;
+
+        // Extract attributes
+        const colspan = parseInt(cell.getAttribute('colspan') || '1', 10);
+        const rowspan = parseInt(cell.getAttribute('rowspan') || '1', 10);
+        const bg = (cell as HTMLElement).style.backgroundColor || null;
+        const align = (cell as HTMLElement).style.textAlign || null;
+
+        // Build colwidth array for this cell
+        const cw: number[] = [];
+        for (let c = 0; c < colspan; c++) {
+          cw.push(colWidths[cellColIdx + c] || 0);
+        }
+        cellColIdx += colspan;
+
+        cellOpen.attrs = [];
+        if (colspan > 1) cellOpen.attrs.push(['colspan', String(colspan)]);
+        if (rowspan > 1) cellOpen.attrs.push(['rowspan', String(rowspan)]);
+        if (bg) cellOpen.attrs.push(['data-background', bg]);
+        if (align) cellOpen.attrs.push(['data-alignment', align]);
+        if (cw.some((w: number) => w > 0)) cellOpen.attrs.push(['data-colwidth', JSON.stringify(cw)]);
+
+        newTokens.push(cellOpen);
+
+        // Cell content as inline token wrapped in paragraph
+        const content = cell.textContent?.trim() || '';
+        const pOpen = new state.Token('paragraph_open', 'p', 1);
+        pOpen.block = true;
+        newTokens.push(pOpen);
+
+        const inline = new state.Token('inline', '', 0);
+        inline.content = content;
+        inline.children = [];
+        // Re-parse inline content through markdown-it
+        state.md.inline.parse(content, state.md, state.env, inline.children);
+        newTokens.push(inline);
+
+        const pClose = new state.Token('paragraph_close', 'p', -1);
+        pClose.block = true;
+        newTokens.push(pClose);
+
+        const cellClose = new state.Token(`${tag}_close`, tag, -1);
+        cellClose.block = true;
+        newTokens.push(cellClose);
+      });
+
+      const rowClose = new state.Token('tr_close', 'tr', -1);
+      rowClose.block = true;
+      newTokens.push(rowClose);
+    });
+
+    const tableClose = new state.Token('table_close', 'table', -1);
+    tableClose.block = true;
+    newTokens.push(tableClose);
+  }
+
+  state.tokens = newTokens;
+}
 
 export function parseMarkdown(markdown: string): PMNode | null {
   try {
@@ -577,7 +787,7 @@ export function parseMarkdown(markdown: string): PMNode | null {
     markdown = markdown.replace(/\\+\s*$/, '');
     return markdownParser.parse(markdown);
   } catch (e: any) {
-    console.error('Markdown parse error:', e.message);
+    showError(getT()('errors.markdownParseFailed'), e);
     // Fallback: wrap as plain text in a paragraph
     return schema.node('doc', null, [
       schema.node('paragraph', null, markdown ? [schema.text(markdown)] : []),
@@ -663,6 +873,19 @@ export const markdownSerializer = new MarkdownSerializer(
       state.text(node.text || '');
     },
     table(state, node) {
+      // Check if table has any attributes that GFM markdown can't represent
+      function needsHtmlTable(tableNode: PMNode): boolean {
+        let needs = false;
+        tableNode.forEach((row) => {
+          row.forEach((cell) => {
+            if (cell.attrs.colspan > 1 || cell.attrs.rowspan > 1) needs = true;
+            if (cell.attrs.background) needs = true;
+            if (cell.attrs.colwidth && cell.attrs.colwidth.some((w: number) => w > 0)) needs = true;
+          });
+        });
+        return needs;
+      }
+
       // Serialize inline content of a single node (paragraph, heading, list_item child, etc.)
       function serializeInline(block: PMNode): string {
         const parts: string[] = [];
@@ -764,6 +987,60 @@ export const markdownSerializer = new MarkdownSerializer(
         return serializeBlocks(cell);
       }
 
+      function serializeHtmlTable(tableNode: PMNode) {
+        // Collect column widths from first row
+        const firstRow = tableNode.child(0);
+        const colWidths: (number | null)[] = [];
+        firstRow.forEach((cell) => {
+          const cw = cell.attrs.colwidth;
+          if (cw && Array.isArray(cw)) {
+            cw.forEach((w: number) => colWidths.push(w > 0 ? w : null));
+          } else {
+            for (let c = 0; c < (cell.attrs.colspan || 1); c++) colWidths.push(null);
+          }
+        });
+
+        let html = '<table>\n';
+
+        // Colgroup for widths
+        if (colWidths.some((w) => w !== null)) {
+          html += '<colgroup>';
+          for (const w of colWidths) {
+            html += w ? `<col style="width: ${w}px" />` : '<col />';
+          }
+          html += '</colgroup>\n';
+        }
+
+        tableNode.forEach((row) => {
+          html += '<tr>';
+          row.forEach((cell) => {
+            const isHeader = cell.type.name === 'table_header';
+            const tag = isHeader ? 'th' : 'td';
+            const attrs: string[] = [];
+            if (cell.attrs.colspan > 1) attrs.push(`colspan="${cell.attrs.colspan}"`);
+            if (cell.attrs.rowspan > 1) attrs.push(`rowspan="${cell.attrs.rowspan}"`);
+            const styles: string[] = [];
+            if (cell.attrs.background) styles.push(`background-color: ${cell.attrs.background}`);
+            if (cell.attrs.alignment) styles.push(`text-align: ${cell.attrs.alignment}`);
+            if (styles.length) attrs.push(`style="${styles.join('; ')}"`);
+
+            const attrStr = attrs.length ? ' ' + attrs.join(' ') : '';
+            const content = serializeBlocks(cell);
+            html += `<${tag}${attrStr}>${content}</${tag}>`;
+          });
+          html += '</tr>\n';
+        });
+
+        html += '</table>\n\n';
+        state.write(html);
+      }
+
+      // Use HTML table if any cell has attributes that GFM can't represent
+      if (needsHtmlTable(node)) {
+        serializeHtmlTable(node);
+        return;
+      }
+
       const rows: string[][] = [];
       node.forEach((row) => {
         const cells: string[] = [];
@@ -805,6 +1082,16 @@ export const markdownSerializer = new MarkdownSerializer(
       state.text(node.textContent, false);
       state.ensureNewLine();
       state.write('$$');
+      state.closeBlock(node);
+    },
+    content_link(state, node) {
+      const title = node.attrs.title || node.attrs.contentId;
+      state.write(`[${title}](/content?id=${encodeURIComponent(node.attrs.contentId)})`);
+    },
+    diagram_embed(state, node) {
+      const id = node.attrs.diagramId || '';
+      const title = (node.attrs.title || 'Untitled Diagram').replace(/"/g, '&quot;');
+      state.write(`<div class="diagram-embed-node" data-diagram-id="${id}" data-title="${title}"></div>`);
       state.closeBlock(node);
     },
   },

@@ -1,40 +1,82 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
 import {
-  ArrowLeft, ArrowLeftToLine, ArrowRightToLine,
-  MoreHorizontal, Link2, Download, Trash2, ChevronRight,
-  Plus, Type, Square, Circle as CircleIcon, Triangle as TriangleIcon,
-  Image as ImageIcon, Play, Copy, ChevronUp, ChevronDown,
-  Undo2, Redo2, Presentation as PresentationIcon, Minus,
-  MousePointer2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
-  ArrowUpToLine, ArrowDownToLine, MoveUp, MoveDown,
+  Link2, Download, Trash2,
+  Play,
+  MessageSquare, Clock,
+  ExternalLink, AtSign, Share2, Pin, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
+import { ContentTopBar } from '@/components/shared/ContentTopBar';
+import { CommentPanel } from '@/components/shared/CommentPanel';
+import { RevisionHistory } from '@/components/shared/RevisionHistory';
+import { BottomSheet } from '@/components/shared/BottomSheet';
+import { usePinchZoom } from '@/lib/hooks/use-pinch-zoom';
+import { SlidePreviewList } from '@/components/shared/SlidePreviewList';
+import { MobileCommentBar } from '@/components/shared/MobileCommentBar';
+import type { ShapeType } from '@/components/shared/ShapeSet/shapes';
+import { renderCellsToSVG } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
+import { pickFile } from '@/lib/utils/pick-file';
+import { DiagramPicker } from '@/components/shared/EmbeddedDiagram/DiagramPicker';
+import { DiagramEditorDialog } from '@/components/shared/EmbeddedDiagram/DiagramEditorDialog';
+import { createFabricShape } from '@/components/shared/ShapeSet/adapters/FabricShape';
+import { pptObjectActions, pptCanvasActions, type PPTObjectCtx, type PPTCanvasCtx } from '@/actions/ppt-object.actions';
+import { pptSlideActions, type PPTSlideCtx } from '@/actions/ppt-slide.actions';
+import { pptSurfaces } from '@/surfaces/ppt.surfaces';
+import { toContextMenuItems } from '@/surfaces/bridge';
+import { buildActionMap } from '@/actions/types';
+import { useKeyboardScope } from '@/lib/keyboard';
+import type { ShortcutRegistration } from '@/lib/keyboard';
+import {
+  type SlideData,
+  SLIDE_WIDTH, SLIDE_HEIGHT, DEFAULT_SLIDE,
+  fitCanvasToContainer, getObjType, formatRelativeTime,
+} from './types';
+import { SlidePanel } from './SlidePanel';
+import { SlideCanvas } from './SlideCanvas';
+import { PropertyPanel } from './PropertyPanel';
+import { PresenterMode } from './PresenterMode';
 
-// ─── Types ──────────────────────────────────────────
-interface SlideData {
-  elements: any[];
-  background: string;
-  notes: string;
-}
+const pptObjectActionMap = buildActionMap(pptObjectActions);
+const pptCanvasActionMap = buildActionMap(pptCanvasActions);
+const pptSlideActionMap = buildActionMap(pptSlideActions);
 
-interface PresentationData {
-  slides: SlideData[];
-}
-
-interface PresentationEditorProps {
-  presentationId: string;
-  breadcrumb?: { id: string; title: string }[];
-  onBack?: () => void;
-  onDeleted?: () => void;
-  onCopyLink?: () => void;
-  docListVisible?: boolean;
-  onToggleDocList?: () => void;
-}
+const PPT_SHORTCUTS: ShortcutRegistration[] = [
+  {
+    id: 'ppt-duplicate',
+    key: 'd',
+    modifiers: { meta: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:duplicate')),
+    label: 'Duplicate',
+    category: 'Presentation',
+    priority: 5,
+  },
+  {
+    id: 'ppt-group',
+    key: 'g',
+    modifiers: { meta: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:group')),
+    label: 'Group',
+    category: 'Presentation',
+    priority: 5,
+  },
+  {
+    id: 'ppt-ungroup',
+    key: 'g',
+    modifiers: { meta: true, shift: true },
+    handler: () => window.dispatchEvent(new CustomEvent('ppt:ungroup')),
+    label: 'Ungroup',
+    category: 'Presentation',
+    priority: 6,
+  },
+];
+// NOTE: ⌘C/⌘X/⌘V/Delete/Backspace are handled in onKeyDown (capture phase)
+// via action maps — not registered here because they require canvasRef.
 
 // ─── Fabric.js Dynamic Import ───────────────────────
 let fabricModule: any = null;
@@ -48,56 +90,6 @@ function loadFabric() {
   });
 }
 
-// ─── Constants ──────────────────────────────────────
-const SLIDE_WIDTH = 960;
-const SLIDE_HEIGHT = 540;
-const THUMB_WIDTH = 180;
-const THUMB_HEIGHT = Math.round(THUMB_WIDTH * (SLIDE_HEIGHT / SLIDE_WIDTH));
-
-const DEFAULT_SLIDE: SlideData = {
-  elements: [],
-  background: '#ffffff',
-  notes: '',
-};
-
-function formatRelativeTime(ts: number): string {
-  const now = Date.now();
-  const diff = now - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} minutes ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} days ago`;
-}
-
-// ─── Fit canvas to container using Fabric.js zoom ────
-function fitCanvasToContainer(canvas: any, container: HTMLElement | null) {
-  if (!canvas || !container) return;
-  const rect = container.getBoundingClientRect();
-  const { width, height } = rect;
-  if (width < 50 || height < 50) return;
-  const padding = 40;
-  const scale = Math.min((width - padding) / SLIDE_WIDTH, (height - padding) / SLIDE_HEIGHT);
-  if (scale <= 0 || !isFinite(scale)) return;
-
-  const canvasW = Math.round(SLIDE_WIDTH * scale);
-  const canvasH = Math.round(SLIDE_HEIGHT * scale);
-
-  // Update Fabric canvas dimensions and zoom
-  canvas.setDimensions({ width: canvasW, height: canvasH });
-  canvas.setZoom(scale);
-  canvas.renderAll();
-
-  // Center the Fabric wrapper div within the container
-  const wrapper = container.querySelector('.canvas-wrapper') as HTMLElement;
-  if (wrapper) {
-    wrapper.style.marginLeft = `${Math.max(0, Math.round((width - canvasW) / 2))}px`;
-    wrapper.style.marginTop = `${Math.max(0, Math.round((height - canvasH) / 2))}px`;
-  }
-}
-
 // ─── Main Component ─────────────────────────────────
 export function PresentationEditor({
   presentationId,
@@ -107,32 +99,147 @@ export function PresentationEditor({
   onCopyLink,
   docListVisible,
   onToggleDocList,
+  onNavigate,
 }: PresentationEditorProps) {
   const { t } = useT();
+
+  // Register presentation keyboard scope + context shortcuts
+  useKeyboardScope('presentation', PPT_SHORTCUTS);
   const queryClient = useQueryClient();
 
   // State
   const [ready, setReady] = useState(fabricLoaded);
-  const [showMenu, setShowMenu] = useState(false);
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [editTitle, setEditTitle] = useState('');
+  // Title editing now handled by ContentTopBar
   const [slides, setSlides] = useState<SlideData[]>([]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [selectedTool, setSelectedTool] = useState<'select' | 'text' | 'rect' | 'circle' | 'triangle'>('select');
   const [isPresenting, setIsPresenting] = useState(false);
+  const [selectedObj, setSelectedObj] = useState<any>(null);
+  // Counter to force property panel re-render when object properties change
+  const [propVersion, setPropVersion] = useState(0);
+  const [showPropertyPanel, setShowPropertyPanel] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedSlideIndices, setSelectedSlideIndices] = useState<Set<number>>(new Set([0]));
+  const slideClipboardRef = useRef<SlideData[]>([]);
+  const [mobileEditMode, setMobileEditMode] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
+  // All table objects on the current slide (for DOM RichTable overlays)
+  const [tableObjects, setTableObjects] = useState<any[]>([]);
+  const [diagramPicker, setDiagramPicker] = useState(false);
+  const [editingDiagramId, setEditingDiagramId] = useState<string | null>(null);
+
+  // Track screen width for mobile vertical preview
+  useEffect(() => {
+    const checkMobile = () => setIsMobileView(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Auto-save revision tracking
+  const lastRevisionRef = useRef<number>(0);
+  const REVISION_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
   // Refs
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canvasRef = useRef<any>(null);
-  const canvasHostRef = useRef<HTMLDivElement>(null); // div where Fabric mounts its canvas
+  const canvasHostRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  // titleInputRef removed — title editing handled by ContentTopBar
   const undoStackRef = useRef<string[]>([]);
   const redoStackRef = useRef<string[]>([]);
+  const [undoVersion, setUndoVersion] = useState(0); // triggers re-render for canUndo/canRedo
+  const UNDO_LIMIT = 50;
   const isLoadingSlideRef = useRef(false);
+  const isUndoingRef = useRef(false); // prevent pushSnapshot during undo/redo load
   const saveCurrentSlideToStateRef = useRef<() => void>(() => {});
   const modifiedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSnapshotRef = useRef<string | null>(null); // last pushed snapshot to avoid duplicates
+  const clipboardRef = useRef<any>(null); // fabric.js object clipboard for Cmd+C/V
+
+  // ─── Undo / Redo ──────────────────────────────────
+  const pushSnapshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || isLoadingSlideRef.current || isUndoingRef.current) return;
+    const serialized = canvasRef.current ? JSON.stringify(canvas.toJSON()) : null;
+    if (!serialized) return;
+    // Skip if identical to last snapshot (e.g. redundant triggers)
+    if (serialized === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = serialized;
+    undoStackRef.current.push(serialized);
+    if (undoStackRef.current.length > UNDO_LIMIT) {
+      undoStackRef.current.shift();
+    }
+    redoStackRef.current = [];
+    setUndoVersion(v => v + 1);
+    console.log('[PPT Undo] pushSnapshot, stack size:', undoStackRef.current.length);
+  }, []);
+
+  const pptUndo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    console.log('[PPT Undo] pptUndo called, stack size:', undoStackRef.current.length);
+    if (!canvas || undoStackRef.current.length === 0) {
+      console.log('[PPT Undo] pptUndo SKIPPED — canvas:', !!canvas, 'stack:', undoStackRef.current.length);
+      return;
+    }
+    // Save current state to redo stack
+    const currentJson = JSON.stringify(canvas.toJSON());
+    redoStackRef.current.push(currentJson);
+    // Pop previous state
+    const prev = undoStackRef.current.pop()!;
+    lastSnapshotRef.current = prev;
+    // Load it (fabric.js v6 uses Promise API)
+    isUndoingRef.current = true;
+    try {
+      await canvas.loadFromJSON(prev);
+      canvas.renderAll();
+      console.log('[PPT Undo] loadFromJSON complete, remaining stack:', undoStackRef.current.length);
+    } finally {
+      isUndoingRef.current = false;
+      saveCurrentSlideToStateRef.current();
+      setPropVersion(v => v + 1);
+    }
+    setUndoVersion(v => v + 1);
+  }, []);
+
+  const pptRedo = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || redoStackRef.current.length === 0) return;
+    // Save current state to undo stack
+    const currentJson = JSON.stringify(canvas.toJSON());
+    undoStackRef.current.push(currentJson);
+    lastSnapshotRef.current = currentJson;
+    // Pop redo state
+    const next = redoStackRef.current.pop()!;
+    // Load it (fabric.js v6 uses Promise API)
+    isUndoingRef.current = true;
+    try {
+      await canvas.loadFromJSON(next);
+      canvas.renderAll();
+    } finally {
+      isUndoingRef.current = false;
+      saveCurrentSlideToStateRef.current();
+      setPropVersion(v => v + 1);
+    }
+    setUndoVersion(v => v + 1);
+  }, []);
+
+  // ─── Pinch-to-zoom & touch pan for mobile ──────────
+  usePinchZoom(canvasContainerRef, {
+    onZoom: (newScale, center) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      // Fabric.js zoom: setZoom sets an absolute zoom level.
+      // We need to clamp and apply relative to SLIDE_WIDTH fitting.
+      canvas.setZoom(newScale);
+      canvas.renderAll();
+    },
+    getCurrentScale: () => canvasRef.current?.getZoom() ?? 1,
+    minScale: 0.2,
+    maxScale: 3,
+  });
 
   // Load Fabric.js
   useEffect(() => {
@@ -165,8 +272,14 @@ export function PresentationEditor({
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       gw.savePresentation(presentationId, { slides: updatedSlides }).catch((err) => {
-        console.error('Presentation auto-save failed:', err);
+        showError('Presentation auto-save failed', err);
       });
+      // Auto-create revision every 5 minutes
+      const now = Date.now();
+      if (now - lastRevisionRef.current > REVISION_INTERVAL) {
+        lastRevisionRef.current = now;
+        gw.createContentRevision(`presentation:${presentationId}`, { slides: updatedSlides }).catch(() => {});
+      }
     }, 800);
   }, [presentationId]);
 
@@ -174,7 +287,6 @@ export function PresentationEditor({
   useEffect(() => {
     if (!ready || !canvasHostRef.current || canvasRef.current) return;
 
-    // Create a canvas element outside React's control
     const canvasEl = document.createElement('canvas');
     canvasEl.width = SLIDE_WIDTH;
     canvasEl.height = SLIDE_HEIGHT;
@@ -189,30 +301,93 @@ export function PresentationEditor({
     });
     canvasRef.current = canvas;
 
-    // Initial fit to container — use rAF to ensure layout has settled
     requestAnimationFrame(() => {
       fitCanvasToContainer(canvas, canvasContainerRef.current);
     });
 
-    // Track changes for undo and auto-save — use ref to always get latest closure
-    // Debounce during text editing to avoid cursor lag
+    // Scan canvas for table objects and update state for DOM overlays
+    const refreshTableObjects = () => {
+      const tables = canvas.getObjects().filter((o: any) => o.__isTable);
+      setTableObjects([...tables]); // new array ref to trigger re-render
+    };
+
+    // ── Undo: capture canvas state BEFORE each interaction ──
+    // pushSnapshotRef avoids stale closure — always calls latest pushSnapshot
+    const pushSnapshotRef = { current: pushSnapshot };
+
+    // Capture state before a transform (drag/scale/rotate) begins
+    const handleBeforeTransform = () => {
+      if (isLoadingSlideRef.current || isUndoingRef.current) return;
+      pushSnapshotRef.current();
+    };
+
+    // Coalesced snapshot for programmatic changes (PropertyPanel sliders, color pickers)
+    // Groups rapid consecutive changes into a single undo step (300ms window)
+    let lastBeforeModifiedAt = 0;
+    const handleBeforeModified = () => {
+      console.log('[PPT Undo] before:modified fired, isLoading:', isLoadingSlideRef.current, 'isUndoing:', isUndoingRef.current);
+      if (isLoadingSlideRef.current || isUndoingRef.current) return;
+      const now = Date.now();
+      if (now - lastBeforeModifiedAt < 300) { console.log('[PPT Undo] before:modified COALESCED (within 300ms)'); return; }
+      lastBeforeModifiedAt = now;
+      pushSnapshotRef.current();
+    };
+
+    canvas.on('before:transform', handleBeforeTransform);
+    // Capture state before programmatic property changes (PropertyPanel, toolbar handlers)
+    canvas.on('before:modified', handleBeforeModified);
+    // Text editing: capture state when entering/exiting text edit mode
+    canvas.on('text:editing:entered', handleBeforeTransform);
+    canvas.on('text:editing:exited', handleBeforeTransform);
+    // Note: object:added/removed snapshots are handled via before:modified at call sites
+    // (object:added fires AFTER the object is on canvas, capturing wrong state)
+
+    // Track changes for auto-save
     const handleModified = () => {
       if (isLoadingSlideRef.current) return;
       if (modifiedDebounceRef.current) clearTimeout(modifiedDebounceRef.current);
       modifiedDebounceRef.current = setTimeout(() => {
         saveCurrentSlideToStateRef.current();
+        // Update property panel to reflect changes
+        setPropVersion(v => v + 1);
       }, 300);
     };
-    // Immediate save for add/remove (not frequent like text editing)
     const handleAddRemove = () => {
       if (isLoadingSlideRef.current) return;
       saveCurrentSlideToStateRef.current();
+      refreshTableObjects();
     };
 
     canvas.on('object:modified', handleModified);
     canvas.on('text:changed', handleModified);
     canvas.on('object:added', handleAddRemove);
     canvas.on('object:removed', handleAddRemove);
+    // Update property panel on scaling/moving
+    canvas.on('object:scaling', () => setPropVersion(v => v + 1));
+    canvas.on('object:moving', () => setPropVersion(v => v + 1));
+    canvas.on('object:rotating', () => setPropVersion(v => v + 1));
+
+    // Selection tracking
+    const onSelect = () => {
+      setSelectedObj(canvas.getActiveObject());
+      setPropVersion(v => v + 1);
+    };
+    const onDeselect = () => {
+      setSelectedObj(null);
+      setPropVersion(v => v + 1);
+    };
+    canvas.on('selection:created', onSelect);
+    canvas.on('selection:updated', onSelect);
+    canvas.on('selection:cleared', onDeselect);
+
+    // Double-click to open embedded diagrams
+    canvas.on('mouse:dblclick', (e: any) => {
+      const obj = e.target;
+      if (obj && (obj as any).__diagramId) {
+        setEditingDiagramId((obj as any).__diagramId);
+        return;
+      }
+    });
 
     // ResizeObserver for responsive sizing
     const container = canvasContainerRef.current;
@@ -222,22 +397,293 @@ export function PresentationEditor({
       observer.observe(container);
     }
 
+    // Table grid lines are rendered by DOM RichTable overlays — no canvas drawing needed
+    // Refresh table object list after each render (catches slide loads)
+    canvas.on('after:render', refreshTableObjects);
+
     return () => {
       observer?.disconnect();
       canvas.dispose();
       canvasRef.current = null;
     };
-    // re-run when ready or when loading completes (so canvasHostRef is in DOM)
   }, [ready, isLoading]);
+
+  // ─── Context menu: desktop right-click + mobile long-press ──
+  useEffect(() => {
+    const showMenu = (x: number, y: number) => {
+      const canvas = canvasRef.current;
+      const activeObj = canvas?.getActiveObject();
+      let items;
+      if (activeObj) {
+        const ctx: PPTObjectCtx = {
+          canvas,
+          activeObject: activeObj,
+          clipboardRef,
+          setShowComments: (v) => setShowComments(v),
+        };
+        items = toContextMenuItems(pptSurfaces.canvasObject, pptObjectActionMap, ctx, t);
+      } else {
+        const ctx: PPTCanvasCtx = {
+          canvas,
+          clipboardRef,
+          setShowComments: (v) => setShowComments(v),
+          openBackground: () => {
+            canvas?.discardActiveObject();
+            canvas?.renderAll();
+            setShowPropertyPanel(true);
+            setPropVersion(v => v + 1);
+          },
+        };
+        items = toContextMenuItems(pptSurfaces.canvasEmpty, pptCanvasActionMap, ctx, t);
+      }
+      if (items.length > 0) {
+        window.dispatchEvent(new CustomEvent('show-context-menu', { detail: { items, x, y } }));
+      }
+    };
+
+    // Desktop: right-click — register on document (capture) so it fires even
+    // after canvasContainerRef mounts (which happens after isLoading clears).
+    const onContextMenu = (e: MouseEvent) => {
+      const container = canvasContainerRef.current;
+      if (!container || !container.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const target = canvas.findTarget(e as any);
+        if (target && target !== canvas.getActiveObject()) {
+          canvas.setActiveObject(target);
+          canvas.renderAll();
+        }
+      }
+      showMenu(e.clientX, e.clientY);
+    };
+    document.addEventListener('contextmenu', onContextMenu, true);
+
+    // Mobile: long-press
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let touchStartPos: { x: number; y: number } | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        return;
+      }
+      const touch = e.touches[0];
+      touchStartPos = { x: touch.clientX, y: touch.clientY };
+      longPressTimer = setTimeout(() => {
+        if (touchStartPos) showMenu(touchStartPos.x, touchStartPos.y);
+      }, 500);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (longPressTimer && touchStartPos) {
+        const touch = e.touches[0];
+        if (touch) {
+          const dx = touch.clientX - touchStartPos.x;
+          const dy = touch.clientY - touchStartPos.y;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      touchStartPos = null;
+    };
+
+    const touchContainer = canvasContainerRef.current;
+    if (touchContainer) {
+      touchContainer.addEventListener('touchstart', onTouchStart, { passive: true });
+      touchContainer.addEventListener('touchmove', onTouchMove, { passive: true });
+      touchContainer.addEventListener('touchend', onTouchEnd);
+      touchContainer.addEventListener('touchcancel', onTouchEnd);
+    }
+
+    return () => {
+      document.removeEventListener('contextmenu', onContextMenu, true);
+      if (touchContainer) {
+        touchContainer.removeEventListener('touchstart', onTouchStart);
+        touchContainer.removeEventListener('touchmove', onTouchMove);
+        touchContainer.removeEventListener('touchend', onTouchEnd);
+        touchContainer.removeEventListener('touchcancel', onTouchEnd);
+      }
+      if (longPressTimer) clearTimeout(longPressTimer);
+    };
+  }, [ready]);
+
+  // ─── Keyboard shortcuts: Undo/Redo (⌘Z/⌘⇧Z), Copy/Paste (⌘C/⌘V) ──
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      // Read canvas inside handler to avoid stale closure
+      const canvas = canvasRef.current;
+      // Don't intercept if inside a ProseMirror editor or text input
+      const el = e.target as HTMLElement;
+      if (el?.closest?.('.ProseMirror')) return;
+      // Allow fabric.js textarea (text editing) to handle its own Cmd+C/V/Z/Delete
+      const activeObj = canvas?.getActiveObject();
+      const isFabricTextEditing = !!(activeObj as any)?.isEditing;
+
+      // Delete / Backspace — remove selected canvas object
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const deleteCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-delete'].execute(deleteCtx);
+        return;
+      }
+
+      if (!meta) return;
+
+      if (e.key === 'z' && !isFabricTextEditing) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        console.log('[PPT Undo] keydown Cmd+Z caught, shift:', e.shiftKey);
+        if (e.shiftKey) {
+          pptRedo();
+        } else {
+          pptUndo();
+        }
+      } else if (e.key === 'c' && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const copyCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-copy'].execute(copyCtx);
+      } else if (e.key === 'x' && !isFabricTextEditing) {
+        if (!canvas || !activeObj) return;
+        e.preventDefault();
+        const cutCtx: PPTObjectCtx = { canvas, activeObject: activeObj, clipboardRef, setShowComments: () => {} };
+        pptObjectActionMap['ppt-cut'].execute(cutCtx);
+      } else if (e.key === 'v' && !isFabricTextEditing) {
+        if (!canvas || !clipboardRef.current) return;
+        e.preventDefault();
+        const pasteCtx: PPTCanvasCtx = { canvas, clipboardRef, setShowComments: () => {}, openBackground: () => {} };
+        pptCanvasActionMap['ppt-canvas-paste'].execute(pasteCtx);
+      }
+    };
+
+    // Also listen for global 'undo'/'redo' custom events from KeyboardManager
+    const onUndoEvent = () => { console.log('[PPT Undo] received window "undo" event'); pptUndo(); };
+    const onRedoEvent = () => { console.log('[PPT Undo] received window "redo" event'); pptRedo(); };
+
+    window.addEventListener('keydown', onKeyDown, true); // capture phase
+    window.addEventListener('undo', onUndoEvent);
+    window.addEventListener('redo', onRedoEvent);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('undo', onUndoEvent);
+      window.removeEventListener('redo', onRedoEvent);
+    };
+  }, [pptUndo, pptRedo]);
+
+  // ─── Slide panel operations (cut/copy/paste/delete/duplicate) ──
+  const handleSlideCut = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    if (slides.length - indices.length === 0) return; // don't delete all
+    slideClipboardRef.current = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+    const toDelete = [...indices].reverse();
+    const newSlides = [...slides];
+    toDelete.forEach(i => { newSlides.splice(i, 1); });
+    const newIdx = Math.min(currentSlideIndex, newSlides.length - 1);
+    setSlides(newSlides);
+    setCurrentSlideIndex(newIdx);
+    setSelectedSlideIndices(new Set([newIdx]));
+  }, [slides, currentSlideIndex, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideCopy = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    slideClipboardRef.current = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+  }, [slides, selectedSlideIndices]);
+
+  const handleSlidePaste = useCallback((_i: number) => {
+    if (slideClipboardRef.current.length === 0) return;
+    const newSlides = [...slides];
+    const insertAt = currentSlideIndex + 1;
+    const pasted = slideClipboardRef.current.map(s => JSON.parse(JSON.stringify(s)));
+    newSlides.splice(insertAt, 0, ...pasted);
+    setSlides(newSlides);
+    setCurrentSlideIndex(insertAt);
+    setSelectedSlideIndices(new Set([insertAt]));
+  }, [slides, currentSlideIndex, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideDelete = useCallback((_i: number) => {
+    if (slides.length <= 1) return;
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    const toDelete = [...indices].reverse();
+    const newSlides = [...slides];
+    toDelete.forEach(i => { newSlides.splice(i, 1); });
+    const newIdx = Math.min(Math.min(...indices), newSlides.length - 1);
+    setSlides(newSlides);
+    setCurrentSlideIndex(newIdx);
+    setSelectedSlideIndices(new Set([newIdx]));
+  }, [slides, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideDuplicate = useCallback((_i: number) => {
+    const indices = Array.from(selectedSlideIndices).sort((a, b) => a - b);
+    const dupes = indices.map(i => JSON.parse(JSON.stringify(slides[i])));
+    const newSlides = [...slides];
+    const insertAt = Math.max(...indices) + 1;
+    newSlides.splice(insertAt, 0, ...dupes);
+    setSlides(newSlides);
+    setCurrentSlideIndex(insertAt);
+    setSelectedSlideIndices(new Set([insertAt]));
+  }, [slides, selectedSlideIndices, setSlides, setCurrentSlideIndex]);
+
+  const handleSlideBackground = useCallback((_i: number) => {
+    // Slide background editing is handled via the property panel
+    setShowPropertyPanel(true);
+    setPropVersion(v => v + 1);
+  }, []);
+
+  const handleSlideComment = useCallback((_i: number) => {
+    setShowComments(true);
+    setShowHistory(false);
+  }, []);
+
+  // ─── Clear undo stack on slide switch ──
+  useEffect(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    lastSnapshotRef.current = null;
+    setUndoVersion(v => v + 1);
+  }, [currentSlideIndex]);
 
   // ─── Load slide onto canvas ───────────────────────
   const loadSlideToCanvas = useCallback((slide: SlideData) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // FIX 1: Set loading flag BEFORE clear to prevent object:removed from writing empty data
     isLoadingSlideRef.current = true;
 
     canvas.clear();
     canvas.backgroundColor = slide.background || '#ffffff';
+
+    // Background image support
+    if (slide.backgroundImage && fabricModule.FabricImage) {
+      const bgImg = new window.Image();
+      bgImg.crossOrigin = 'anonymous';
+      bgImg.onload = () => {
+        const fImg = new fabricModule.FabricImage(bgImg, {
+          originX: 'left',
+          originY: 'top',
+        });
+        // Scale to cover the slide
+        const scaleX = SLIDE_WIDTH / bgImg.width;
+        const scaleY = SLIDE_HEIGHT / bgImg.height;
+        const scale = Math.max(scaleX, scaleY);
+        fImg.set({ scaleX: scale, scaleY: scale });
+        canvas.backgroundImage = fImg;
+        canvas.renderAll();
+      };
+      bgImg.src = slide.backgroundImage;
+    } else {
+      canvas.backgroundImage = null;
+    }
 
     const { Textbox, Rect, Circle, Triangle, FabricImage } = fabricModule;
 
@@ -264,9 +710,12 @@ export function PresentationEditor({
           fontWeight: el.fontWeight || 'normal',
           fontStyle: el.fontStyle || 'normal',
           underline: el.underline || false,
+          linethrough: el.linethrough || false,
           textAlign: el.textAlign || 'left',
           lineHeight: el.lineHeight || 1.3,
+          charSpacing: el.charSpacing || 0,
           fontFamily: el.fontFamily || 'Inter, system-ui, sans-serif',
+          padding: el.padding || 0,
         });
       } else if (el.type === 'rect') {
         obj = new Rect({
@@ -275,6 +724,8 @@ export function PresentationEditor({
           ry: el.ry || 0,
           stroke: el.stroke || '',
           strokeWidth: el.strokeWidth || 0,
+          strokeDashArray: el.strokeDashArray || undefined,
+          shadow: el.shadow || undefined,
         });
       } else if (el.type === 'circle') {
         obj = new Circle({
@@ -282,41 +733,132 @@ export function PresentationEditor({
           radius: el.radius || 50,
           stroke: el.stroke || '',
           strokeWidth: el.strokeWidth || 0,
+          strokeDashArray: el.strokeDashArray || undefined,
+          shadow: el.shadow || undefined,
         });
       } else if (el.type === 'triangle') {
         obj = new Triangle({
           ...common,
           stroke: el.stroke || '',
           strokeWidth: el.strokeWidth || 0,
+          strokeDashArray: el.strokeDashArray || undefined,
+          shadow: el.shadow || undefined,
         });
-      } else if (el.type === 'image' && el.src) {
-        // Async image loading — keep isLoadingSlideRef true until all images load
-        pendingImages++;
-        const imgEl = new window.Image();
-        imgEl.crossOrigin = 'anonymous';
-        imgEl.onload = () => {
-          const fabricImg = new FabricImage(imgEl, {
-            left: el.left || 0,
-            top: el.top || 0,
-            scaleX: (el.width || 200) / imgEl.width,
-            scaleY: (el.height || 200) / imgEl.height,
+      } else if (el.type === 'ellipse') {
+        obj = new fabricModule.Ellipse({
+          ...common,
+          rx: el.rx || 50,
+          ry: el.ry || 30,
+          stroke: el.stroke || '',
+          strokeWidth: el.strokeWidth || 0,
+          strokeDashArray: el.strokeDashArray || undefined,
+          shadow: el.shadow || undefined,
+        });
+      } else if (el.type === 'shape' && el.shapeType) {
+        obj = createFabricShape(fabricModule, el.shapeType, {
+          left: el.left || 0,
+          top: el.top || 0,
+          width: el.width || 120,
+          height: el.height || 80,
+          fill: el.fill || '#e2e8f0',
+          stroke: el.stroke || '#94a3b8',
+          strokeWidth: el.strokeWidth || 1,
+        });
+        if (obj) {
+          obj.set({
             angle: el.angle || 0,
+            scaleX: el.scaleX || 1,
+            scaleY: el.scaleY || 1,
+            opacity: el.opacity ?? 1,
+            strokeDashArray: el.strokeDashArray || undefined,
           });
-          canvas.add(fabricImg);
-          canvas.renderAll();
-          pendingImages--;
-          if (pendingImages === 0) {
-            isLoadingSlideRef.current = false;
+          if (el.shadow) obj.set('shadow', el.shadow);
+        }
+      } else if (el.type === 'image' && el.src) {
+        // FIX 2: Use saved scaleX/scaleY directly instead of recalculating
+        pendingImages++;
+
+        // For embedded diagrams, regenerate SVG from diagram data (blob URLs die on refresh)
+        const diagramMatch = typeof el.src === 'string' && el.src.match(/^diagram:(.+)$/);
+        const loadImage = async () => {
+          let imgSrc = el.src;
+          let diagramId: string | null = null;
+          if (diagramMatch) {
+            diagramId = diagramMatch[1];
+            try {
+              const res = await fetch(`/api/gateway/diagrams/${diagramId}`, { headers: gw.gwAuthHeaders() });
+              if (res.ok) {
+                const data = await res.json();
+                const cells = data.data?.cells || data.data?.nodes || [];
+                const svgStr = renderCellsToSVG(cells);
+                const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+                imgSrc = URL.createObjectURL(blob);
+              }
+            } catch {}
           }
+          const imgEl2 = new window.Image();
+          imgEl2.crossOrigin = 'anonymous';
+          imgEl2.onload = () => {
+            const fabricImg = new FabricImage(imgEl2, {
+              left: el.left || 0,
+              top: el.top || 0,
+              scaleX: el.scaleX || ((el.displayWidth || el.width || 200) / imgEl2.width),
+              scaleY: el.scaleY || ((el.displayHeight || el.height || 200) / imgEl2.height),
+              angle: el.angle || 0,
+              opacity: el.opacity ?? 1,
+            });
+            if (el.borderRadius && el.borderRadius > 0 && fabricModule.Rect) {
+              fabricImg.clipPath = new fabricModule.Rect({
+                width: imgEl2.width,
+                height: imgEl2.height,
+                rx: el.borderRadius / (el.scaleX || 1),
+                ry: el.borderRadius / (el.scaleY || 1),
+                originX: 'center',
+                originY: 'center',
+              });
+            }
+            if (el.stroke) {
+              fabricImg.set('stroke', el.stroke);
+              fabricImg.set('strokeWidth', el.strokeWidth || 0);
+            }
+            if (diagramId) {
+              (fabricImg as any).__diagramId = diagramId;
+            } else if (el.__diagramId) {
+              (fabricImg as any).__diagramId = (el.__diagramId as string).replace(/^diagram:/, '');
+            }
+            canvas.add(fabricImg);
+            canvas.renderAll();
+            if (diagramMatch && imgSrc.startsWith('blob:')) {
+              URL.revokeObjectURL(imgSrc);
+            }
+            pendingImages--;
+            if (pendingImages === 0) {
+              isLoadingSlideRef.current = false;
+            }
+          };
+          imgEl2.onerror = () => {
+            pendingImages--;
+            if (pendingImages === 0) {
+              isLoadingSlideRef.current = false;
+            }
+          };
+          imgEl2.src = imgSrc;
         };
-        imgEl.onerror = () => {
-          pendingImages--;
-          if (pendingImages === 0) {
-            isLoadingSlideRef.current = false;
-          }
-        };
-        imgEl.src = el.src;
+        loadImage();
         continue;
+      } else if (el.type === 'table') {
+        // Recreate table placeholder rect
+        const { Rect: RectCls } = fabricModule;
+        obj = new RectCls({
+          ...common,
+          width: el.width || 360,
+          height: el.height || 108,
+          fill: 'transparent',
+          stroke: 'transparent',
+          strokeWidth: 0,
+        });
+        (obj as any).__tableJSON = el.tableJSON || null;
+        (obj as any).__isTable = true;
       }
 
       if (obj) {
@@ -325,7 +867,6 @@ export function PresentationEditor({
     }
 
     canvas.renderAll();
-    // Only mark loading done if no async images are pending
     if (pendingImages === 0) {
       isLoadingSlideRef.current = false;
     }
@@ -335,7 +876,7 @@ export function PresentationEditor({
   const slidesRef = useRef<SlideData[]>(slides);
   slidesRef.current = slides;
 
-  // Load current slide when index changes (NOT when slides change — that causes infinite loop with images)
+  // Load current slide when index changes
   useEffect(() => {
     if (slidesRef.current.length > 0 && canvasRef.current) {
       loadSlideToCanvas(slidesRef.current[currentSlideIndex] || DEFAULT_SLIDE);
@@ -346,6 +887,8 @@ export function PresentationEditor({
   const serializeCanvas = useCallback((): SlideData | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
+    // FIX 4: Refuse to serialize during loading
+    if (isLoadingSlideRef.current) return null;
 
     const elements: any[] = [];
     const objects = canvas.getObjects();
@@ -363,7 +906,9 @@ export function PresentationEditor({
         opacity: obj.opacity ?? 1,
       };
 
-      if (obj.type === 'textbox' || obj.type === 'Textbox') {
+      const objType = getObjType(obj);
+
+      if (objType === 'textbox') {
         elements.push({
           ...base,
           type: 'textbox',
@@ -372,11 +917,14 @@ export function PresentationEditor({
           fontWeight: obj.fontWeight || 'normal',
           fontStyle: obj.fontStyle || 'normal',
           underline: obj.underline || false,
+          linethrough: obj.linethrough || false,
           textAlign: obj.textAlign || 'left',
           lineHeight: obj.lineHeight || 1.3,
+          charSpacing: obj.charSpacing || 0,
           fontFamily: obj.fontFamily || 'Inter, system-ui, sans-serif',
+          padding: obj.padding || 0,
         });
-      } else if (obj.type === 'rect' || obj.type === 'Rect') {
+      } else if (objType === 'rect') {
         elements.push({
           ...base,
           type: 'rect',
@@ -384,27 +932,77 @@ export function PresentationEditor({
           ry: obj.ry || 0,
           stroke: obj.stroke || '',
           strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
         });
-      } else if (obj.type === 'circle' || obj.type === 'Circle') {
+      } else if (objType === 'circle') {
         elements.push({
           ...base,
           type: 'circle',
           radius: obj.radius || 50,
           stroke: obj.stroke || '',
           strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
         });
-      } else if (obj.type === 'triangle' || obj.type === 'Triangle') {
+      } else if (objType === 'triangle') {
         elements.push({
           ...base,
           type: 'triangle',
           stroke: obj.stroke || '',
           strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
         });
-      } else if (obj.type === 'image' || obj.type === 'Image') {
-        elements.push({
+      } else if (objType === 'image') {
+        // FIX 2: Save actual scaleX/scaleY from Fabric object, plus natural dimensions
+        const imgData: any = {
           ...base,
           type: 'image',
           src: obj.getSrc?.() || '',
+          // Save native image dimensions
+          width: obj.width || 0,
+          height: obj.height || 0,
+          scaleX: obj.scaleX || 1,
+          scaleY: obj.scaleY || 1,
+          stroke: obj.stroke || '',
+          strokeWidth: obj.strokeWidth || 0,
+          borderRadius: obj.clipPath?.rx ? Math.round(obj.clipPath.rx * (obj.scaleX || 1)) : 0,
+        };
+        // Preserve diagram metadata for embedded diagrams
+        if ((obj as any).__diagramId) {
+          imgData.__diagramId = (obj as any).__diagramId;
+          // Save a stable marker instead of blob URL (blob URLs die on page refresh)
+          imgData.src = `diagram:${(obj as any).__diagramId}`;
+        }
+        elements.push(imgData);
+      } else if (objType === 'ellipse') {
+        elements.push({
+          ...base,
+          type: 'ellipse',
+          rx: obj.rx || 50,
+          ry: obj.ry || 30,
+          stroke: obj.stroke || '',
+          strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
+        });
+      } else if (objType === 'shape') {
+        // ShapeSet path-based shapes (diamond, star, hexagon, etc.)
+        elements.push({
+          ...base,
+          type: 'shape',
+          shapeType: (obj as any).__shapeType,
+          stroke: obj.stroke || '',
+          strokeWidth: obj.strokeWidth || 0,
+          strokeDashArray: obj.strokeDashArray || undefined,
+          shadow: obj.shadow ? { color: obj.shadow.color, blur: obj.shadow.blur, offsetX: obj.shadow.offsetX, offsetY: obj.shadow.offsetY } : undefined,
+        });
+      } else if (objType === 'table') {
+        elements.push({
+          ...base,
+          type: 'table',
+          tableJSON: obj.__tableJSON || null,
         });
       }
     }
@@ -412,6 +1010,7 @@ export function PresentationEditor({
     return {
       elements,
       background: canvas.backgroundColor || '#ffffff',
+      backgroundImage: slides[currentSlideIndex]?.backgroundImage || undefined,
       notes: slides[currentSlideIndex]?.notes || '',
     };
   }, [currentSlideIndex, slides]);
@@ -428,8 +1027,31 @@ export function PresentationEditor({
     });
   }, [currentSlideIndex, serializeCanvas, triggerSave]);
 
-  // Keep ref in sync so canvas event handlers always use the latest version
   saveCurrentSlideToStateRef.current = saveCurrentSlideToState;
+
+  // ─── Save on unmount — prevent data loss when navigating away ──
+  const serializeCanvasRef = useRef(serializeCanvas);
+  serializeCanvasRef.current = serializeCanvas;
+  const currentSlideIndexRef = useRef(currentSlideIndex);
+  currentSlideIndexRef.current = currentSlideIndex;
+
+  useEffect(() => {
+    return () => {
+      // Flush any pending debounced save
+      if (modifiedDebounceRef.current) clearTimeout(modifiedDebounceRef.current);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      // Serialize current canvas and save immediately (can't use setState in unmount)
+      try {
+        const serialized = serializeCanvasRef.current();
+        if (serialized) {
+          const updated = [...slidesRef.current];
+          updated[currentSlideIndexRef.current] = serialized;
+          gw.savePresentation(presentationId, { slides: updated }).catch(() => {});
+        }
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presentationId]);
 
   // ─── Slide Operations ─────────────────────────────
   const addSlide = useCallback(() => {
@@ -490,69 +1112,250 @@ export function PresentationEditor({
       fontFamily: 'Inter, system-ui, sans-serif',
       fill: '#1a1a1a',
     });
+    canvas.fire('before:modified');
     canvas.add(text);
     canvas.setActiveObject(text);
     canvas.renderAll();
     setSelectedTool('select');
   }, []);
 
-  const addShape = useCallback((shape: 'rect' | 'circle' | 'triangle') => {
+  const addShape = useCallback((shapeType: ShapeType) => {
     const canvas = canvasRef.current;
     if (!canvas || !fabricModule) return;
-    const { Rect, Circle, Triangle } = fabricModule;
 
-    let obj: any;
-    if (shape === 'rect') {
-      obj = new Rect({ left: 100, top: 100, width: 200, height: 150, fill: '#e2e8f0', stroke: '#94a3b8', strokeWidth: 1, rx: 4, ry: 4 });
-    } else if (shape === 'circle') {
-      obj = new Circle({ left: 100, top: 100, radius: 80, fill: '#e2e8f0', stroke: '#94a3b8', strokeWidth: 1 });
-    } else {
-      obj = new Triangle({ left: 100, top: 100, width: 160, height: 140, fill: '#e2e8f0', stroke: '#94a3b8', strokeWidth: 1 });
-    }
+    const obj = createFabricShape(fabricModule, shapeType, {
+      left: 100, top: 100,
+      fill: '#e2e8f0', stroke: '#94a3b8', strokeWidth: 1,
+    });
+    if (!obj) return;
 
+    canvas.fire('before:modified');
     canvas.add(obj);
     canvas.setActiveObject(obj);
     canvas.renderAll();
     setSelectedTool('select');
+  }, [fabricModule]);
+
+  // FIX 3: Upload images to server instead of base64
+  const addImage = useCallback(() => {
+    pickFile({ accept: 'image/*' }).then(async (files) => {
+      const file = files[0];
+      if (!file) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas || !fabricModule) return;
+      const { FabricImage } = fabricModule;
+
+      let imgSrc: string;
+
+      try {
+        // Upload to gateway
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/gateway/uploads', {
+          method: 'POST',
+          headers: gw.gwAuthHeaders(),
+          body: formData,
+        });
+        if (!resp.ok) throw new Error('Upload failed');
+        const data = await resp.json();
+        // Prefix with gateway base URL for full URL
+        imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+      } catch (err) {
+        showError(t('errors.imageUploadFallback'), err);
+        // Fallback to base64 if upload fails
+        imgSrc = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      const imgEl = new window.Image();
+      imgEl.crossOrigin = 'anonymous';
+      imgEl.onload = () => {
+        const scale = Math.min(600 / imgEl.width, 400 / imgEl.height, 1);
+        const fabricImg = new FabricImage(imgEl, {
+          left: 80,
+          top: 80,
+          scaleX: scale,
+          scaleY: scale,
+        });
+        canvas.fire('before:modified');
+        canvas.add(fabricImg);
+        canvas.setActiveObject(fabricImg);
+        canvas.renderAll();
+      };
+      imgEl.src = imgSrc;
+    });
   }, []);
 
-  const addImage = useCallback(() => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const canvas = canvasRef.current;
-        if (!canvas || !fabricModule) return;
-        const { FabricImage } = fabricModule;
-        const imgEl = new window.Image();
-        imgEl.onload = () => {
-          const scale = Math.min(600 / imgEl.width, 400 / imgEl.height, 1);
-          const fabricImg = new FabricImage(imgEl, {
-            left: 80,
-            top: 80,
-            scaleX: scale,
-            scaleY: scale,
-          });
-          canvas.add(fabricImg);
-          canvas.setActiveObject(fabricImg);
-          canvas.renderAll();
-        };
-        imgEl.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
+  // ─── Table insertion ─────────────────────────────────
+  const addTable = useCallback((rows = 3, cols = 3) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !fabricModule) return;
+    const { Rect, Textbox, Group } = fabricModule;
+
+    const cellW = 120;
+    const cellH = 36;
+    const tableW = cellW * cols;
+    const tableH = cellH * rows;
+
+    // Create a placeholder rect for the table on canvas
+    const tableBg = new Rect({
+      left: 80,
+      top: 80,
+      width: tableW,
+      height: tableH,
+      fill: 'transparent',
+      stroke: 'transparent',
+      strokeWidth: 0,
+    });
+
+    // Store table data as ProseMirror JSON — colwidth null, CSS handles equal distribution
+    const headerCells = Array.from({ length: cols }, () => ({
+      type: 'table_header',
+      attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+      content: [{ type: 'paragraph' }],
+    }));
+    const bodyRow = () => ({
+      type: 'table_row',
+      content: Array.from({ length: cols }, () => ({
+        type: 'table_cell',
+        attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+        content: [{ type: 'paragraph' }],
+      })),
+    });
+    const tableJSON = {
+      type: 'doc',
+      content: [{ type: 'table', content: [
+        { type: 'table_row', content: headerCells },
+        ...Array.from({ length: rows - 1 }, bodyRow),
+      ]}],
     };
-    input.click();
+    (tableBg as any).__tableJSON = tableJSON;
+    (tableBg as any).__isTable = true;
+
+    canvas.fire('before:modified');
+    canvas.add(tableBg);
+    canvas.setActiveObject(tableBg);
+    canvas.renderAll();
+    setSelectedTool('select');
   }, []);
+
+  // ─── Diagram insertion ─────────────────────────────
+  const insertDiagram = useCallback(() => {
+    setDiagramPicker(true);
+  }, []);
+
+  const handleDiagramPickerSelect = useCallback(async (diagramId: string, item: any) => {
+    setDiagramPicker(false);
+    const canvas = canvasRef.current;
+    if (!canvas || !fabricModule) return;
+
+    try {
+      // item.id is prefixed (e.g. "diagram:uuid"), API expects raw UUID
+      const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
+      const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
+      if (!res.ok) throw new Error('Failed to load diagram');
+      const data = await res.json();
+      const cells = data.data?.cells || data.data?.nodes || [];
+
+      const svgStr = renderCellsToSVG(cells);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+
+      const { FabricImage } = fabricModule;
+      const imgEl = new window.Image();
+      imgEl.onload = () => {
+        // Default size: 70% of PPT canvas, centered
+        const targetW = SLIDE_WIDTH * 0.7;
+        const targetH = SLIDE_HEIGHT * 0.7;
+        const scale = Math.min(targetW / (imgEl.width || targetW), targetH / (imgEl.height || targetH));
+        const fabricImg = new FabricImage(imgEl, {
+          left: (SLIDE_WIDTH - imgEl.width * scale) / 2,
+          top: (SLIDE_HEIGHT - imgEl.height * scale) / 2,
+          scaleX: scale,
+          scaleY: scale,
+        });
+        (fabricImg as any).__diagramId = rawId;
+        canvas.fire('before:modified');
+        canvas.add(fabricImg);
+        canvas.setActiveObject(fabricImg);
+        canvas.renderAll();
+        URL.revokeObjectURL(url);
+      };
+      imgEl.onerror = () => {
+        showError(t('errors.loadDiagramPreviewFailed'));
+        URL.revokeObjectURL(url);
+      };
+      imgEl.src = url;
+    } catch (err) {
+      showError('Failed to insert diagram', err);
+    }
+  }, [fabricModule]);
+
+  // Dialog close just clears state — the diagram-updated event listener handles preview refresh
+  const handleDiagramEditorClose = useCallback(() => {
+    setEditingDiagramId(null);
+  }, []);
+
+  // Listen for diagram-updated events (from dialog close or external edits)
+  // to refresh diagram preview images on the canvas
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const { diagramId } = (e as CustomEvent).detail || {};
+      if (!diagramId) return;
+      const canvas = canvasRef.current;
+      if (!canvas || !fabricModule) return;
+
+      const rawId = diagramId.replace(/^diagram:/, '');
+      try {
+        const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const cells = data.data?.cells || data.data?.nodes || [];
+        const svgStr = renderCellsToSVG(cells);
+        const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+
+        const objects = canvas.getObjects();
+        const target = objects.find((o: any) => (o as any).__diagramId === rawId);
+        if (target) {
+          const imgEl = new window.Image();
+          imgEl.onload = () => {
+            const { FabricImage } = fabricModule;
+            const newImg = new FabricImage(imgEl, {
+              left: (target as any).left,
+              top: (target as any).top,
+              scaleX: (target as any).scaleX,
+              scaleY: (target as any).scaleY,
+              angle: (target as any).angle,
+            });
+            (newImg as any).__diagramId = rawId;
+            canvas.remove(target);
+            canvas.add(newImg);
+            canvas.renderAll();
+            URL.revokeObjectURL(url);
+          };
+          imgEl.src = url;
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      } catch (err) {
+        showError('Failed to refresh diagram preview', err);
+      }
+    };
+    window.addEventListener('diagram-updated', handler);
+    return () => window.removeEventListener('diagram-updated', handler);
+  }, [fabricModule]);
 
   const deleteSelected = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const active = canvas.getActiveObjects();
     if (active.length > 0) {
+      canvas.fire('before:modified');
       active.forEach((obj: any) => canvas.remove(obj));
       canvas.discardActiveObject();
       canvas.renderAll();
@@ -562,9 +1365,10 @@ export function PresentationEditor({
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (isEditingTitle) return;
+      // Don't delete canvas objects when focus is in an input/select/textarea (e.g. title editing)
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Don't delete when editing text inside a textbox
         const canvas = canvasRef.current;
         if (canvas && !canvas.isEditing) {
           const active = canvas.getActiveObject();
@@ -576,27 +1380,12 @@ export function PresentationEditor({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [deleteSelected, isEditingTitle]);
+  }, [deleteSelected]);
 
-  // ─── Title Editing ────────────────────────────────
-  const startEditTitle = useCallback(() => {
-    setEditTitle(currentTitle || '');
-    setIsEditingTitle(true);
-    setTimeout(() => titleInputRef.current?.select(), 0);
-  }, [currentTitle]);
-
-  const saveTitle = useCallback(async () => {
-    setIsEditingTitle(false);
-    const newTitle = editTitle.trim();
-    if (newTitle !== currentTitle) {
-      await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
-      queryClient.invalidateQueries({ queryKey: ['content-items'] });
-    }
-  }, [editTitle, currentTitle, presentationId, queryClient]);
+  // Title editing now handled by ContentTopBar
 
   // ─── Delete Presentation ──────────────────────────
   const handleDelete = useCallback(async () => {
-    setShowMenu(false);
     await gw.deleteContentItem(`presentation:${presentationId}`);
     queryClient.invalidateQueries({ queryKey: ['content-items'] });
     onDeleted?.();
@@ -604,7 +1393,6 @@ export function PresentationEditor({
 
   // ─── Export PNG ───────────────────────────────────
   const handleDownload = useCallback(() => {
-    setShowMenu(false);
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
@@ -620,25 +1408,37 @@ export function PresentationEditor({
     setIsPresenting(true);
   }, [saveCurrentSlideToState]);
 
-  // (resize observer is set up in canvas setup effect above)
-
-  // ─── Property Panel (selected object) ─────────────
-  const [selectedObj, setSelectedObj] = useState<any>(null);
-
-  useEffect(() => {
+  // ─── Slide background change (for property panel) ──
+  const handleSlideBackgroundChange = useCallback((bg: string) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const onSelect = () => setSelectedObj(canvas.getActiveObject());
-    const onDeselect = () => setSelectedObj(null);
-    canvas.on('selection:created', onSelect);
-    canvas.on('selection:updated', onSelect);
-    canvas.on('selection:cleared', onDeselect);
-    return () => {
-      canvas.off('selection:created', onSelect);
-      canvas.off('selection:updated', onSelect);
-      canvas.off('selection:cleared', onDeselect);
-    };
-  }, [ready, isLoading]);
+    canvas.backgroundColor = bg;
+    canvas.renderAll();
+    setSlides(prev => {
+      const updated = [...prev];
+      updated[currentSlideIndex] = { ...updated[currentSlideIndex], background: bg };
+      triggerSave(updated);
+      return updated;
+    });
+  }, [currentSlideIndex, triggerSave]);
+
+  const handleApplyBackgroundToAll = useCallback(() => {
+    const bg = slides[currentSlideIndex]?.background || '#ffffff';
+    setSlides(prev => {
+      const updated = prev.map(s => ({ ...s, background: bg }));
+      triggerSave(updated);
+      return updated;
+    });
+  }, [currentSlideIndex, slides, triggerSave]);
+
+  const handleSlideBackgroundImageChange = useCallback((bgImage: string | undefined) => {
+    setSlides(prev => {
+      const updated = [...prev];
+      updated[currentSlideIndex] = { ...updated[currentSlideIndex], backgroundImage: bgImage };
+      triggerSave(updated);
+      return updated;
+    });
+  }, [currentSlideIndex, triggerSave]);
 
   // ─── Presenter Mode ──────────────────────────────
   if (isPresenting) {
@@ -669,248 +1469,1113 @@ export function PresentationEditor({
     );
   }
 
-  return (
-    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-white dark:bg-card">
-      {/* ─── Header Bar (consistent with BoardEditor) ─── */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-        <button onClick={onBack} className="md:hidden p-1 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" />
-        </button>
+  // ─── Mobile Vertical Preview Mode (no editing) ────────────────
+  if (isMobileView) {
+    const previewSlides = slides.map((slide, i) => ({
+      id: String(i),
+      data: slide,
+    }));
 
-        {onToggleDocList && (
-          <button
-            onClick={onToggleDocList}
-            className="hidden md:flex p-1 text-muted-foreground hover:text-foreground"
-            title={docListVisible ? 'Hide sidebar' : 'Show sidebar'}
-          >
-            {docListVisible ? <ArrowLeftToLine className="h-4 w-4" /> : <ArrowRightToLine className="h-4 w-4" />}
-          </button>
-        )}
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 text-sm">
-            {breadcrumb?.map((crumb, i) => (
-              <span key={crumb.id} className="flex items-center gap-1 min-w-0">
-                {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
-                {i < (breadcrumb.length - 1) ? (
-                  <span className="text-muted-foreground truncate">{crumb.title}</span>
-                ) : isEditingTitle ? (
-                  <input
-                    ref={titleInputRef}
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={saveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveTitle();
-                      if (e.key === 'Escape') setIsEditingTitle(false);
-                    }}
-                    className="text-foreground font-medium bg-transparent border-b border-primary outline-none min-w-[100px] max-w-[300px]"
-                    autoFocus
-                  />
-                ) : (
-                  <button
-                    onClick={startEditTitle}
-                    className="text-foreground font-medium truncate hover:text-primary transition-colors"
-                    title={t('content.rename') || 'Click to rename'}
-                  >
-                    {crumb.title || (t('content.untitledPresentation') || 'Untitled Presentation')}
-                  </button>
-                )}
-              </span>
-            ))}
-          </div>
-          <div className="text-[11px] text-muted-foreground/50 mt-0.5">
-            {formatRelativeTime(presentation.updated_at)}
-            {presentation.updated_by && <span> &middot; {presentation.updated_by}</span>}
-          </div>
-        </div>
-
-        {/* Right actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={startPresentation}
-            className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            title="Present"
-          >
-            <Play className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Present</span>
-          </button>
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(v => !v)}
-              className="p-1.5 text-muted-foreground hover:text-foreground shrink-0"
-              title={t('content.moreActions') || 'More'}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-            {showMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-52">
-                  <MenuBtn icon={Link2} label={t('content.copyLink') || 'Copy Link'} onClick={() => {
-                    setShowMenu(false);
-                    onCopyLink?.();
-                  }} />
-                  <MenuBtn icon={Download} label={t('content.download') || 'Download PNG'} onClick={handleDownload} />
-                  <div className="border-t border-border my-1" />
-                  <MenuBtn icon={Trash2} label={t('content.delete') || 'Delete'} onClick={handleDelete} danger />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Toolbar ──────────────────────────────────── */}
-      <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0 bg-muted/30">
-        <ToolBtn icon={MousePointer2} active={selectedTool === 'select'} onClick={() => setSelectedTool('select')} title="Select" />
-        <div className="w-px h-5 bg-border mx-1" />
-        <ToolBtn icon={Type} onClick={addTextbox} title="Text" />
-        <ToolBtn icon={Square} onClick={() => addShape('rect')} title="Rectangle" />
-        <ToolBtn icon={CircleIcon} onClick={() => addShape('circle')} title="Circle" />
-        <ToolBtn icon={TriangleIcon} onClick={() => addShape('triangle')} title="Triangle" />
-        <ToolBtn icon={ImageIcon} onClick={addImage} title="Image" />
-        <div className="w-px h-5 bg-border mx-1" />
-        {selectedObj && (selectedObj.type === 'textbox' || selectedObj.type === 'Textbox') && (
-          <TextFormatBar obj={selectedObj} canvas={canvasRef.current} />
-        )}
-        {selectedObj && (
-          <div className="flex items-center gap-1 ml-2">
-            <label className="text-xs text-muted-foreground">Fill:</label>
-            <input
-              type="color"
-              value={selectedObj.fill || '#333333'}
-              onChange={(e) => {
-                selectedObj.set('fill', e.target.value);
-                canvasRef.current?.renderAll();
-              }}
-              className="w-6 h-6 rounded border border-border cursor-pointer"
-            />
-            {/* Stroke color — for shapes (not textbox) */}
-            {selectedObj.type !== 'textbox' && selectedObj.type !== 'Textbox' && (
-              <>
-                <label className="text-xs text-muted-foreground ml-1">Stroke:</label>
-                <input
-                  type="color"
-                  value={selectedObj.stroke || '#94a3b8'}
-                  onChange={(e) => {
-                    selectedObj.set('stroke', e.target.value);
-                    if (!selectedObj.strokeWidth) selectedObj.set('strokeWidth', 1);
-                    canvasRef.current?.renderAll();
-                  }}
-                  className="w-6 h-6 rounded border border-border cursor-pointer"
-                />
-                <select
-                  value={selectedObj.strokeWidth || 0}
-                  onChange={(e) => {
-                    selectedObj.set('strokeWidth', Number(e.target.value));
-                    canvasRef.current?.renderAll();
-                  }}
-                  className="text-xs bg-transparent border border-border rounded px-1 py-0.5 text-foreground w-[44px]"
-                >
-                  {[0, 1, 2, 3, 4, 5, 8].map(w => (
-                    <option key={w} value={w}>{w}px</option>
-                  ))}
-                </select>
-              </>
-            )}
-            {/* Layer ordering */}
-            <div className="w-px h-4 bg-border mx-1" />
-            <button
-              onClick={() => { canvasRef.current?.bringObjectForward(selectedObj); canvasRef.current?.renderAll(); }}
-              className="p-1 text-muted-foreground hover:text-foreground" title="Bring forward"
-            >
-              <MoveUp className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => { canvasRef.current?.sendObjectBackwards(selectedObj); canvasRef.current?.renderAll(); }}
-              className="p-1 text-muted-foreground hover:text-foreground" title="Send backward"
-            >
-              <MoveDown className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => { canvasRef.current?.bringObjectToFront(selectedObj); canvasRef.current?.renderAll(); }}
-              className="p-1 text-muted-foreground hover:text-foreground" title="Bring to front"
-            >
-              <ArrowUpToLine className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => { canvasRef.current?.sendObjectToBack(selectedObj); canvasRef.current?.renderAll(); }}
-              className="p-1 text-muted-foreground hover:text-foreground" title="Send to back"
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ─── Main Area: Slide List + Canvas + Properties ── */}
-      <div className="flex-1 flex min-h-0">
-        {/* Slide List (left) */}
-        <div className="w-[220px] border-r border-border flex flex-col shrink-0 bg-muted/20">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-            <span className="text-xs font-medium text-muted-foreground">Slides ({slides.length})</span>
-            <button onClick={addSlide} className="p-1 text-muted-foreground hover:text-foreground" title="Add slide">
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-            {slides.map((slide, i) => (
+    return (
+      <div ref={containerRef} className="flex-1 flex flex-col min-h-0 bg-card">
+        {/* Header */}
+        <div className="flex items-center border-b border-border shrink-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
+          <ContentTopBar
+            breadcrumb={breadcrumb}
+            onNavigate={onNavigate}
+            onBack={onBack}
+            docListVisible={docListVisible}
+            onToggleDocList={onToggleDocList}
+            title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
+            titlePlaceholder={t('content.untitledPresentation') || 'Untitled Presentation'}
+            onTitleChange={async (newTitle) => {
+              if (newTitle !== currentTitle) {
+                await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
+                queryClient.invalidateQueries({ queryKey: ['content-items'] });
+              }
+            }}
+            onUndo={pptUndo}
+            onRedo={pptRedo}
+            canUndo={undoStackRef.current.length > 0}
+            canRedo={redoStackRef.current.length > 0}
+            metaLine={
               <button
-                key={i}
-                onClick={() => {
-                  if (i !== currentSlideIndex) {
-                    saveCurrentSlideToState();
-                    setCurrentSlideIndex(i);
-                  }
-                }}
-                className={cn(
-                  'w-full rounded-lg border-2 transition-all overflow-hidden',
-                  i === currentSlideIndex
-                    ? 'border-primary shadow-sm'
-                    : 'border-transparent hover:border-border'
-                )}
+                onClick={() => { setShowHistory(true); setShowComments(false); }}
+                className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
               >
-                <div className="flex items-center gap-2 px-2">
-                  <span className="text-[10px] text-muted-foreground shrink-0 w-4 text-right">{i + 1}</span>
-                  <div
-                    className="flex-1 rounded overflow-hidden my-1"
-                    style={{
-                      aspectRatio: `${SLIDE_WIDTH}/${SLIDE_HEIGHT}`,
-                      backgroundColor: slide.background || '#fff',
-                    }}
-                  >
-                    <SlideThumb slide={slide} />
-                  </div>
-                </div>
+                Last modified: {formatRelativeTime(presentation.updated_at)}
+                {presentation.updated_by && <span> by {presentation.updated_by}</span>}
               </button>
-            ))}
-          </div>
-          {/* Slide actions */}
-          <div className="flex items-center justify-center gap-1 px-2 py-1.5 border-t border-border">
-            <button onClick={duplicateSlide} className="p-1 text-muted-foreground hover:text-foreground" title="Duplicate slide">
-              <Copy className="h-3.5 w-3.5" />
-            </button>
-            <button onClick={() => moveSlide(-1)} disabled={currentSlideIndex === 0} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move up">
-              <ChevronUp className="h-3.5 w-3.5" />
-            </button>
-            <button onClick={() => moveSlide(1)} disabled={currentSlideIndex >= slides.length - 1} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move down">
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-            <button onClick={deleteSlide} disabled={slides.length <= 1} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30" title="Delete slide">
-              <Minus className="h-3.5 w-3.5" />
-            </button>
-          </div>
+            }
+            onHistory={() => { setShowHistory(true); setShowComments(false); }}
+            onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
+            menuItems={[
+              { icon: Link2, label: 'Copy link', shortcut: '⌘⇧L', onClick: () => onCopyLink?.() },
+              { icon: Pin, label: 'Pin to top', onClick: () => {} },
+              { icon: Download, label: 'Download', onClick: () => handleDownload() },
+              { icon: Share2, label: 'Share', onClick: () => {} },
+              { icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleDelete },
+              { icon: Clock, label: 'Version History', separator: true, shortcut: '⌘⇧H', onClick: () => { setShowHistory(true); setShowComments(false); } },
+              { icon: MessageSquare, label: 'Comments', shortcut: '⌘J', onClick: () => { setShowComments(true); setShowHistory(false); } },
+              { icon: Search, label: 'Search', shortcut: '⌘F', onClick: () => {} },
+              { icon: Play, label: 'Present', onClick: () => startPresentation() },
+            ]}
+          />
         </div>
+        {/* Vertical scroll preview */}
+        <SlidePreviewList
+          slides={previewSlides}
+          currentSlideIndex={currentSlideIndex}
+          onSlideSelect={(i) => setCurrentSlideIndex(i)}
+        />
+        {/* Bottom comment bar — no edit FAB for PPT on mobile */}
+        <MobileCommentBar
+          targetType="presentation"
+          targetId={`presentation:${presentationId}`}
+        />
+        {/* Mobile: Comments BottomSheet */}
+        {showComments && !showHistory && (
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
+            <CommentPanel
+              targetType="presentation"
+              targetId={`presentation:${presentationId}`}
+              onClose={() => setShowComments(false)}
+            />
+          </BottomSheet>
+        )}
+        {/* Mobile: History BottomSheet */}
+        {showHistory && (
+          <BottomSheet open={true} onClose={() => setShowHistory(false)} title={t('content.versionHistory')} initialHeight="full">
+            <RevisionHistory
+              contentType="presentation"
+              contentId={presentationId}
+              onClose={() => setShowHistory(false)}
+              onRestore={async (data) => {
+                if (data?.slides) {
+                  setSlides(data.slides);
+                  setCurrentSlideIndex(0);
+                  await gw.savePresentation(presentationId, { slides: data.slides });
+                  queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
+                }
+              }}
+            />
+          </BottomSheet>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="flex-1 flex flex-row min-h-0">
+      {/* Left column: TopBar + Toolbar + main area — card style */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-card md:rounded-lg md:shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] md:overflow-hidden relative z-[1]">
+      {/* ─── Header Bar ─── */}
+      <div className="flex items-center border-b border-border shrink-0 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
+        <ContentTopBar
+          breadcrumb={breadcrumb}
+          onNavigate={onNavigate}
+          onBack={isMobileView && mobileEditMode ? () => setMobileEditMode(false) : onBack}
+          docListVisible={docListVisible}
+          onToggleDocList={onToggleDocList}
+          title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
+          titlePlaceholder={t('content.untitledPresentation') || 'Untitled Presentation'}
+          onTitleChange={async (newTitle) => {
+            if (newTitle !== currentTitle) {
+              await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }
+          }}
+          onUndo={pptUndo}
+          onRedo={pptRedo}
+          canUndo={undoStackRef.current.length > 0}
+          canRedo={redoStackRef.current.length > 0}
+          metaLine={
+            <button
+              onClick={() => { setShowHistory(true); setShowComments(false); }}
+              className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
+            >
+              Last modified: {formatRelativeTime(presentation.updated_at)}
+              {presentation.updated_by && <span> by {presentation.updated_by}</span>}
+            </button>
+          }
+          onHistory={() => { setShowHistory(true); setShowComments(false); }}
+          onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
+          menuItems={[
+            { icon: Link2, label: 'Copy link', shortcut: '⌘⇧L', onClick: () => onCopyLink?.() },
+            { icon: Pin, label: 'Pin to top', onClick: () => {} },
+            { icon: Download, label: 'Download', onClick: () => handleDownload() },
+            { icon: Share2, label: 'Share', onClick: () => {} },
+            { icon: Trash2, label: 'Move to Trash', danger: true, onClick: handleDelete },
+            { icon: Clock, label: 'Version History', separator: true, shortcut: '⌘⇧H', onClick: () => { setShowHistory(true); setShowComments(false); } },
+            { icon: MessageSquare, label: 'Comments', shortcut: '⌘J', onClick: () => { setShowComments(true); setShowHistory(false); } },
+            { icon: Search, label: 'Search', shortcut: '⌘F', onClick: () => {} },
+            { icon: Play, label: 'Present', onClick: () => startPresentation() },
+          ]}
+          actions={<>
+            {/* Search */}
+            <button className="p-2 text-black/70 dark:text-white/70 hover:text-foreground rounded transition-colors" title={t('toolbar.search')}>
+              <Search className="h-4 w-4" />
+            </button>
+            {/* Present button — Figma: black bg, Slides-only */}
+            <button onClick={startPresentation} className="flex items-center gap-1.5 h-8 px-3 ml-1 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+              <Play className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t('toolbar.present')}</span>
+            </button>
+            {/* Share button */}
+            <button className="flex items-center gap-1.5 h-8 px-3 ml-1 border border-black/20 dark:border-white/20 rounded-lg text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors">
+              <ExternalLink className="h-4 w-4" />
+              Share
+            </button>
+            {/* History */}
+            <button onClick={() => { setShowHistory(v => !v); setShowComments(false); }} className={cn('flex items-center justify-center w-8 h-8 ml-1 border border-black/20 dark:border-white/20 rounded-lg transition-colors', showHistory ? 'text-sidebar-primary bg-sidebar-primary/10 border-sidebar-primary/20' : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04]')} title={t('content.versionHistory')}>
+              <Clock className="h-4 w-4" />
+            </button>
+            {/* @ Comments */}
+            <button onClick={() => { setShowComments(v => !v); setShowHistory(false); }} className={cn('flex items-center justify-center w-8 h-8 ml-1 rounded-lg transition-colors', showComments ? 'bg-sidebar-primary/80' : 'bg-sidebar-primary hover:bg-sidebar-primary/90')} title={t('content.comments')}>
+              <AtSign className="h-4 w-4 text-white" />
+            </button>
+          </>}
+        />
+      </div>
+
+      {/* ─── Main Area: Slide List + Canvas + Property Panel ── */}
+      <div className="flex-1 flex min-h-0">
+        {/* Slide List (left) — hidden on mobile */}
+        <SlidePanel
+          slides={slides}
+          currentSlideIndex={currentSlideIndex}
+          selectedIndices={selectedSlideIndices}
+          onSlideSelect={(i) => {
+            if (i !== currentSlideIndex) {
+              saveCurrentSlideToState();
+            }
+            setCurrentSlideIndex(i);
+            setSelectedSlideIndices(new Set([i]));
+          }}
+          onMultiSelect={setSelectedSlideIndices}
+          onAddSlide={addSlide}
+          onSlideCut={handleSlideCut}
+          onSlideCopy={handleSlideCopy}
+          onSlidePaste={handleSlidePaste}
+          onSlideDelete={handleSlideDelete}
+          onSlideDuplicate={handleSlideDuplicate}
+          onSlideBackground={handleSlideBackground}
+          onSlideComment={handleSlideComment}
+        />
 
         {/* Canvas Area (center) */}
-        <div ref={canvasContainerRef} className="flex-1 min-w-0 overflow-hidden bg-[#f0f0f0] dark:bg-zinc-900 relative">
-          <div className="canvas-wrapper absolute">
-            <div ref={canvasHostRef} className="shadow-xl rounded-sm" />
+        <SlideCanvas
+          canvasRef={canvasRef}
+          canvasHostRef={canvasHostRef}
+          canvasContainerRef={canvasContainerRef}
+          selectedObj={selectedObj}
+          propVersion={propVersion}
+          tableObjects={tableObjects}
+          showPropertyPanel={showPropertyPanel}
+          onTogglePropertyPanel={() => setShowPropertyPanel(v => !v)}
+          onAddTextbox={addTextbox}
+          onAddShape={addShape}
+          onAddImage={addImage}
+          onAddTable={() => addTable(3, 3)}
+          onInsertDiagram={insertDiagram}
+        />
+
+        {/* Property Panel (right) */}
+        {showPropertyPanel && (
+          <PropertyPanel
+            selectedObj={selectedObj}
+            canvas={canvasRef.current}
+            currentSlide={slides[currentSlideIndex] || DEFAULT_SLIDE}
+            onSlideBackgroundChange={handleSlideBackgroundChange}
+            onSlideBackgroundImageChange={handleSlideBackgroundImageChange}
+            onApplyBackgroundToAll={handleApplyBackgroundToAll}
+            propVersion={propVersion}
+            onClose={() => setShowPropertyPanel(false)}
+          />
+        )}
+
+      </div>
+      </div>{/* end left column */}
+
+      {/* Sidebar — full height on desktop, BottomSheet on mobile */}
+      {showComments && !showHistory && (
+        <>
+          <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
+            <CommentPanel
+              targetType="presentation"
+              targetId={`presentation:${presentationId}`}
+              onClose={() => setShowComments(false)}
+            />
           </div>
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
+            <CommentPanel
+              targetType="presentation"
+              targetId={`presentation:${presentationId}`}
+              onClose={() => setShowComments(false)}
+            />
+          </BottomSheet>
+        </>
+      )}
+
+      {showHistory && (
+        <>
+          <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
+            <RevisionHistory
+              contentType="presentation"
+              contentId={presentationId}
+              onClose={() => setShowHistory(false)}
+              onRestore={async (data) => {
+                if (data?.slides) {
+                  setSlides(data.slides);
+                  setCurrentSlideIndex(0);
+                  await gw.savePresentation(presentationId, { slides: data.slides });
+                  queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
+                }
+              }}
+            />
+          </div>
+          {/* Mobile: RevisionHistory renders its own BottomSheet internally via portal */}
+          <div className="contents md:hidden">
+            <RevisionHistory
+              contentType="presentation"
+              contentId={presentationId}
+              onClose={() => setShowHistory(false)}
+              onRestore={async (data) => {
+                if (data?.slides) {
+                  setSlides(data.slides);
+                  setCurrentSlideIndex(0);
+                  await gw.savePresentation(presentationId, { slides: data.slides });
+                  queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
+                }
+              }}
+            />
+          </div>
+        </>
+      )}
+      {diagramPicker && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/20">
+          <DiagramPicker
+            onSelect={handleDiagramPickerSelect}
+            onCancel={() => setDiagramPicker(false)}
+            embedded
+          />
         </div>
+      )}
+      {editingDiagramId && (
+        <DiagramEditorDialog
+          diagramId={editingDiagramId}
+          onClose={handleDiagramEditorClose}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Property Panel ─────────────────────────────────
+function PropertyPanel({
+  selectedObj,
+  canvas,
+  currentSlide,
+  onSlideBackgroundChange,
+  onSlideBackgroundImageChange,
+  onApplyBackgroundToAll,
+  propVersion,
+  onClose,
+}: {
+  selectedObj: any;
+  canvas: any;
+  currentSlide: SlideData;
+  onSlideBackgroundChange: (bg: string) => void;
+  onSlideBackgroundImageChange: (bgImage: string | undefined) => void;
+  onApplyBackgroundToAll: () => void;
+  propVersion: number;
+  onClose: () => void;
+}) {
+  const objType = selectedObj ? getObjType(selectedObj) : null;
+
+  const updateProp = (prop: string, val: any) => {
+    if (!selectedObj || !canvas) return;
+    selectedObj.set(prop, val);
+    canvas.renderAll();
+  };
+
+  const updateAndSave = (prop: string, val: any) => {
+    updateProp(prop, val);
+    // Fire modified event so auto-save picks it up
+    canvas?.fire('object:modified', { target: selectedObj });
+  };
+
+  // Get visual width/height (accounting for scale)
+  const getVisualW = () => selectedObj ? Math.round((selectedObj.width || 0) * (selectedObj.scaleX || 1)) : 0;
+  const getVisualH = () => selectedObj ? Math.round((selectedObj.height || 0) * (selectedObj.scaleY || 1)) : 0;
+
+  const setVisualW = (newW: number) => {
+    if (!selectedObj || !newW) return;
+    const newScaleX = newW / (selectedObj.width || 1);
+    updateAndSave('scaleX', newScaleX);
+  };
+
+  const setVisualH = (newH: number) => {
+    if (!selectedObj || !newH) return;
+    const newScaleY = newH / (selectedObj.height || 1);
+    updateAndSave('scaleY', newScaleY);
+  };
+
+  return (
+    <div className="w-[280px] border-l border-border flex flex-col shrink-0 bg-card overflow-y-auto">
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+          {selectedObj ? `${objType || 'Object'} Properties` : 'Slide Properties'}
+        </span>
+        <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title={t('toolbar.closePanel')}>
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="p-3 space-y-4 text-xs">
+        {!selectedObj ? (
+          /* ─── Slide Properties ─── */
+          <SlidePropertiesSection
+            currentSlide={currentSlide}
+            onBackgroundChange={onSlideBackgroundChange}
+            onBackgroundImageChange={onSlideBackgroundImageChange}
+            onApplyToAll={onApplyBackgroundToAll}
+          />
+        ) : (
+          <>
+            {/* ─── Common Properties ─── */}
+            <CommonPropertiesSection
+              obj={selectedObj}
+              canvas={canvas}
+              getVisualW={getVisualW}
+              getVisualH={getVisualH}
+              setVisualW={setVisualW}
+              setVisualH={setVisualH}
+              updateAndSave={updateAndSave}
+              propVersion={propVersion}
+            />
+
+            {/* ─── Type-specific Properties ─── */}
+            {objType === 'textbox' && (
+              <TextPropertiesSection obj={selectedObj} canvas={canvas} updateAndSave={updateAndSave} propVersion={propVersion} />
+            )}
+            {(objType === 'rect' || objType === 'circle' || objType === 'triangle') && (
+              <ShapePropertiesSection obj={selectedObj} canvas={canvas} updateAndSave={updateAndSave} propVersion={propVersion} />
+            )}
+            {objType === 'image' && (
+              <ImagePropertiesSection obj={selectedObj} canvas={canvas} updateAndSave={updateAndSave} propVersion={propVersion} />
+            )}
+            {objType === 'table' && (
+              <TablePropertiesSection obj={selectedObj} canvas={canvas} propVersion={propVersion} />
+            )}
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+// ─── Slide Properties Section ───────────────────────
+function SlidePropertiesSection({
+  currentSlide,
+  onBackgroundChange,
+  onBackgroundImageChange,
+  onApplyToAll,
+}: {
+  currentSlide: SlideData;
+  onBackgroundChange: (bg: string) => void;
+  onBackgroundImageChange: (bgImage: string | undefined) => void;
+  onApplyToAll: () => void;
+}) {
+  const handleUploadBgImage = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/gateway/uploads', { method: 'POST', body: formData });
+        if (!resp.ok) throw new Error('Upload failed');
+        const data = await resp.json();
+        const url = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        onBackgroundImageChange(url);
+      } catch (err) {
+        console.error('Background image upload failed:', err);
+      }
+    };
+    input.click();
+  };
+
+  return (
+    <>
+      <SectionLabel label="Background" />
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Color</label>
+          <ColorPicker
+            color={currentSlide.background || '#ffffff'}
+            onChange={(c) => onBackgroundChange(c)}
+          />
+        </div>
+
+        {/* Background Image */}
+        <div className="space-y-1.5">
+          <label className="text-muted-foreground">Image</label>
+          {currentSlide.backgroundImage ? (
+            <div className="relative rounded border border-border overflow-hidden" style={{ aspectRatio: '16/9' }}>
+              <img src={currentSlide.backgroundImage} alt="Background" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 hover:bg-black/30 transition-colors flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
+                <button
+                  onClick={handleUploadBgImage}
+                  className="px-2 py-1 rounded bg-card/90 text-xs text-foreground hover:bg-card"
+                >
+                  Replace
+                </button>
+                <button
+                  onClick={() => onBackgroundImageChange(undefined)}
+                  className="px-2 py-1 rounded bg-card/90 text-xs text-destructive hover:bg-card"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleUploadBgImage}
+              className="w-full py-3 rounded border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors text-xs flex items-center justify-center gap-1.5"
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
+              Upload Background Image
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onApplyToAll}
+          className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
+        >
+          Apply to All Slides
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ─── Common Properties Section ──────────────────────
+function CommonPropertiesSection({
+  obj,
+  canvas,
+  getVisualW,
+  getVisualH,
+  setVisualW,
+  setVisualH,
+  updateAndSave,
+  propVersion,
+}: {
+  obj: any;
+  canvas: any;
+  getVisualW: () => number;
+  getVisualH: () => number;
+  setVisualW: (w: number) => void;
+  setVisualH: (h: number) => void;
+  updateAndSave: (prop: string, val: any) => void;
+  propVersion: number;
+}) {
+  return (
+    <>
+      <SectionLabel label="Position" />
+      <div className="grid grid-cols-2 gap-2">
+        <PropInput label="X" value={Math.round(obj.left || 0)} onChange={(v) => updateAndSave('left', v)} />
+        <PropInput label="Y" value={Math.round(obj.top || 0)} onChange={(v) => updateAndSave('top', v)} />
+      </div>
+
+      <SectionLabel label="Size" />
+      <div className="grid grid-cols-2 gap-2">
+        <PropInput label="W" value={getVisualW()} onChange={(v) => setVisualW(v)} />
+        <PropInput label="H" value={getVisualH()} onChange={(v) => setVisualH(v)} />
+      </div>
+
+      <SectionLabel label="Transform" />
+      <div className="grid grid-cols-2 gap-2">
+        <PropInput label="Angle" value={Math.round(obj.angle || 0)} onChange={(v) => updateAndSave('angle', v)} />
+        <div className="flex items-center gap-1">
+          <label className="text-muted-foreground w-10 shrink-0">Alpha</label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round((obj.opacity ?? 1) * 100)}
+            onChange={(e) => updateAndSave('opacity', Number(e.target.value) / 100)}
+            className="flex-1 h-1 accent-primary"
+          />
+          <span className="text-muted-foreground w-7 text-right">{Math.round((obj.opacity ?? 1) * 100)}</span>
+        </div>
+      </div>
+
+      {/* Layer order */}
+      <SectionLabel label="Layer" />
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => { canvas?.bringObjectToFront(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.bringToFront')}
+        >
+          <ArrowUpToLine className="h-3 w-3" /> Front
+        </button>
+        <button
+          onClick={() => { canvas?.bringObjectForward(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.bringForward')}
+        >
+          <MoveUp className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => { canvas?.sendObjectBackwards(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.sendBackward')}
+        >
+          <MoveDown className="h-3 w-3" />
+        </button>
+        <button
+          onClick={() => { canvas?.sendObjectToBack(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.sendToBack')}
+        >
+          <ArrowDownToLine className="h-3 w-3" /> Back
+        </button>
+      </div>
+
+      {/* Flip */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => { obj.set('flipX', !obj.flipX); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.flipHorizontal')}
+        >
+          <FlipHorizontal2 className="h-3 w-3" /> Flip H
+        </button>
+        <button
+          onClick={() => { obj.set('flipY', !obj.flipY); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
+          className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
+          title={t('toolbar.flipVertical')}
+        >
+          <FlipVertical2 className="h-3 w-3" /> Flip V
+        </button>
+      </div>
+
+      <div className="border-t border-border" />
+    </>
+  );
+}
+
+// ─── Text Properties Section ────────────────────────
+function TextPropertiesSection({
+  obj,
+  canvas,
+  updateAndSave,
+  propVersion,
+}: {
+  obj: any;
+  canvas: any;
+  updateAndSave: (prop: string, val: any) => void;
+  propVersion: number;
+}) {
+  return (
+    <>
+      <SectionLabel label="Text" />
+      <div className="space-y-2">
+        {/* Font family */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-10 shrink-0">Font</label>
+          <select
+            value={obj.fontFamily || 'Inter, system-ui, sans-serif'}
+            onChange={(e) => updateAndSave('fontFamily', e.target.value)}
+            className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
+          >
+            {FONT_FAMILIES.map(f => (
+              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Font size (editable number input) */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-10 shrink-0">Size</label>
+          <input
+            type="number"
+            value={obj.fontSize || 24}
+            onChange={(e) => updateAndSave('fontSize', Math.max(1, Number(e.target.value)))}
+            className="w-16 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
+            min={1}
+            max={200}
+          />
+          <span className="text-muted-foreground">px</span>
+        </div>
+
+        {/* Style toggles */}
+        <div className="flex items-center gap-1">
+          <ToggleBtn
+            active={obj.fontWeight === 'bold'}
+            onClick={() => updateAndSave('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold')}
+            title={t('toolbar.bold')}
+          >
+            <Bold className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn
+            active={obj.fontStyle === 'italic'}
+            onClick={() => updateAndSave('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic')}
+            title={t('toolbar.italic')}
+          >
+            <Italic className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn
+            active={!!obj.underline}
+            onClick={() => updateAndSave('underline', !obj.underline)}
+            title={t('toolbar.underline')}
+          >
+            <Underline className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn
+            active={!!obj.linethrough}
+            onClick={() => updateAndSave('linethrough', !obj.linethrough)}
+            title={t('toolbar.strikethrough')}
+          >
+            <Strikethrough className="h-3.5 w-3.5" />
+          </ToggleBtn>
+        </div>
+
+        {/* Text align */}
+        <div className="flex items-center gap-1">
+          <ToggleBtn active={obj.textAlign === 'left'} onClick={() => updateAndSave('textAlign', 'left')} title={t('toolbar.alignLeft')}>
+            <AlignLeft className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn active={obj.textAlign === 'center'} onClick={() => updateAndSave('textAlign', 'center')} title={t('toolbar.alignCenter')}>
+            <AlignCenter className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn active={obj.textAlign === 'right'} onClick={() => updateAndSave('textAlign', 'right')} title={t('toolbar.alignRight')}>
+            <AlignRight className="h-3.5 w-3.5" />
+          </ToggleBtn>
+          <ToggleBtn active={obj.textAlign === 'justify'} onClick={() => updateAndSave('textAlign', 'justify')} title={t('toolbar.alignJustify')}>
+            <AlignJustify className="h-3.5 w-3.5" />
+          </ToggleBtn>
+        </div>
+
+        {/* Line height + char spacing */}
+        <div className="grid grid-cols-2 gap-2">
+          <PropInput label="LnH" value={Number((obj.lineHeight || 1.3).toFixed(1))} onChange={(v) => updateAndSave('lineHeight', v)} step={0.1} min={0.5} max={5} />
+          <PropInput label="Spc" value={Math.round(obj.charSpacing || 0)} onChange={(v) => updateAndSave('charSpacing', v)} />
+        </div>
+
+        {/* Fill color */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-10 shrink-0">Color</label>
+          <ColorPicker
+            color={obj.fill || '#333333'}
+            onChange={(c) => updateAndSave('fill', c)}
+          />
+        </div>
+
+        {/* Padding */}
+        <PropInput label="Padding" value={obj.padding || 0} onChange={(v) => updateAndSave('padding', v)} min={0} max={100} />
+      </div>
+    </>
+  );
+}
+
+// ─── Shape Properties Section ───────────────────────
+function ShapePropertiesSection({
+  obj,
+  canvas,
+  updateAndSave,
+  propVersion,
+}: {
+  obj: any;
+  canvas: any;
+  updateAndSave: (prop: string, val: any) => void;
+  propVersion: number;
+}) {
+  const objType = getObjType(obj);
+  const [shadowEnabled, setShadowEnabled] = useState(!!obj.shadow);
+
+  return (
+    <>
+      <SectionLabel label="Shape" />
+      <div className="space-y-2">
+        {/* Fill color */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Fill</label>
+          <ColorPicker
+            color={obj.fill || '#e2e8f0'}
+            onChange={(c) => updateAndSave('fill', c)}
+          />
+        </div>
+
+        {/* Stroke color */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Stroke</label>
+          <ColorPicker
+            color={obj.stroke || '#94a3b8'}
+            onChange={(c) => {
+              updateAndSave('stroke', c);
+              if (!obj.strokeWidth) updateAndSave('strokeWidth', 1);
+            }}
+          />
+        </div>
+
+        {/* Stroke width */}
+        <PropInput label="Stroke W" value={obj.strokeWidth || 0} onChange={(v) => updateAndSave('strokeWidth', v)} min={0} max={20} />
+
+        {/* Stroke dash style */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Dash</label>
+          <select
+            value={
+              !obj.strokeDashArray ? 'solid'
+                : obj.strokeDashArray[0] === 2 ? 'dotted'
+                  : 'dashed'
+            }
+            onChange={(e) => {
+              const val = e.target.value;
+              const dash = val === 'dashed' ? [8, 4] : val === 'dotted' ? [2, 4] : undefined;
+              updateAndSave('strokeDashArray', dash || null);
+            }}
+            className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
+          >
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+          </select>
+        </div>
+
+        {/* Border radius (for rect) */}
+        {objType === 'rect' && (
+          <div className="grid grid-cols-2 gap-2">
+            <PropInput label="rx" value={obj.rx || 0} onChange={(v) => { updateAndSave('rx', v); updateAndSave('ry', v); }} min={0} max={200} />
+            <PropInput label="ry" value={obj.ry || 0} onChange={(v) => updateAndSave('ry', v)} min={0} max={200} />
+          </div>
+        )}
+
+        {/* Shadow */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Shadow</label>
+          <button
+            onClick={() => {
+              if (shadowEnabled) {
+                obj.set('shadow', null);
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+                setShadowEnabled(false);
+              } else {
+                const { Shadow } = fabricModule;
+                obj.set('shadow', new Shadow({ color: 'rgba(0,0,0,0.3)', blur: 10, offsetX: 4, offsetY: 4 }));
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+                setShadowEnabled(true);
+              }
+            }}
+            className={cn(
+              'px-2 py-1 rounded border text-xs transition-colors',
+              shadowEnabled
+                ? 'border-primary text-primary bg-primary/10'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {shadowEnabled ? 'On' : 'Off'}
+          </button>
+        </div>
+        {shadowEnabled && obj.shadow && (
+          <div className="space-y-2 pl-4">
+            <div className="flex items-center gap-2">
+              <label className="text-muted-foreground w-10 shrink-0">Color</label>
+              <ColorPicker
+                color={obj.shadow.color?.startsWith('rgba') ? '#000000' : (obj.shadow.color || '#000000')}
+                onChange={(c) => {
+                  const { Shadow } = fabricModule;
+                  obj.set('shadow', new Shadow({ ...obj.shadow, color: c }));
+                  canvas?.renderAll();
+                  canvas?.fire('object:modified', { target: obj });
+                }}
+              />
+            </div>
+            <PropInput label="Blur" value={obj.shadow.blur || 0} onChange={(v) => {
+              const { Shadow } = fabricModule;
+              obj.set('shadow', new Shadow({ ...obj.shadow, blur: v }));
+              canvas?.renderAll();
+              canvas?.fire('object:modified', { target: obj });
+            }} min={0} max={50} />
+            <div className="grid grid-cols-2 gap-2">
+              <PropInput label="offX" value={obj.shadow.offsetX || 0} onChange={(v) => {
+                const { Shadow } = fabricModule;
+                obj.set('shadow', new Shadow({ ...obj.shadow, offsetX: v }));
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+              }} />
+              <PropInput label="offY" value={obj.shadow.offsetY || 0} onChange={(v) => {
+                const { Shadow } = fabricModule;
+                obj.set('shadow', new Shadow({ ...obj.shadow, offsetY: v }));
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+              }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Image Properties Section ───────────────────────
+function ImagePropertiesSection({
+  obj,
+  canvas,
+  updateAndSave,
+  propVersion,
+}: {
+  obj: any;
+  canvas: any;
+  updateAndSave: (prop: string, val: any) => void;
+  propVersion: number;
+}) {
+  const [borderRadius, setBorderRadius] = useState(
+    obj.clipPath?.rx ? Math.round(obj.clipPath.rx * (obj.scaleX || 1)) : 0
+  );
+  const [shadowEnabled, setShadowEnabled] = useState(!!obj.shadow);
+
+  const applyBorderRadius = (r: number) => {
+    setBorderRadius(r);
+    if (r > 0 && fabricModule.Rect) {
+      obj.clipPath = new fabricModule.Rect({
+        width: obj.width,
+        height: obj.height,
+        rx: r / (obj.scaleX || 1),
+        ry: r / (obj.scaleY || 1),
+        originX: 'center',
+        originY: 'center',
+      });
+    } else {
+      obj.clipPath = undefined;
+    }
+    canvas?.renderAll();
+    canvas?.fire('object:modified', { target: obj });
+  };
+
+  const replaceImage = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      let imgSrc: string;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/gateway/uploads', { method: 'POST', body: formData });
+        if (!resp.ok) throw new Error('Upload failed');
+        const data = await resp.json();
+        imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+      } catch {
+        imgSrc = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      const imgEl = new window.Image();
+      imgEl.crossOrigin = 'anonymous';
+      imgEl.onload = () => {
+        // Keep current position, set new image element
+        const { FabricImage } = fabricModule;
+        const newImg = new FabricImage(imgEl, {
+          left: obj.left,
+          top: obj.top,
+          scaleX: obj.scaleX,
+          scaleY: obj.scaleY,
+          angle: obj.angle,
+          opacity: obj.opacity,
+        });
+        canvas?.remove(obj);
+        canvas?.add(newImg);
+        canvas?.setActiveObject(newImg);
+        canvas?.renderAll();
+      };
+      imgEl.src = imgSrc;
+    };
+    input.click();
+  };
+
+  const resetToDefault = () => {
+    if (!obj) return;
+    const naturalW = obj.width || 200;
+    const naturalH = obj.height || 200;
+    const scale = Math.min(600 / naturalW, 400 / naturalH, 1);
+    obj.set('scaleX', scale);
+    obj.set('scaleY', scale);
+    canvas?.renderAll();
+    canvas?.fire('object:modified', { target: obj });
+  };
+
+  return (
+    <>
+      <SectionLabel label="Image" />
+      <div className="space-y-2">
+        {/* Border radius */}
+        <PropInput label="Radius" value={borderRadius} onChange={(v) => applyBorderRadius(v)} min={0} max={200} />
+
+        {/* Border/stroke */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Border</label>
+          <ColorPicker
+            color={obj.stroke || '#000000'}
+            onChange={(c) => {
+              updateAndSave('stroke', c);
+              if (!obj.strokeWidth) updateAndSave('strokeWidth', 1);
+            }}
+          />
+        </div>
+        <PropInput label="Border W" value={obj.strokeWidth || 0} onChange={(v) => updateAndSave('strokeWidth', v)} min={0} max={20} />
+
+        {/* Shadow */}
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground w-14 shrink-0">Shadow</label>
+          <button
+            onClick={() => {
+              if (shadowEnabled) {
+                obj.set('shadow', null);
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+                setShadowEnabled(false);
+              } else {
+                const { Shadow } = fabricModule;
+                obj.set('shadow', new Shadow({ color: 'rgba(0,0,0,0.3)', blur: 10, offsetX: 4, offsetY: 4 }));
+                canvas?.renderAll();
+                canvas?.fire('object:modified', { target: obj });
+                setShadowEnabled(true);
+              }
+            }}
+            className={cn(
+              'px-2 py-1 rounded border text-xs transition-colors',
+              shadowEnabled
+                ? 'border-primary text-primary bg-primary/10'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {shadowEnabled ? 'On' : 'Off'}
+          </button>
+        </div>
+
+        <div className="border-t border-border pt-2 space-y-1.5">
+          <button
+            onClick={replaceImage}
+            className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs flex items-center justify-center gap-1"
+          >
+            <Replace className="h-3 w-3" /> Replace Image
+          </button>
+          <button
+            onClick={resetToDefault}
+            className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs flex items-center justify-center gap-1"
+          >
+            <RotateCcw className="h-3 w-3" /> Reset to Default
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Table Properties Section ────────────────────────
+function TablePropertiesSection({ obj, canvas, propVersion }: {
+  obj: any;
+  canvas: any;
+  propVersion: number;
+}) {
+  const tJSON = obj.__tableJSON;
+  const tableContent = tJSON?.content?.[0]?.content || [];
+  const rows = tableContent.length || 3;
+  const cols = tableContent[0]?.content?.length || 3;
+  return (
+    <>
+      <SectionLabel label="Table" />
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <span>{rows} rows × {cols} columns</span>
+        </div>
+        <p className="text-muted-foreground text-[10px]">
+          Click the table on canvas to edit. Use the toolbar to add/remove rows and columns, merge cells, and more.
+        </p>
+      </div>
+    </>
+  );
+}
+
+// ─── Shared UI Components ───────────────────────────
+
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <div className="text-[11px] text-muted-foreground uppercase tracking-wider font-medium pt-1">
+      {label}
+    </div>
+  );
+}
+
+function PropInput({
+  label,
+  value,
+  onChange,
+  step = 1,
+  min,
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <label className="text-muted-foreground w-10 shrink-0 text-xs">{label}</label>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        step={step}
+        min={min}
+        max={max}
+        className="w-[70px] h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
+      />
+    </div>
+  );
+}
+
+function ToggleBtn({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'p-1.5 rounded transition-colors',
+        active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+      )}
+      title={title}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -935,77 +2600,188 @@ function ToolBtn({ icon: Icon, onClick, active, title }: {
   );
 }
 
-// ─── Text Format Bar ────────────────────────────────
-const FONT_FAMILIES = [
-  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
-  { label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
-];
+// ─── PPT Table Overlay — RichTable positioned over Fabric.js table rect ────
+function PPTTableOverlay({ obj, canvas, containerRef, propVersion, isSelected }: {
+  obj: any;
+  canvas: any;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  propVersion: number;
+  isSelected?: boolean;
+}) {
+  const [pos, setPos] = useState({ left: 0, top: 0, width: 200, height: 100 });
+  const [editing, setEditing] = useState(false);
+  const [tableToolbarInfo, setTableToolbarInfo] = useState<{
+    anchor: { top: number; left: number; width: number };
+    view: any;
+  } | null>(null);
 
-function TextFormatBar({ obj, canvas }: { obj: any; canvas: any }) {
-  const update = (prop: string, val: any) => {
-    obj.set(prop, val);
-    canvas?.renderAll();
-  };
+  // Get or create default table JSON
+  const getTableJSON = useCallback(() => {
+    if (obj.__tableJSON) return obj.__tableJSON;
+    // Migrate from old string[][] format if present
+    const oldData: string[][] = obj.__tableData;
+    if (oldData && Array.isArray(oldData) && oldData.length > 0) {
+      const rows = oldData.map((row, rowIdx) => ({
+        type: 'table_row',
+        content: row.map((cell) => ({
+          type: rowIdx === 0 ? 'table_header' : 'table_cell',
+          attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+          content: [{ type: 'paragraph', content: cell ? [{ type: 'text', text: cell }] : undefined }],
+        })),
+      }));
+      return { type: 'doc', content: [{ type: 'table', content: rows }] };
+    }
+    // Default 3x3 table
+    const cols = 3, rowCount = 3;
+    const headerCells = Array.from({ length: cols }, () => ({
+      type: 'table_header',
+      attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+      content: [{ type: 'paragraph' }],
+    }));
+    const bodyRow = () => ({
+      type: 'table_row',
+      content: Array.from({ length: cols }, () => ({
+        type: 'table_cell',
+        attrs: { colspan: 1, rowspan: 1, alignment: null, colwidth: null, background: null },
+        content: [{ type: 'paragraph' }],
+      })),
+    });
+    return {
+      type: 'doc',
+      content: [{ type: 'table', content: [
+        { type: 'table_row', content: headerCells },
+        bodyRow(),
+        bodyRow(),
+      ]}],
+    };
+  }, [obj]);
+
+  const [tableJSON, setTableJSON] = useState<Record<string, unknown>>(() => getTableJSON());
+
+  // Sync when object changes externally
+  useEffect(() => {
+    setTableJSON(getTableJSON());
+  }, [obj, propVersion, getTableJSON]);
+
+  // Compute position relative to canvas container
+  const updatePos = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || !canvas) return;
+    const zoom = canvas.getZoom() || 1;
+    const wrapper = container.querySelector('.canvas-wrapper') as HTMLElement;
+    const wrapperLeft = wrapper ? parseFloat(wrapper.style.marginLeft || '0') : 0;
+    const wrapperTop = wrapper ? parseFloat(wrapper.style.marginTop || '0') : 0;
+    const objW = (obj.width || 200) * (obj.scaleX || 1);
+    const objH = (obj.height || 100) * (obj.scaleY || 1);
+    setPos({
+      left: (obj.left || 0) * zoom + wrapperLeft,
+      top: (obj.top || 0) * zoom + wrapperTop,
+      width: objW * zoom,
+      height: objH * zoom,
+    });
+  }, [obj, canvas, containerRef]);
+
+  useEffect(() => {
+    updatePos();
+    if (!canvas) return;
+    const handler = () => updatePos();
+    canvas.on('after:render', handler);
+    return () => { canvas.off('after:render', handler); };
+  }, [canvas, updatePos]);
+
+  const handleProsemirrorChange = useCallback((json: Record<string, unknown>) => {
+    setTableJSON(json);
+    obj.__tableJSON = json;
+    // Clean up old format
+    delete obj.__tableData;
+    delete obj.__tableRows;
+    delete obj.__tableCols;
+    canvas?.fire('object:modified', { target: obj });
+  }, [obj, canvas]);
+
+  // Click on non-selected table overlay → select the Fabric.js object
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isSelected && canvas) {
+      canvas.setActiveObject(obj);
+      canvas.renderAll();
+    }
+  }, [isSelected, canvas, obj]);
+
+  // Double-click to enter edit mode
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isSelected) {
+      setEditing(true);
+    }
+  }, [isSelected]);
+
+  // Exit edit mode on click outside
+  useEffect(() => {
+    if (!editing) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const overlay = (e.target as HTMLElement).closest('.ppt-table-overlay');
+      if (!overlay) {
+        setEditing(false);
+        setTableToolbarInfo(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [editing]);
+
+  // Escape to exit edit mode
+  useEffect(() => {
+    if (!editing) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEditing(false);
+        setTableToolbarInfo(null);
+      }
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [editing]);
 
   return (
-    <div className="flex items-center gap-0.5">
-      {/* Font family */}
-      <select
-        value={obj.fontFamily || 'Inter, system-ui, sans-serif'}
-        onChange={(e) => update('fontFamily', e.target.value)}
-        className="text-xs bg-transparent border border-border rounded px-1 py-0.5 text-foreground max-w-[100px]"
+    <>
+      <div
+        className="ppt-table-overlay absolute overflow-visible"
+        style={{
+          left: pos.left,
+          top: pos.top,
+          width: pos.width,
+          minHeight: pos.height,
+          zIndex: editing ? 50 : isSelected ? 30 : 10,
+        }}
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
       >
-        {FONT_FAMILIES.map(f => (
-          <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
-        ))}
-      </select>
-      <div className="w-px h-4 bg-border mx-0.5" />
-      {/* Font size */}
-      <select
-        value={obj.fontSize || 24}
-        onChange={(e) => update('fontSize', Number(e.target.value))}
-        className="text-xs bg-transparent border border-border rounded px-1 py-0.5 text-foreground w-[44px]"
-      >
-        {[12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72].map(s => (
-          <option key={s} value={s}>{s}</option>
-        ))}
-      </select>
-      <div className="w-px h-4 bg-border mx-0.5" />
-      <button
-        onClick={() => update('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold')}
-        className={cn('p-1 rounded', obj.fontWeight === 'bold' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground')}
-      >
-        <Bold className="h-3.5 w-3.5" />
-      </button>
-      <button
-        onClick={() => update('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic')}
-        className={cn('p-1 rounded', obj.fontStyle === 'italic' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground')}
-      >
-        <Italic className="h-3.5 w-3.5" />
-      </button>
-      <button
-        onClick={() => update('underline', !obj.underline)}
-        className={cn('p-1 rounded', obj.underline ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground')}
-      >
-        <Underline className="h-3.5 w-3.5" />
-      </button>
-      <div className="w-px h-4 bg-border mx-0.5" />
-      <button onClick={() => update('textAlign', 'left')} className={cn('p-1 rounded', obj.textAlign === 'left' ? 'text-primary' : 'text-muted-foreground')}>
-        <AlignLeft className="h-3.5 w-3.5" />
-      </button>
-      <button onClick={() => update('textAlign', 'center')} className={cn('p-1 rounded', obj.textAlign === 'center' ? 'text-primary' : 'text-muted-foreground')}>
-        <AlignCenter className="h-3.5 w-3.5" />
-      </button>
-      <button onClick={() => update('textAlign', 'right')} className={cn('p-1 rounded', obj.textAlign === 'right' ? 'text-primary' : 'text-muted-foreground')}>
-        <AlignRight className="h-3.5 w-3.5" />
-      </button>
-    </div>
+        <RichTable
+          prosemirrorJSON={tableJSON}
+          onProsemirrorChange={editing ? handleProsemirrorChange : undefined}
+          onCellToolbar={editing ? (info) => setTableToolbarInfo(info) : undefined}
+          config={{
+            cellMinWidth: 60,
+            showToolbar: false,
+            showContextMenu: editing,
+            readonly: !editing,
+          }}
+          width="100%"
+        />
+        {!editing && isSelected && (
+          <div className="absolute inset-0 border-2 border-sidebar-primary/50 rounded pointer-events-none" />
+        )}
+      </div>
+      {tableToolbarInfo && editing && (
+        <FloatingToolbar
+          items={DOCS_TABLE_ITEMS}
+          handler={createDocsTableHandler(tableToolbarInfo.view)}
+          anchor={tableToolbarInfo.anchor}
+          visible={true}
+        />
+      )}
+    </>
   );
 }
 
@@ -1035,6 +2811,9 @@ function SlideThumb({ slide }: { slide: SlideData }) {
   const scale = THUMB_WIDTH / SLIDE_WIDTH;
   return (
     <div className="relative w-full h-full overflow-hidden" style={{ backgroundColor: slide.background || '#fff' }}>
+      {slide.backgroundImage && (
+        <img src={slide.backgroundImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      )}
       {slide.elements.slice(0, 10).map((el, i) => {
         const w = (el.width || 100) * scale * (el.scaleX || 1);
         const h = (el.height || 50) * scale * (el.scaleY || 1);
@@ -1049,7 +2828,6 @@ function SlideThumb({ slide }: { slide: SlideData }) {
 
         if (el.type === 'textbox') {
           const scaledFont = (el.fontSize || 24) * scale;
-          // If text is too small to read, show a colored bar placeholder
           if (scaledFont < 6) {
             const barH = Math.max(2, Math.round(scaledFont * 0.8));
             return (
@@ -1080,11 +2858,17 @@ function SlideThumb({ slide }: { slide: SlideData }) {
           return <div key={i} style={{ ...style, backgroundColor: el.fill || '#e2e8f0', borderRadius: '50%' }} />;
         }
         if (el.type === 'triangle') {
-          // CSS triangle via clip-path
           return <div key={i} style={{ ...style, backgroundColor: el.fill || '#e2e8f0', clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }} />;
         }
         if (el.type === 'image') {
           return <img key={i} src={el.src} alt="" style={{ ...style, objectFit: 'cover' }} />;
+        }
+        if (el.type === 'table') {
+          return (
+            <div key={i} style={{ ...style, backgroundColor: '#f9fafb', border: '1px solid #d1d5db' }}>
+              <Table2 className="w-full h-full text-muted-foreground/30 p-0.5" />
+            </div>
+          );
         }
         return <div key={i} style={{ ...style, backgroundColor: el.fill || '#e2e8f0' }} />;
       })}
@@ -1130,6 +2914,46 @@ function PresenterMode({
       interactive: false,
     });
     canvasRef.current = canvas;
+
+    // Table grid rendering for presenter mode
+    canvas.on('after:render', () => {
+      const ctx = canvas.getContext();
+      if (!ctx) return;
+      for (const o of canvas.getObjects()) {
+        if (!(o as any).__isTable) continue;
+        const tJSON = (o as any).__tableJSON;
+        const tableContent = tJSON?.content?.[0]?.content || [];
+        const tRows: number = tableContent.length || 3;
+        const tCols: number = tableContent[0]?.content?.length || 3;
+        const z = canvas.getZoom() || 1;
+        const ox = (o.left || 0) * z;
+        const oy = (o.top || 0) * z;
+        const cw = 120 * z;
+        const ch = 36 * z;
+        ctx.save();
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 1;
+        for (let r = 0; r <= tRows; r++) { ctx.beginPath(); ctx.moveTo(ox, oy + r * ch); ctx.lineTo(ox + tCols * cw, oy + r * ch); ctx.stroke(); }
+        for (let c = 0; c <= tCols; c++) { ctx.beginPath(); ctx.moveTo(ox + c * cw, oy); ctx.lineTo(ox + c * cw, oy + tRows * ch); ctx.stroke(); }
+        ctx.fillStyle = '#f3f4f6';
+        ctx.fillRect(ox, oy, tCols * cw, ch);
+        ctx.strokeRect(ox, oy, tCols * cw, ch);
+        ctx.fillStyle = '#1f2937';
+        ctx.font = `${Math.max(10, 12 * z)}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let r = 0; r < tRows; r++) {
+          const rowCells = tableContent[r]?.content || [];
+          for (let c = 0; c < tCols; c++) {
+            const cell = rowCells[c];
+            const text = cell?.content?.[0]?.content?.[0]?.text || '';
+            if (text) ctx.fillText(text, ox + c * cw + cw / 2, oy + r * ch + ch / 2, cw - 8);
+          }
+        }
+        ctx.restore();
+      }
+    });
+
     return () => {
       canvas.dispose();
       canvasRef.current = null;
@@ -1144,6 +2968,24 @@ function PresenterMode({
     const slide = slides[index];
     canvas.clear();
     canvas.backgroundColor = slide.background || '#ffffff';
+
+    // Background image in presenter mode
+    if (slide.backgroundImage && fabricModule.FabricImage) {
+      const bgImg = new window.Image();
+      bgImg.crossOrigin = 'anonymous';
+      bgImg.onload = () => {
+        const fImg = new fabricModule.FabricImage(bgImg, { originX: 'left', originY: 'top' });
+        const scX = SLIDE_WIDTH / bgImg.width;
+        const scY = SLIDE_HEIGHT / bgImg.height;
+        const sc = Math.max(scX, scY);
+        fImg.set({ scaleX: sc, scaleY: sc });
+        canvas.backgroundImage = fImg;
+        canvas.renderAll();
+      };
+      bgImg.src = slide.backgroundImage;
+    } else {
+      canvas.backgroundImage = null;
+    }
 
     const { Textbox, Rect, Circle, Triangle, FabricImage } = fabricModule;
     for (const el of slide.elements) {
@@ -1167,12 +3009,36 @@ function PresenterMode({
         const imgEl = new window.Image();
         imgEl.crossOrigin = 'anonymous';
         imgEl.onload = () => {
-          const fi = new FabricImage(imgEl, { left: el.left || 0, top: el.top || 0, scaleX: (el.width || 200) / imgEl.width, scaleY: (el.height || 200) / imgEl.height, selectable: false, evented: false });
+          const fi = new FabricImage(imgEl, {
+            left: el.left || 0,
+            top: el.top || 0,
+            scaleX: el.scaleX || ((el.width || 200) / imgEl.width),
+            scaleY: el.scaleY || ((el.height || 200) / imgEl.height),
+            selectable: false,
+            evented: false,
+          });
           canvas.add(fi);
           canvas.renderAll();
         };
         imgEl.src = el.src;
         continue;
+      } else if (el.type === 'table') {
+        // Render table as rect in presenter mode — grid drawn via after:render
+        const { Rect: RectPres } = fabricModule;
+        const tJSON = el.tableJSON;
+        const tc = tJSON?.content?.[0]?.content || [];
+        const tRows = tc.length || 3;
+        const tCols = tc[0]?.content?.length || 3;
+        obj = new RectPres({
+          ...common,
+          width: el.width || 120 * tCols,
+          height: el.height || 36 * tRows,
+          fill: '#ffffff',
+          stroke: '#d1d5db',
+          strokeWidth: 1,
+        });
+        (obj as any).__tableJSON = el.tableJSON || null;
+        (obj as any).__isTable = true;
       }
       if (obj) canvas.add(obj);
     }
@@ -1220,11 +3086,9 @@ function PresenterMode({
       <div className="presenter-canvas" style={{ width: SLIDE_WIDTH, height: SLIDE_HEIGHT }}>
         <canvas ref={canvasElRef} />
       </div>
-      {/* Slide counter */}
       <div className="fixed bottom-4 right-4 text-white/50 text-sm z-50 cursor-default" onClick={(e) => e.stopPropagation()}>
         {index + 1} / {slides.length}
       </div>
-      {/* Exit button */}
       <button
         className="fixed top-4 right-4 text-white/30 hover:text-white/70 text-sm z-50"
         onClick={(e) => { e.stopPropagation(); document.exitFullscreen?.().catch(() => {}); onExit(); }}

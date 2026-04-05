@@ -12,6 +12,7 @@ import type { Primitive } from "utility-types";
 import { getEventFiles } from "../../utils/files";
 import { sanitizeUrl } from "../../utils/urls";
 import { AttachmentValidation } from "../../validations";
+import { pickFile } from "@/lib/utils/pick-file";
 import type { Options } from "../commands/insertFiles";
 import insertFiles from "../commands/insertFiles";
 import { default as ImageComponent } from "../components/Image";
@@ -174,12 +175,9 @@ export default class SimpleImage extends Node {
         }
 
         // create an input element and click to trigger picker
-        const inputElement = document.createElement("input");
-        inputElement.type = "file";
-        inputElement.accept = AttachmentValidation.imageContentTypes.join(", ");
-        inputElement.onchange = (event) => {
-          const files = getEventFiles(event);
-          void insertFiles(view, event, state.selection.from, files, {
+        void pickFile({ accept: AttachmentValidation.imageContentTypes.join(", ") }).then((files) => {
+          const syntheticEvent = { preventDefault: () => {} } as unknown as Event;
+          void insertFiles(view, syntheticEvent, state.selection.from, files, {
             uploadFile,
             onFileUploadStart,
             onFileUploadStop,
@@ -193,8 +191,7 @@ export default class SimpleImage extends Node {
               layoutClass: node.attrs.layoutClass,
             },
           });
-        };
-        inputElement.click();
+        });
         return true;
       },
       createImage:

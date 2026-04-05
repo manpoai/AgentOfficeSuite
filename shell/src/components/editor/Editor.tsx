@@ -1,9 +1,21 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import 'katex/dist/katex.min.css';
 import { commentHighlightPlugin, updateCommentHighlights } from './comment-highlight-plugin';
+import { ContentLinkPicker } from '../shared/ContentLink/ContentLinkPicker';
+import { DiagramPicker } from '../shared/EmbeddedDiagram/DiagramPicker';
+import { DiagramEditorDialog } from '../shared/EmbeddedDiagram/DiagramEditorDialog';
+import { FloatingToolbar } from '../shared/FloatingToolbar';
+import { getDocsTextItems, getDocsTableItems, getDocsImageItems } from '../shared/FloatingToolbar/presets';
+import { createDocsTextHandler, createDocsTableHandler, createDocsImageHandler } from './docs-toolbar-handler';
+import type { SelectionInfo } from './floating-toolbar';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
+import { EditorSkeleton } from '@/components/shared/Skeleton';
+import type { TableToolbarInfo } from './table-menu-plugin';
 
 interface EditorProps {
   defaultValue: string;
@@ -30,12 +42,26 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [contentLinkPicker, setContentLinkPicker] = useState<{ top: number; left: number } | null>(null);
+  const [diagramPicker, setDiagramPicker] = useState<{ top: number; left: number } | null>(null);
+  const [editingDiagramId, setEditingDiagramId] = useState<string | null>(null);
+  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  const [tableToolbarInfo, setTableToolbarInfo] = useState<TableToolbarInfo | null>(null);
+  const [imageToolbarInfo, setImageToolbarInfo] = useState<{
+    anchor: { top: number; left: number; width: number };
+    nodePos: number;
+    view: any;
+  } | null>(null);
 
   useEffect(() => {
     if (!editorRef.current) return;
 
     let view: any = null;
     let destroyed = false;
+    let contentLinkPickerHandler: ((e: Event) => void) | null = null;
+    let imageToolbarHandler: ((e: Event) => void) | null = null;
+    let diagramPickerHandler: ((e: Event) => void) | null = null;
+    let diagramEditorHandler: ((e: Event) => void) | null = null;
 
     (async () => {
       try {
@@ -59,6 +85,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           { tableMenuPlugin },
           { searchPlugin },
           { listNumberingPlugin },
+          { contentLinkPastePlugin },
         ] = await Promise.all([
           import('prosemirror-state'),
           import('prosemirror-view'),
@@ -79,6 +106,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           import('./table-menu-plugin'),
           import('./search-plugin'),
           import('./list-numbering-plugin'),
+          import('./content-link-node'),
         ]);
 
         if (destroyed) return;
@@ -100,16 +128,17 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           tableEditing(),
           searchPlugin(),
           listNumberingPlugin(),
+          contentLinkPastePlugin(),
         ];
 
         // Add interactive plugins only when not read-only
         if (!readOnly) {
           plugins.push(slashMenuPlugin(() => documentId));
-          plugins.push(floatingToolbarPlugin());
+          plugins.push(floatingToolbarPlugin((info) => setSelectionInfo(info)));
           plugins.push(imageUploadPlugin(() => documentId));
           plugins.push(placeholderPlugin(placeholder || ''));
           plugins.push(blockHandlePlugin());
-          plugins.push(tableMenuPlugin());
+          plugins.push(tableMenuPlugin((info) => setTableToolbarInfo(info)));
         }
 
         // Comment highlight decorations — highlights text matching comment quotes
@@ -222,6 +251,38 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
         // Expose view on DOM for testing/debugging
         (editorRef.current as any).__pmView = view;
 
+        // Listen for content link picker trigger from slash menu
+        contentLinkPickerHandler = (e: Event) => {
+          const { top, left } = (e as CustomEvent).detail;
+          setContentLinkPicker({ top, left });
+        };
+        editorRef.current!.addEventListener('open-content-link-picker', contentLinkPickerHandler);
+
+        // Image toolbar event from ImageNodeView
+        imageToolbarHandler = (e: Event) => {
+          const detail = (e as CustomEvent).detail;
+          if (detail) {
+            setImageToolbarInfo({ anchor: detail.anchor, nodePos: detail.nodePos, view: detail.view });
+          } else {
+            setImageToolbarInfo(null);
+          }
+        };
+        editorRef.current!.addEventListener('image-toolbar', imageToolbarHandler);
+
+        // Diagram picker trigger from slash menu
+        diagramPickerHandler = (e: Event) => {
+          const { top, left } = (e as CustomEvent).detail;
+          setDiagramPicker({ top, left });
+        };
+        editorRef.current!.addEventListener('open-diagram-picker', diagramPickerHandler);
+
+        // Diagram editor trigger from node view click
+        diagramEditorHandler = (e: Event) => {
+          const { diagramId } = (e as CustomEvent).detail;
+          setEditingDiagramId(diagramId);
+        };
+        editorRef.current!.addEventListener('open-diagram-editor', diagramEditorHandler);
+
         if (autoFocus) {
           setTimeout(() => {
             if (!view || destroyed) return;
@@ -232,13 +293,25 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
           }, 50);
         }
       } catch (e: any) {
-        console.error('Editor init error:', e);
+        showError(getT()('editor.initFailed'), e);
         setError(e.message || 'Editor initialization failed');
       }
     })();
 
     return () => {
       destroyed = true;
+      if (contentLinkPickerHandler) {
+        editorRef.current?.removeEventListener('open-content-link-picker', contentLinkPickerHandler);
+      }
+      if (imageToolbarHandler) {
+        editorRef.current?.removeEventListener('image-toolbar', imageToolbarHandler);
+      }
+      if (diagramPickerHandler) {
+        editorRef.current?.removeEventListener('open-diagram-picker', diagramPickerHandler);
+      }
+      if (diagramEditorHandler) {
+        editorRef.current?.removeEventListener('open-diagram-editor', diagramEditorHandler);
+      }
       if (view) {
         view.destroy();
       }
@@ -262,6 +335,51 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
     );
   }
 
+  /** Content Link Picker: insert content_link node when user selects an item */
+  const handleContentLinkSelect = useCallback((contentId: string, item: any) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const schema = view.state.schema;
+    const node = schema.nodes.content_link.create({
+      contentId,
+      title: item.title || contentId,
+    });
+    const { from, to } = view.state.selection;
+    view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
+    setContentLinkPicker(null);
+    view.focus();
+  }, []);
+
+  const handleContentLinkCancel = useCallback(() => {
+    setContentLinkPicker(null);
+    viewRef.current?.focus();
+  }, []);
+
+  const handleDiagramSelect = useCallback((diagramId: string, item: any) => {
+    setDiagramPicker(null);
+    const view = viewRef.current;
+    if (!view) return;
+    try {
+      const schema = view.state.schema;
+      // Use raw_id (UUID without prefix) for API calls
+      const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
+      const node = schema.nodes.diagram_embed.create({
+        diagramId: rawId,
+        title: item.title || 'Untitled Diagram',
+      });
+      const { from, to } = view.state.selection;
+      view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
+      view.focus();
+    } catch (err) {
+      showError('Failed to insert diagram embed', err);
+    }
+  }, []);
+
+  const handleDiagramPickerCancel = useCallback(() => {
+    setDiagramPicker(null);
+    viewRef.current?.focus();
+  }, []);
+
   /** Item 8: Click below last content → cursor at end of last line */
   const handleWrapperClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const view = viewRef.current;
@@ -284,6 +402,79 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
   return (
     <div className={`outline-editor ${className || ''}`} onClick={handleWrapperClick}>
       <div ref={editorRef} className="outline-editor-mount" />
+      {selectionInfo && !readOnly && (
+        <FloatingToolbar
+          items={getDocsTextItems()}
+          handler={createDocsTextHandler(selectionInfo.view)}
+          anchor={selectionInfo.anchor}
+          visible={true}
+          onHover={(hovering) => {
+            const el = editorRef.current?.closest('.outline-editor') as any;
+            el?.__toolbarHover?.(hovering);
+            el?.__toolbarInteracting?.(hovering);
+          }}
+        />
+      )}
+      {tableToolbarInfo && !readOnly && (
+        <FloatingToolbar
+          items={getDocsTableItems()}
+          handler={createDocsTableHandler(tableToolbarInfo.view)}
+          anchor={tableToolbarInfo.anchor}
+          visible={true}
+          onHover={(hovering) => {
+            const el = editorRef.current?.closest('.outline-editor') as any;
+            el?.__toolbarHover?.(hovering);
+            el?.__toolbarInteracting?.(hovering);
+          }}
+        />
+      )}
+      {imageToolbarInfo && !readOnly && (
+        <FloatingToolbar
+          items={getDocsImageItems()}
+          handler={createDocsImageHandler(imageToolbarInfo.view, imageToolbarInfo.nodePos)}
+          anchor={imageToolbarInfo.anchor}
+          visible={true}
+        />
+      )}
+      {contentLinkPicker && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: contentLinkPicker.top,
+            left: contentLinkPicker.left,
+            zIndex: 1001,
+          }}
+        >
+          <ContentLinkPicker
+            onSelect={handleContentLinkSelect}
+            onCancel={handleContentLinkCancel}
+          />
+        </div>,
+        document.body,
+      )}
+      {diagramPicker && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: diagramPicker.top,
+            left: diagramPicker.left,
+            zIndex: 1001,
+          }}
+        >
+          <DiagramPicker
+            onSelect={handleDiagramSelect}
+            onCancel={handleDiagramPickerCancel}
+            embedded
+          />
+        </div>,
+        document.body,
+      )}
+      {editingDiagramId && (
+        <DiagramEditorDialog
+          diagramId={editingDiagramId}
+          onClose={() => setEditingDiagramId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -294,5 +485,5 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
  */
 export const Editor = dynamic(() => Promise.resolve(EditorInner), {
   ssr: false,
-  loading: () => <div className="p-4 text-sm text-muted-foreground">加载编辑器...</div>,
+  loading: () => <EditorSkeleton />,
 });

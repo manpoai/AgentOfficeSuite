@@ -3,15 +3,19 @@
 import { useState, useCallback, useRef } from 'react';
 import type { Graph } from '@antv/x6';
 import {
-  Type, Brain, ImageIcon,
+  Type, Brain, ImageIcon, Table2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
+import { pickFile } from '@/lib/utils/pick-file';
 import {
-  SHAPE_META, SHAPE_ICON_PATHS, DEFAULT_NODE_COLOR,
+  SHAPE_META, DEFAULT_NODE_COLOR,
   type FlowchartShape, type ConnectorType,
 } from '../constants';
+import { SHAPE_MAP } from '@/components/shared/ShapeSet/shapes';
+import { ShapePicker } from '@/components/shared/ShapeSet';
 
-export type ActiveTool = 'select' | 'text' | FlowchartShape | 'connector' | 'mindmap';
+export type ActiveTool = 'select' | 'text' | 'table' | FlowchartShape | 'connector' | 'mindmap';
 
 interface LeftToolbarProps {
   activeTool: ActiveTool;
@@ -22,29 +26,31 @@ interface LeftToolbarProps {
 }
 
 function ShapeIcon({ shape, size = 20 }: { shape: FlowchartShape; size?: number }) {
-  const path = SHAPE_ICON_PATHS[shape];
+  const shapeDef = SHAPE_MAP.get(shape);
+  const iconPath = shapeDef?.iconPath ?? '';
   const isBrace = shape === 'brace-left' || shape === 'brace-right';
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
       {isBrace ? (
-        <path d={path} fill="none" />
+        <path d={iconPath} fill="none" />
       ) : shape === 'cylinder' ? (
         <>
           <ellipse cx="12" cy="7" rx="8" ry="3" fill="none" />
           <path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7" fill="none" />
         </>
       ) : (
-        <path d={path} fill="none" />
+        <path d={iconPath} fill="none" />
       )}
     </svg>
   );
 }
 
 export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConnectorChange, graph }: LeftToolbarProps) {
+  const { t } = useT();
   const [showShapes, setShowShapes] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isShapeTool = Object.keys(SHAPE_META).includes(activeTool);
+  const isShapeTool = SHAPE_MAP.has(activeTool as any);
 
   const handleDragStart = useCallback((shape: FlowchartShape) => (e: React.DragEvent) => {
     const meta = SHAPE_META[shape];
@@ -76,12 +82,12 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
   };
 
   return (
-    <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1 bg-white rounded-xl shadow-lg border border-gray-200 p-1.5">
+    <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-card rounded border border-black/10 dark:border-white/10 px-3 h-10 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]">
       {/* Text */}
       <ToolButton
         active={activeTool === 'text'}
         onClick={() => { onToolChange('text'); setShowShapes(false); }}
-        title="文本 (T)"
+        title={t('diagram.tools.text')}
       >
         <Type size={18} />
       </ToolButton>
@@ -95,32 +101,24 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
         <ToolButton
           active={isShapeTool}
           onClick={() => { onToolChange('rounded-rect'); setShowShapes(false); }}
-          title="图形 (R)"
+          title={t('diagram.tools.shape')}
         >
           <ShapeIcon shape="rect" size={18} />
         </ToolButton>
 
         {showShapes && (
           <div
-            className="absolute left-full top-0 ml-2 bg-white rounded-lg shadow-lg border border-gray-200 p-2 grid grid-cols-6 gap-0.5"
-            style={{ width: 220 }}
+            className="absolute left-0 top-full mt-2 z-40"
             onMouseEnter={showShapeList}
             onMouseLeave={scheduleHideShapeList}
           >
-            {(Object.keys(SHAPE_META) as FlowchartShape[]).map((key) => (
-              <button
-                key={key}
-                className={cn(
-                  'w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 transition-colors',
-                  activeTool === key && 'bg-blue-50 text-blue-600',
-                )}
-                onClick={() => { onToolChange(key); setShowShapes(false); }}
-                draggable
-                onDragStart={handleDragStart(key)}
-              >
-                <ShapeIcon shape={key} size={20} />
-              </button>
-            ))}
+            <ShapePicker
+              onSelect={(shapeType) => { onToolChange(shapeType as FlowchartShape); setShowShapes(false); }}
+              selectedShape={isShapeTool ? activeTool as any : undefined}
+              draggable
+              onDragStart={(shapeType, e) => handleDragStart(shapeType as FlowchartShape)(e)}
+              columns={6}
+            />
           </div>
         )}
       </div>
@@ -129,7 +127,7 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
       <ToolButton
         active={activeTool === 'mindmap'}
         onClick={() => { onToolChange('mindmap'); setShowShapes(false); }}
-        title="思维导图 (M)"
+        title={t('diagram.tools.mindmap')}
       >
         <Brain size={18} />
       </ToolButton>
@@ -139,11 +137,8 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
         active={activeTool === 'image' as any}
         onClick={() => {
           if (!graph) return;
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = 'image/*';
-          input.onchange = () => {
-            const file = input.files?.[0];
+          pickFile({ accept: 'image/*' }).then((files) => {
+            const file = files[0];
             if (!file) return;
             const reader = new FileReader();
             reader.onload = () => {
@@ -167,13 +162,21 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
               onToolChange('select');
             };
             reader.readAsDataURL(file);
-          };
-          input.click();
+          });
         }}
-        title="图片 (I)"
+        title={t('diagram.tools.image')}
       >
         <ImageIcon size={18} />
       </ToolButton>
+
+      {/* Table — temporarily disabled, needs more work */}
+      {/* <ToolButton
+        active={activeTool === 'table'}
+        onClick={() => { onToolChange('table'); setShowShapes(false); }}
+        title={t('diagram.tools.table')}
+      >
+        <Table2 size={18} />
+      </ToolButton> */}
     </div>
   );
 }
@@ -190,8 +193,8 @@ function ToolButton({
   return (
     <button
       className={cn(
-        'w-9 h-9 flex items-center justify-center rounded-lg transition-colors',
-        active ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100',
+        'w-7 h-7 flex items-center justify-center rounded transition-colors',
+        active ? 'bg-primary/10 text-primary' : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04]',
         disabled && 'opacity-40 cursor-not-allowed',
       )}
       onClick={disabled ? undefined : onClick}

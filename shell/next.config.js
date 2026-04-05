@@ -1,26 +1,20 @@
-const path = require('path');
-
-const emptyStub = path.resolve(__dirname, 'src/editor-core/_stubs/empty.ts');
-
 /** @type {import('next').NextConfig} */
+let withBundleAnalyzer = (config) => config;
+try {
+  withBundleAnalyzer = require('@next/bundle-analyzer')({
+    enabled: process.env.ANALYZE === 'true',
+  });
+} catch {
+  // @next/bundle-analyzer not installed — skip
+}
+
 const nextConfig = {
-  // editor-core has TS errors from Outline internals that don't affect runtime
-  typescript: { ignoreBuildErrors: true },
-  // styled-components SSR support
-  compiler: { styledComponents: true },
-  // Redirect unavailable Outline dependencies to empty stubs
-  webpack(config) {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@sentry/react': emptyStub,
-      'mermaid': emptyStub,
-      '@mermaid-js/layout-elk': emptyStub,
-      '@fortawesome/free-solid-svg-icons': emptyStub,
-      '@fortawesome/fontawesome-common-types': emptyStub,
-      'refractor/core': emptyStub,
-      'y-prosemirror': emptyStub,
-    };
-    return config;
+  typescript: {
+    // Pre-existing type errors from dependency version mismatch; build works at runtime
+    ignoreBuildErrors: true,
+  },
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@antv/x6'],
   },
   // Allow iframes from our services
   async headers() {
@@ -35,4 +29,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+module.exports = withBundleAnalyzer(nextConfig);

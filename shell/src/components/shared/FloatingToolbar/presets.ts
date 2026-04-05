@@ -1,0 +1,315 @@
+import {
+  Bold, Italic, Strikethrough, Underline, Highlighter, Code2, Quote,
+  Heading1, Heading2, Heading3, ListTodo, ListOrdered, List,
+  Link, MessageSquare, Type, Palette,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  Paintbrush, Square, Copy, Trash2, Layers, ImageIcon,
+  Minus, ArrowRight,
+  TableProperties, Columns, Merge, Split, Download, Pencil,
+  Maximize, Minimize,
+} from 'lucide-react';
+import type { ToolbarItem } from './types';
+import { createElement } from 'react';
+import { getT } from '@/lib/i18n';
+import { PALETTES } from '@/actions/color-palettes';
+
+const icon = (Icon: any) => createElement(Icon, { className: 'h-4 w-4' });
+
+export function getDocsTextItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold (Cmd+B)', group: 'inline' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic (Cmd+I)', group: 'inline' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'inline' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline (Cmd+U)', group: 'inline' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Inline code', group: 'style' },
+    { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
+    { key: 'heading1', type: 'toggle', icon: icon(Heading1), label: 'Heading 1', group: 'heading' },
+    { key: 'heading2', type: 'toggle', icon: icon(Heading2), label: 'Heading 2', group: 'heading' },
+    { key: 'heading3', type: 'toggle', icon: icon(Heading3), label: 'Heading 3', group: 'heading' },
+    { key: 'checkboxList', type: 'toggle', icon: icon(ListTodo), label: 'Checkbox list', group: 'list' },
+    { key: 'orderedList', type: 'toggle', icon: icon(ListOrdered), label: 'Ordered list', group: 'list' },
+    { key: 'bulletList', type: 'toggle', icon: icon(List), label: 'Bullet list', group: 'list' },
+    { key: 'link', type: 'action', icon: icon(Link), label: 'Link', group: 'insert' },
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
+  ];
+}
+
+
+// ── Docs Table Toolbar ──
+
+export function getDocsTableItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'toggleHeaderRow', type: 'action', icon: icon(TableProperties), label: 'Toggle header row', group: 'table' },
+    { key: 'toggleHeaderCol', type: 'action', icon: icon(Columns), label: 'Toggle header column', group: 'table' },
+    { key: 'mergeCells', type: 'action', icon: icon(Merge), label: 'Merge cells', group: 'table' },
+    { key: 'splitCell', type: 'action', icon: icon(Split), label: 'Split cell', group: 'table' },
+    { key: 'cellBgColor', type: 'color', icon: icon(Paintbrush), label: 'Cell background', group: 'cellStyle', colors: PALETTES.cellBackground, colorClearable: true },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'code', type: 'toggle', icon: icon(Code2), label: 'Code', group: 'style' },
+    { key: 'blockquote', type: 'toggle', icon: icon(Quote), label: 'Quote', group: 'style' },
+    { key: 'heading', type: 'dropdown', icon: icon(Heading1), label: 'Heading', group: 'block',
+      options: [
+        { value: '1', label: 'H1', icon: icon(Heading1) },
+        { value: '2', label: 'H2', icon: icon(Heading2) },
+        { value: '3', label: 'H3', icon: icon(Heading3) },
+        { value: 'paragraph', label: 'Paragraph', icon: icon(Type) },
+      ]},
+    { key: 'list', type: 'dropdown', icon: icon(List), label: 'List', group: 'block',
+      options: [
+        { value: 'checkbox', label: 'Checkbox', icon: icon(ListTodo) },
+        { value: 'ordered', label: 'Ordered', icon: icon(ListOrdered) },
+        { value: 'bullet', label: 'Bullet', icon: icon(List) },
+      ]},
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'insert' },
+    { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: 'Delete row', group: 'delete' },
+    { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: 'Delete column', group: 'delete' },
+  ];
+}
+
+
+// ── Simple Table Toolbar (PPT / Diagram — schema only has paragraph + inline marks) ──
+
+export function getSimpleTableItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'toggleHeaderRow', type: 'action', icon: icon(TableProperties), label: 'Toggle header row', group: 'table' },
+    { key: 'toggleHeaderCol', type: 'action', icon: icon(Columns), label: 'Toggle header column', group: 'table' },
+    { key: 'mergeCells', type: 'action', icon: icon(Merge), label: 'Merge cells', group: 'table' },
+    { key: 'splitCell', type: 'action', icon: icon(Split), label: 'Split cell', group: 'table' },
+    { key: 'cellBgColor', type: 'color', icon: icon(Paintbrush), label: 'Cell background', group: 'cellStyle', colors: PALETTES.cellBackground, colorClearable: true },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'highlight', type: 'color', icon: icon(Highlighter), label: 'Highlight', group: 'style', colors: PALETTES.highlight, colorClearable: true },
+    { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: 'Delete row', group: 'delete' },
+    { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: 'Delete column', group: 'delete' },
+  ];
+}
+
+
+// ── Docs Image Toolbar ──
+
+export function getDocsImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'alignLeft', type: 'action', icon: icon(AlignLeft), label: 'Left', group: 'align' },
+    { key: 'alignCenter', type: 'action', icon: icon(AlignCenter), label: 'Center', group: 'align' },
+    { key: 'alignRight', type: 'action', icon: icon(AlignRight), label: 'Right', group: 'align' },
+    { key: 'alignFull', type: 'action', icon: icon(Maximize), label: 'Full width', group: 'align' },
+    { key: 'alignFit', type: 'action', icon: icon(Minimize), label: 'Fit width', group: 'align' },
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
+    { key: 'download', type: 'action', icon: icon(Download), label: 'Download', group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: 'Delete', group: 'action' },
+    { key: 'altText', type: 'action', icon: icon(Pencil), label: 'Alt text', group: 'action' },
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: 'Comment', group: 'action' },
+  ];
+}
+
+
+// ── PPT Text Toolbar ──
+
+function getFontFamilies(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
+    { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: '"Times New Roman", Times, serif', label: 'Times New Roman' },
+    { value: '"Courier New", Courier, monospace', label: 'Courier New' },
+    { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+    { value: '"Trebuchet MS", sans-serif', label: 'Trebuchet MS' },
+    { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: t('toolbar.fonts.notoSansSC') },
+    { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: t('toolbar.fonts.notoSerifSC') },
+    { value: '"Microsoft YaHei", sans-serif', label: t('toolbar.fonts.microsoftYaHei') },
+    { value: '"PingFang SC", sans-serif', label: t('toolbar.fonts.pingFangSC') },
+  ];
+}
+
+const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 96].map(
+  s => ({ value: String(s), label: String(s) }),
+);
+
+export function getPptTextItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'fontFamily', type: 'dropdown', icon: null, label: 'Font', group: 'font', options: getFontFamilies(t) },
+    { key: 'fontSize', type: 'dropdown', icon: null, label: 'Size', group: 'font', options: FONT_SIZES },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: 'Alignment', group: 'align',
+      options: [
+        { value: 'left', label: 'Left', icon: icon(AlignLeft) },
+        { value: 'center', label: 'Center', icon: icon(AlignCenter) },
+        { value: 'right', label: 'Right', icon: icon(AlignRight) },
+      ]},
+    { key: 'textColor', type: 'color', icon: icon(Palette), label: 'Text color', group: 'color', colors: PALETTES.text },
+  ];
+}
+
+
+// ── PPT Image Toolbar ──
+
+export function getPptImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: 'Replace', group: 'action' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action',
+      options: [
+        { value: 'front', label: t('toolbar.common.bringToFront') },
+        { value: 'back', label: t('toolbar.common.sendToBack') },
+      ]},
+  ];
+}
+
+
+// ── PPT Shape Toolbar ──
+
+
+function getBorderWidthOptions(t: ReturnType<typeof getT>) {
+  return [0, 1, 2, 3, 4, 6].map(
+    w => ({ value: String(w), label: w === 0 ? t('toolbar.common.none') : String(w) }),
+  );
+}
+
+function getBorderStyleOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'solid', label: t('toolbar.common.solidLine') },
+    { value: 'dashed', label: t('toolbar.common.dashedLine') },
+    { value: 'dotted', label: t('toolbar.common.dottedLine') },
+  ];
+}
+
+function getCornerRadiusOptions(t: ReturnType<typeof getT>) {
+  return [0, 4, 8, 12, 16, 24].map(
+    r => ({ value: String(r), label: r === 0 ? t('toolbar.common.none') : `${r}px` }),
+  );
+}
+
+export function getPptShapeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: t('toolbar.ppt.shape'), group: 'shape' },
+    { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: t('toolbar.ppt.fillColor'), group: 'color', colors: PALETTES.fill, colorClearable: true },
+    { key: 'borderColor', type: 'color', icon: icon(Square), label: t('toolbar.ppt.borderColor'), group: 'border', colors: PALETTES.border, colorClearable: true },
+    { key: 'borderWidth', type: 'dropdown', icon: icon(Minus), label: t('toolbar.ppt.borderWidth'), group: 'border', options: getBorderWidthOptions(t) },
+    { key: 'borderStyle', type: 'dropdown', icon: null, label: t('toolbar.ppt.borderStyle'), group: 'border', options: getBorderStyleOptions(t) },
+    { key: 'textColor', type: 'color', icon: icon(Palette), label: t('toolbar.ppt.textColor'), group: 'color', colors: PALETTES.text },
+    { key: 'cornerRadius', type: 'dropdown', icon: null, label: t('toolbar.ppt.cornerRadius'), group: 'style', options: getCornerRadiusOptions(t) },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action',
+      options: [
+        { value: 'front', label: t('toolbar.common.bringToFront') },
+        { value: 'back', label: t('toolbar.common.sendToBack') },
+      ]},
+  ];
+}
+
+
+// ── Diagram Toolbar ──
+
+
+const DIAGRAM_FONT_SIZES = [12, 14, 16, 18, 20, 24, 28, 32].map(
+  s => ({ value: String(s), label: String(s) }),
+);
+
+
+const EDGE_WIDTH_OPTIONS = [1, 1.5, 2, 3, 4, 6].map(
+  w => ({ value: String(w), label: String(w) }),
+);
+
+function getLineStyleOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'solid', label: t('toolbar.common.solidLine') },
+    { value: 'dashed', label: t('toolbar.common.dashedLine') },
+    { value: 'dotted', label: t('toolbar.common.dottedLine') },
+  ];
+}
+
+function getConnectorTypeOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'straight', label: t('toolbar.diagram.connStraight') },
+    { value: 'manhattan', label: t('toolbar.diagram.connOrthogonal') },
+    { value: 'rounded', label: t('toolbar.diagram.connPolyline') },
+    { value: 'smooth', label: t('toolbar.diagram.connCurve') },
+  ];
+}
+
+function getZOrderOptions(t: ReturnType<typeof getT>) {
+  return [
+    { value: 'front', label: t('toolbar.common.bringToFront') },
+    { value: 'back', label: t('toolbar.common.sendToBack') },
+  ];
+}
+
+/**
+ * Diagram Node toolbar.
+ * 'shapeSelect' item uses 'custom' type — the renderCustom is set by the diagram editor
+ * at integration time since it depends on ShapePicker component.
+ */
+export function getDiagramNodeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'shapeSelect', type: 'custom', icon: icon(Square), label: t('toolbar.diagram.shape'), group: 'shape' },
+    { key: 'fillColor', type: 'color', icon: icon(Paintbrush), label: t('toolbar.diagram.fillColor'), group: 'color', colors: PALETTES.fill, colorClearable: true },
+    { key: 'borderColor', type: 'color', icon: icon(Square), label: t('toolbar.diagram.borderColor'), group: 'color', colors: PALETTES.border, colorClearable: true },
+    { key: 'fontSize', type: 'dropdown', icon: null, label: t('toolbar.diagram.fontSize'), group: 'font', options: DIAGRAM_FONT_SIZES },
+    { key: 'bold', type: 'toggle', icon: icon(Bold), label: 'Bold', group: 'format' },
+    { key: 'italic', type: 'toggle', icon: icon(Italic), label: 'Italic', group: 'format' },
+    { key: 'strikethrough', type: 'toggle', icon: icon(Strikethrough), label: 'Strikethrough', group: 'format' },
+    { key: 'underline', type: 'toggle', icon: icon(Underline), label: 'Underline', group: 'format' },
+    { key: 'align', type: 'dropdown', icon: icon(AlignLeft), label: t('toolbar.diagram.alignment'), group: 'align',
+      options: [
+        { value: 'left', label: 'Left', icon: icon(AlignLeft) },
+        { value: 'center', label: 'Center', icon: icon(AlignCenter) },
+        { value: 'right', label: 'Right', icon: icon(AlignRight) },
+      ]},
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
+
+
+export function getDiagramEdgeItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'lineColor', type: 'color', icon: icon(Palette), label: t('toolbar.diagram.lineColor'), group: 'line', colors: PALETTES.border },
+    { key: 'lineWidth', type: 'dropdown', icon: icon(Minus), label: t('toolbar.diagram.lineWidth'), group: 'line', options: EDGE_WIDTH_OPTIONS },
+    { key: 'lineStyle', type: 'dropdown', icon: null, label: t('toolbar.diagram.lineStyle'), group: 'line', options: getLineStyleOptions(t) },
+    { key: 'connectorType', type: 'dropdown', icon: null, label: t('toolbar.diagram.connectorType'), group: 'connector', options: getConnectorTypeOptions(t) },
+    { key: 'arrowStyle', type: 'dropdown', icon: icon(ArrowRight), label: t('toolbar.diagram.arrowStyle'), group: 'connector',
+      options: [
+        { value: 'classic', label: t('toolbar.diagram.arrowClassic') },
+        { value: 'open', label: t('toolbar.diagram.arrowOpen') },
+        { value: 'none', label: t('toolbar.diagram.arrowNone') },
+      ]},
+    { key: 'label', type: 'action', icon: icon(Type), label: t('toolbar.diagram.labelText'), group: 'label' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
+
+
+export function getDiagramImageItems(): ToolbarItem[] {
+  const t = getT();
+  return [
+    { key: 'replace', type: 'action', icon: icon(ImageIcon), label: t('toolbar.common.replace'), group: 'action' },
+    { key: 'copy', type: 'action', icon: icon(Copy), label: t('toolbar.common.copy'), group: 'action' },
+    { key: 'delete', type: 'action', icon: icon(Trash2), label: t('toolbar.common.delete'), group: 'action' },
+    { key: 'zOrder', type: 'dropdown', icon: icon(Layers), label: t('toolbar.common.zOrder'), group: 'action', options: getZOrderOptions(t) },
+  ];
+}
+

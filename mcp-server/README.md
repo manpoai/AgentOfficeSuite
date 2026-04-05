@@ -1,6 +1,6 @@
 # ASuite MCP Server
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that gives AI agents full access to ASuite workspace operations -- messaging (Mattermost), documents (Outline), task management (Plane), structured data (NocoDB), agent discovery, and thread context -- through a single stdio interface. **29 tools** covering all workspace operations.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that gives AI agents full access to ASuite workspace operations -- documents, tasks, structured data (Baserow), messages, agent discovery, and thread context -- through a single stdio interface. **29 tools** covering all workspace operations.
 
 ```
  Agent (Claude, Cursor, etc.)
@@ -13,8 +13,8 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
        |
   +---------+---------+---------+
   |         |         |         |
-Mattermost Outline   Plane   NocoDB
-  (IM)     (Docs)   (Tasks)  (Data)
+Messages   Docs    Tasks    Baserow
+ (SQLite) (SQLite) (SQLite)  (Data)
 ```
 
 ## Quick Start (5 minutes)
@@ -28,7 +28,7 @@ curl -s -X POST http://localhost:4000/api/agents/self-register \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent", "display_name": "My Agent"}'
 # Returns: { "agent_id": "...", "agent_token": "agt_xxxx...", "status": "pending_approval" }
-# An admin will see a notification in Mattermost and can approve your registration.
+# An admin will see a notification in ASuite and can approve your registration.
 ```
 
 **Option B: Admin creates agent directly**
@@ -110,7 +110,7 @@ Any MCP client that supports stdio transport can connect:
 
 ## Tool Reference
 
-### Messages (Mattermost)
+### Messages
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -119,7 +119,7 @@ Any MCP client that supports stdio transport can connect:
 | `find_channel` | Find a channel by name | `name` |
 | `read_messages` | Read recent messages from a channel | `channel_id`, `limit?` (default 30), `before?` |
 
-### Documents (Outline)
+### Documents
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -129,7 +129,7 @@ Any MCP client that supports stdio transport can connect:
 | `list_docs` | List or search documents | `query?`, `collection_id?`, `limit?` (default 25) |
 | `comment_on_doc` | Comment on a document | `doc_id`, `text`, `parent_comment_id?` |
 
-### Tasks (Plane)
+### Tasks
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -139,7 +139,7 @@ Any MCP client that supports stdio transport can connect:
 | `list_tasks` | List/filter tasks | `status?`, `assignee_name?`, `limit?` (default 25) |
 | `read_task` | Read a task with full details | `task_id` |
 
-### Data (NocoDB)
+### Data (Baserow)
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
@@ -205,7 +205,7 @@ Agent: comment_on_task({ task_id: "task-001", text: "Design doc created: doc-abc
 
 ```
 Agent: list_tables()
-  -> { tables: [{ table_id: "tbl_01", title: "agent_notes" }, ...] }
+  -> { tables: [{ table_id: "tbl_01", title: "my_table" }, ...] }
 
 Agent: describe_table({ table_id: "tbl_01" })
   -> { columns: [{ title: "Title", uidt: "SingleLineText" }, ...] }

@@ -25,7 +25,7 @@ failed=0
 check "Mattermost"  "http://localhost:8065/api/v4/system/ping" || ((failed++))
 check "Outline"      "http://localhost:3000/api/info"           || ((failed++))
 check "Plane API"    "http://localhost:8000/api/v1/health/"     || ((failed++))
-check "NocoDB"       "http://localhost:8080/api/v1/health"      || ((failed++))
+check "Baserow"      "http://localhost:8280/api/_health/"        || ((failed++))
 check "Dex"          "http://localhost:5556/dex/.well-known/openid-configuration" || ((failed++))
 check "MinIO"        "http://localhost:9000/minio/health/live"  || ((failed++))
 check "Gateway"      "http://localhost:4000/api/me"             || ((failed++)) # will 401 but that's OK

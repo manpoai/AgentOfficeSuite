@@ -34,8 +34,10 @@ async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
 
   req.nextUrl.searchParams.forEach((v, k) => url.searchParams.set(k, v));
 
+  // Forward the client's Authorization header if present, otherwise fall back to GW_TOKEN
+  const clientAuth = req.headers.get('authorization');
   const headers: Record<string, string> = {
-    'Authorization': `Bearer ${GW_TOKEN}`,
+    'Authorization': clientAuth || `Bearer ${GW_TOKEN}`,
   };
 
   const ct = req.headers.get('content-type') || '';

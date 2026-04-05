@@ -7,7 +7,7 @@ import type { DefaultTheme } from "styled-components";
 export const breakpoints = {
   mobile: 0,
   mobileLarge: 460,
-  tablet: 737,
+  tablet: 640,
   desktop: 1025,
   desktopLarge: 1600,
 };

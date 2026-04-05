@@ -6,6 +6,7 @@ import * as docApi from '@/lib/api/documents';
 import type { Revision, Document as DocType } from '@/lib/api/documents';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime, formatDateTime } from '@/lib/utils/time';
 
 interface Props {
   doc: DocType;
@@ -78,16 +79,10 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
     const d = new Date(iso);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-
-    if (mins < 1) return t('content.justNow') || 'Just now';
-    if (mins < 60) return `${mins} ${t('content.minutesAgo') || 'min ago'}`;
-    if (hours < 24) return `${hours} ${t('content.hoursAgo') || 'hours ago'}`;
-    if (days < 7) return `${days} ${t('content.daysAgo') || 'days ago'}`;
-
-    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // For recent items use relative time; for older items show full date+time
+    if (days < 7) return formatRelativeTime(iso);
+    return formatDateTime(iso);
   };
 
   return (

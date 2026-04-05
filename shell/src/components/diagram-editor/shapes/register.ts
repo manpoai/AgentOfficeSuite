@@ -61,7 +61,7 @@ const portGroups = {
   right:  { position: 'port-right',  attrs: portAttrs },
 };
 
-const flowchartPorts = {
+export const flowchartPorts = {
   groups: portGroups,
   items: [
     { id: 'top', group: 'top' },

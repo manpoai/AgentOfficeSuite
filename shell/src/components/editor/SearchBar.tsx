@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, ChevronUp, ChevronDown, CaseSensitive, Replace } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 import {
   setSearchQuery,
   searchNext,
@@ -21,6 +22,7 @@ interface SearchBarProps {
 }
 
 export function SearchBar({ getView, showReplace: initialShowReplace = false, onClose }: SearchBarProps) {
+  const { t } = useT();
   const [query, setQuery] = useState('');
   const [replacement, setReplacement] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -141,7 +143,7 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
         <button
           onClick={() => setShowReplace(v => !v)}
           className={cn('p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors', showReplace && 'text-sidebar-primary')}
-          title="Toggle replace"
+          title={t('toolbar.toggleReplace')}
         >
           <Replace className="h-3.5 w-3.5" />
         </button>
@@ -150,7 +152,7 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Find..."
+          placeholder={t('search.find')}
           className="flex-1 text-sm bg-muted rounded px-2 py-1 text-foreground outline-none placeholder:text-muted-foreground min-w-0"
         />
         <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
@@ -159,17 +161,17 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
         <button
           onClick={() => setCaseSensitive(v => !v)}
           className={cn('p-1 rounded transition-colors', caseSensitive ? 'text-sidebar-primary bg-sidebar-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-accent')}
-          title="Case sensitive"
+          title={t('toolbar.caseSensitive')}
         >
           <CaseSensitive className="h-3.5 w-3.5" />
         </button>
-        <button onClick={handlePrev} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Previous (Shift+Enter)">
+        <button onClick={handlePrev} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('toolbar.prevMatch')}>
           <ChevronUp className="h-3.5 w-3.5" />
         </button>
-        <button onClick={handleNext} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Next (Enter)">
+        <button onClick={handleNext} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('toolbar.nextMatch')}>
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
-        <button onClick={handleClose} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title="Close (Esc)">
+        <button onClick={handleClose} className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" title={t('toolbar.closeSearch')}>
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -181,7 +183,7 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
             value={replacement}
             onChange={e => setReplacement(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Replace..."
+            placeholder={t('search.replace')}
             className="flex-1 text-sm bg-muted rounded px-2 py-1 text-foreground outline-none placeholder:text-muted-foreground min-w-0"
           />
           <button

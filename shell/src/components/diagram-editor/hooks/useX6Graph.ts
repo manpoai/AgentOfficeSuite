@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Graph, Shape } from '@antv/x6';
 import { registerShapes } from '../shapes/register';
 import { DEFAULT_EDGE_COLOR, DEFAULT_EDGE_WIDTH } from '../constants';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 export function useX6Graph(
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -50,15 +52,26 @@ export function useX6Graph(
             type: 'dot',
             size: 20,
             visible: true,
-            args: [{ color: '#e5e7eb', thickness: 1 }],
+            args: [{ color: '#a8aaa8', thickness: 1 }],
+          },
+          background: {
+            color: '#F5F7F5',
           },
 
           // Canvas navigation
           // Right-click drag = pan; two-finger trackpad scroll = pan (handled below)
-          panning: { enabled: true, eventTypes: ['rightMouseDown'] },
+          // On mobile (touch devices), left mouse down (= finger drag) also pans
+          panning: {
+            enabled: true,
+            eventTypes: typeof window !== 'undefined' && 'ontouchstart' in window
+              ? ['leftMouseDown', 'rightMouseDown']
+              : ['rightMouseDown'],
+          },
           mousewheel: {
             enabled: true,
-            modifiers: ['ctrl', 'meta'],
+            modifiers: typeof window !== 'undefined' && 'ontouchstart' in window
+              ? []           // Allow pinch-zoom on mobile without modifier keys
+              : ['ctrl', 'meta'],
             zoomAtMousePosition: true,
             minScale: 0.2,
             maxScale: 3,
@@ -112,9 +125,10 @@ export function useX6Graph(
         });
 
         // ── Plugins ──
+        const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window;
         graph.use(new Selection({
           enabled: true,
-          rubberband: true,
+          rubberband: !isTouchDevice, // Disable rubberband on touch — conflicts with panning
           showNodeSelectionBox: true,
           multiple: true,
           movable: true,
@@ -238,10 +252,12 @@ export function useX6Graph(
         };
         container.addEventListener('wheel', onWheel, { passive: false });
 
+        // Touch pinch-to-zoom is handled by usePinchZoom in the main component.
+
         graphRef.current = graph;
         setReady(true);
       } catch (e) {
-        console.error('X6 Graph init failed:', e);
+        showError(getT()('diagram.initFailed'), e);
         setError(e instanceof Error ? e.message : String(e));
       }
     }

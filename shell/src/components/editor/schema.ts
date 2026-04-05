@@ -4,6 +4,8 @@
  */
 import { Schema } from 'prosemirror-model';
 import { tableNodes } from 'prosemirror-tables';
+import { contentLinkNodeSpec } from './content-link-node';
+import { diagramEmbedNodeSpec } from './diagram-embed-node';
 
 const tNodes = tableNodes({
   tableGroup: 'block',
@@ -182,6 +184,8 @@ export const schema = new Schema({
       parseDOM: [{ tag: 'br' }],
       toDOM() { return ['br']; },
     },
+    content_link: contentLinkNodeSpec,
+    diagram_embed: diagramEmbedNodeSpec,
     text: { group: 'inline' },
     ...tNodes,
   },
