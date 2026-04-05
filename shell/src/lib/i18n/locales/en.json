@@ -702,7 +702,14 @@
     "deleteColumn": "Delete column",
     "download": "Download",
     "share": "Share",
-    "addIcon": "Add icon"
+    "addIcon": "Add icon",
+    "agentMembers": "Agent Members",
+    "addAgent": "Add Agent",
+    "sendToAgent": "Send this to your Agent",
+    "copyPrompt": "Copy",
+    "resetToken": "Reset Token",
+    "resetTokenConfirm": "This will invalidate the agent's current token. Continue?",
+    "newTokenWarning": "Save this token now. It won't be shown again."
   },
   "notification": {
     "noNotifications": "No notifications"

@@ -648,7 +648,14 @@
     "download": "ダウンロード",
     "share": "共有",
     "delete": "削除",
-    "addIcon": "アイコンを追加"
+    "addIcon": "アイコンを追加",
+    "agentMembers": "エージェントメンバー",
+    "addAgent": "エージェントを追加",
+    "sendToAgent": "エージェントに送信",
+    "copyPrompt": "コピー",
+    "resetToken": "トークンをリセット",
+    "resetTokenConfirm": "現在のトークンが無効になります。続行しますか？",
+    "newTokenWarning": "このトークンを今すぐ保存してください。再表示されません。"
   },
   "notification": {
     "noNotifications": "通知はありません"

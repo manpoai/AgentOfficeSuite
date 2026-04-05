@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, GitBranch, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bot, Circle, Check, X, Bell, Camera, Key, LogOut } from 'lucide-react';
+import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, GitBranch, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bot, Circle, Check, X, Bell, Camera, Key, LogOut, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -83,6 +83,10 @@ export function ContentSidebar({
   const cAgentsBtnRef = useRef<HTMLButtonElement>(null);
   const cMessageBtnRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<Record<string, { top: number; left: number }>>({});
+  const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
+  const [onboardingPromptText, setOnboardingPromptText] = useState('');
+  const [resetTokenResult, setResetTokenResult] = useState<{ agentId: string; token: string } | null>(null);
+  const [resetTokenConfirmId, setResetTokenConfirmId] = useState<string | null>(null);
 
   /** Calculate dropdown position: 8px below the trigger button, left-aligned.
    *  In collapsed mode (toRight=true): menu appears 8px to the right of button, top-aligned. */
@@ -97,6 +101,18 @@ export function ContentSidebar({
       left: alignLeft ? rect.left : Math.max(0, rect.right - menuWidth),
     };
   };
+
+  // Fetch onboarding prompt when agents panel opens
+  useEffect(() => {
+    if (!showAgentsMenu || onboardingPromptText) return;
+    const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000';
+    gw.getAgentSkills()
+      .then(data => {
+        const raw = data.onboarding_prompt || '';
+        setOnboardingPromptText(raw.replace(/\{GATEWAY_URL\}/g, gatewayUrl));
+      })
+      .catch(() => {});
+  }, [showAgentsMenu]);
 
   // Agents data — use admin endpoint for pending agents
   const { data: allAgents } = useQuery({
@@ -180,32 +196,6 @@ export function ContentSidebar({
         collapsed ? 'w-14' : 'w-[232px]'
       )}
     >
-<<<<<<< Updated upstream
-      {/* Top: Logo + action buttons */}
-      <div className="h-[52px] flex items-center px-3 gap-2 shrink-0">
-        <span
-          className={cn(
-            'text-xl text-foreground font-[family-name:var(--font-allura)] whitespace-nowrap transition-opacity duration-200 flex-1 min-w-0',
-            collapsed ? 'opacity-0 w-0' : 'opacity-100'
-          )}
-        >
-          Asuite
-        </span>
-        {!collapsed && (
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button
-              onClick={() => searchInputRef.current?.focus()}
-              className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-              title={t('toolbar.search')}
-            >
-              <Search className="h-4 w-4" />
-            </button>
-            <button
-              ref={bellRef}
-              onClick={() => setShowNotifications(v => !v)}
-              className="relative p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-              title={t('toolbar.notifications')}
-=======
       {/* ─── Top: Profile row ─── */}
       {!collapsed ? (
         <div className="px-3 pt-4 pb-2 shrink-0">
@@ -228,7 +218,6 @@ export function ContentSidebar({
                 setShowProfileMenu(v => !v);
               }}
               className="flex items-center gap-1 text-sm font-medium text-foreground/70 hover:text-foreground transition-colors min-w-0"
->>>>>>> Stashed changes
             >
               <span className="truncate">{actor?.display_name || actor?.username || 'User'}</span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-0 group-hover/header:opacity-50 transition-opacity" />
@@ -417,13 +406,8 @@ export function ContentSidebar({
           <button
             ref={cSearchBtnRef}
             onClick={() => searchInputRef.current?.focus()}
-<<<<<<< Updated upstream
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-            title={t('toolbar.search')}
-=======
             className="p-2 text-[#939493] dark:text-[#818181] hover:text-foreground hover:bg-black/[0.04] rounded-lg transition-colors"
             title={t('toolbar.search')}
->>>>>>> Stashed changes
           >
             <Search className="h-5 w-5" />
           </button>
@@ -532,7 +516,43 @@ export function ContentSidebar({
           >
             <ScrollArea className="h-full" style={{ maxHeight: '499px' }}>
               <div className="p-4">
-                <h3 className="text-sm font-medium text-foreground mb-3">Agent Members</h3>
+                <div className="flex items-center justify-between mb-3 relative">
+                  <h3 className="text-sm font-medium text-foreground">{t('actions.agentMembers')}</h3>
+                  <button
+                    onClick={() => setShowOnboardingPrompt(v => !v)}
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-sidebar-primary hover:bg-sidebar-primary/10 rounded transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                    {t('actions.addAgent')}
+                  </button>
+                  {showOnboardingPrompt && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowOnboardingPrompt(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-card
+                                      border border-black/10 dark:border-border rounded-lg
+                                      shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] p-3 w-[360px]">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-foreground">
+                            {t('actions.sendToAgent')}
+                          </span>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(onboardingPromptText)}
+                            className="flex items-center gap-1 px-2 py-0.5 text-xs text-sidebar-primary
+                                       hover:bg-sidebar-primary/10 rounded transition-colors"
+                          >
+                            <Copy className="h-3 w-3" />
+                            {t('actions.copyPrompt')}
+                          </button>
+                        </div>
+                        <pre className="text-[11px] text-muted-foreground bg-black/[0.03] dark:bg-white/[0.05]
+                                        rounded p-2 max-h-[300px] overflow-y-auto whitespace-pre-wrap
+                                        font-mono leading-relaxed">
+                          {onboardingPromptText}
+                        </pre>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Pending Approved section */}
                 {(() => {
@@ -626,6 +646,37 @@ export function ContentSidebar({
                             <button className="w-8 h-8 rounded flex items-center justify-center hover:bg-black/[0.05]">
                               <Trash2 className="h-3.5 w-3.5 text-foreground/40" />
                             </button>
+                            {resetTokenConfirmId === (agent.agent_id || agent.name) ? (
+                              <div className="flex items-center gap-1 ml-1">
+                                <span className="text-[10px] text-foreground/60">{t('actions.resetTokenConfirm')}</span>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const result = await gw.resetAgentToken(agent.agent_id || agent.name);
+                                      setResetTokenResult({ agentId: agent.agent_id || agent.name, token: result.token });
+                                    } catch {}
+                                    setResetTokenConfirmId(null);
+                                  }}
+                                  className="px-1.5 py-0.5 text-[10px] font-medium text-white bg-red-500 rounded hover:bg-red-600 transition-colors shrink-0"
+                                >
+                                  {t('common.confirm')}
+                                </button>
+                                <button
+                                  onClick={() => setResetTokenConfirmId(null)}
+                                  className="px-1.5 py-0.5 text-[10px] font-medium text-foreground/60 bg-black/[0.05] rounded hover:bg-black/[0.1] transition-colors shrink-0"
+                                >
+                                  {t('common.cancel')}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setResetTokenConfirmId(agent.agent_id || agent.name)}
+                                className="w-8 h-8 rounded flex items-center justify-center hover:bg-black/[0.05] text-[10px] text-foreground/40"
+                                title={t('actions.resetToken')}
+                              >
+                                <Key className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -769,6 +820,35 @@ export function ContentSidebar({
         anchorRect={undefined}
       />
 
+      {/* ─── New token display modal ─── */}
+      {resetTokenResult && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+            <div className="bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg p-4 w-[400px] shadow-xl">
+              <h3 className="text-sm font-semibold mb-2">New Token</h3>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+                {t('actions.newTokenWarning')}
+              </p>
+              <div className="flex items-center gap-2 bg-black/[0.04] dark:bg-white/[0.05] rounded p-2">
+                <code className="text-xs font-mono flex-1 break-all">{resetTokenResult.token}</code>
+                <button
+                  onClick={() => navigator.clipboard.writeText(resetTokenResult.token)}
+                  className="shrink-0 p-1 rounded hover:bg-black/[0.08] transition-colors"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <button
+                onClick={() => setResetTokenResult(null)}
+                className="mt-3 w-full py-1.5 text-xs font-medium bg-sidebar-primary text-white rounded-md hover:bg-sidebar-primary/90 transition-colors"
+              >
+                {t('common.close')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ─── Scrollable tree content area ─── */}
       <ScrollArea className="flex-1 min-h-0">
         <div className={cn('px-2 py-1', collapsed && 'hidden')}>
@@ -779,20 +859,6 @@ export function ContentSidebar({
       {/* ─── Bottom: Logo + Help + Collapse ─── */}
       <div className="mt-auto shrink-0 pl-6 pr-3 py-6">
         {!collapsed ? (
-<<<<<<< Updated upstream
-          <div className="px-2 pt-2 pb-1">
-            <button
-              onClick={() => router.push('/contacts')}
-              className="w-full flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-semibold transition-colors"
-              style={{
-                backgroundColor: 'hsl(var(--sidebar-primary))',
-                color: 'hsl(var(--sidebar-primary-foreground))',
-              }}
-            >
-              <Link2 className="h-4 w-4" />
-              {t('toolbar.connectAgents')}
-            </button>
-=======
           <div className="flex items-center">
             {/* @suite logo — Figma: 56×24 image, 24px from left/top/bottom */}
             <img src="/logo.png" alt="@suite" className="h-6 object-contain object-left" style={{ maxWidth: '56px' }} />
@@ -814,24 +880,13 @@ export function ContentSidebar({
                 <PanelLeftClose className="h-4 w-4" />
               </button>
             </div>
->>>>>>> Stashed changes
           </div>
         ) : (
           <div className="flex justify-center">
             <button
-<<<<<<< Updated upstream
-              onClick={() => router.push('/contacts')}
-              className="flex items-center justify-center h-8 w-8 rounded-lg transition-colors"
-              style={{
-                backgroundColor: 'hsl(var(--sidebar-primary))',
-                color: 'hsl(var(--sidebar-primary-foreground))',
-              }}
-              title={t('toolbar.connectAgents')}
-=======
               onClick={onToggleCollapse}
               className="p-1.5 text-black/30 dark:text-white/30 hover:text-foreground rounded transition-colors"
               title={t('toolbar.expandSidebar')}
->>>>>>> Stashed changes
             >
               <ChevronRight className="h-4 w-4" />
             </button>
