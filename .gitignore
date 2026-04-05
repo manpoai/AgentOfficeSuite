@@ -12,6 +12,9 @@ bot/tokens.env
 # Agent configs with tokens
 adapters/zylos/config*.json
 
+# User uploads (avatars, attachments)
+gateway/uploads/
+
 # Poll state files
 gateway/.nc-poll-state.json
 gateway/.plane-poll-state.json
