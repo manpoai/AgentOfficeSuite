@@ -3,6 +3,7 @@
 import { useRef, useCallback } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 export interface NumberInputProps {
   value: number;
@@ -25,6 +26,7 @@ export function NumberInput({
   suffix,
   className,
 }: NumberInputProps) {
+  const { t } = useT();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const clamp = useCallback((v: number) => {
@@ -57,7 +59,7 @@ export function NumberInput({
       <button
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
         onClick={decrement}
-        title="Decrease"
+        title={t('toolbar.decrease')}
       >
         <Minus size={12} />
       </button>
@@ -75,7 +77,7 @@ export function NumberInput({
       <button
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
         onClick={increment}
-        title="Increase"
+        title={t('toolbar.increase')}
       >
         <Plus size={12} />
       </button>

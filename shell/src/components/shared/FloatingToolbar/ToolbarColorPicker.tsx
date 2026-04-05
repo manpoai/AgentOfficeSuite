@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { ToolbarButton } from './ToolbarButton';
 import type { ReactNode } from 'react';
+import { useT } from '@/lib/i18n';
 
 interface ToolbarColorPickerProps {
   icon: ReactNode;
@@ -24,6 +25,7 @@ export function ToolbarColorPicker({
   clearable,
   onSelect,
 }: ToolbarColorPickerProps) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -64,7 +66,7 @@ export function ToolbarColorPicker({
           {clearable && (
             <button
               onClick={() => { onSelect(undefined); setOpen(false); }}
-              title="Remove"
+              title={t('toolbar.removeColor')}
               className="w-[22px] h-[22px] rounded border border-border hover:border-muted-foreground cursor-pointer p-0 text-[11px] text-muted-foreground"
             >
               &times;

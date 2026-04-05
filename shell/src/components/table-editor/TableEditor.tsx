@@ -4390,7 +4390,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             />
           </div>
           {isMobile && (
-            <BottomSheet open={showTableComments} onClose={() => setShowTableComments(false)} title="Comments" initialHeight="full">
+            <BottomSheet open={showTableComments} onClose={() => setShowTableComments(false)} title={t('content.comments')} initialHeight="full">
               <CommentPanel
                 targetType="table"
                 targetId={tableId}
@@ -4413,7 +4413,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             />
           </div>
           {isMobile && (
-            <BottomSheet open={showHistory} onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }} title="History" initialHeight="full">
+            <BottomSheet open={showHistory} onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }} title={t('dataTableHistory.title')} initialHeight="full">
               <TableHistory
                 tableId={tableId}
                 onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}

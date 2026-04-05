@@ -1478,7 +1478,7 @@ function X6DiagramEditorInner({
             <button
               onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
               className={cn('p-1.5 rounded transition-colors', showComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
-              title="Comments"
+              title={t('content.comments')}
             >
               <MessageSquare size={16} />
             </button>
@@ -1649,7 +1649,7 @@ function X6DiagramEditorInner({
               onClose={() => setShowComments(false)}
             />
           </div>
-          <BottomSheet open={true} onClose={() => setShowComments(false)} title="Comments" initialHeight="full">
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
             <CommentPanel
               targetType="diagram"
               targetId={`diagram:${diagramId}`}

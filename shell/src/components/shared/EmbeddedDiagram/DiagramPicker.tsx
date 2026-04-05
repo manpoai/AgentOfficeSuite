@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listContentItems, createContentItem, type ContentItem } from '@/lib/api/gateway';
 import { Plus, Search, X } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 interface DiagramPickerProps {
   onSelect: (diagramId: string, item: ContentItem) => void;
@@ -12,6 +13,7 @@ interface DiagramPickerProps {
 }
 
 export function DiagramPicker({ onSelect, onCancel }: DiagramPickerProps) {
+  const { t } = useT();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -104,7 +106,7 @@ export function DiagramPicker({ onSelect, onCancel }: DiagramPickerProps) {
           type="text"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0); }}
-          placeholder="Search diagrams..."
+          placeholder={t('diagram.searchDiagrams')}
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
         />
         {query && (

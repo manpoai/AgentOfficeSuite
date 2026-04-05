@@ -100,7 +100,7 @@ export function ContentSidebar({
             <button
               onClick={() => searchInputRef.current?.focus()}
               className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-              title="Search"
+              title={t('toolbar.search')}
             >
               <Search className="h-4 w-4" />
             </button>
@@ -108,7 +108,7 @@ export function ContentSidebar({
               ref={bellRef}
               onClick={() => setShowNotifications(v => !v)}
               className="relative p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-              title="Notifications"
+              title={t('toolbar.notifications')}
             >
               <Bell className="h-4 w-4" />
               <NotificationBellBadge />
@@ -126,7 +126,7 @@ export function ContentSidebar({
           <button
             onClick={() => searchInputRef.current?.focus()}
             className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-            title="Search"
+            title={t('toolbar.search')}
           >
             <Search className="h-4 w-4" />
           </button>
@@ -278,7 +278,7 @@ export function ContentSidebar({
               }}
             >
               <Link2 className="h-4 w-4" />
-              Connect Agents
+              {t('toolbar.connectAgents')}
             </button>
           </div>
         ) : (
@@ -290,7 +290,7 @@ export function ContentSidebar({
                 backgroundColor: 'hsl(var(--sidebar-primary))',
                 color: 'hsl(var(--sidebar-primary-foreground))',
               }}
-              title="Connect Agents"
+              title={t('toolbar.connectAgents')}
             >
               <Link2 className="h-4 w-4" />
             </button>

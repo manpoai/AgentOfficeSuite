@@ -402,7 +402,7 @@ function DiagramEditorInner({
   if (!diagram) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-sm">Diagram not found</div>
+        <div className="text-sm">{t('diagram.notFound')}</div>
       </div>
     );
   }
@@ -524,7 +524,7 @@ function DiagramEditorInner({
               {/* Flowchart shapes */}
               <ToolBtn
                 icon={Square}
-                title="Rectangle"
+                title={t('diagram.rectangle')}
                 active={activeTool === 'rectangle'}
                 onClick={() => setActiveTool(activeTool === 'rectangle' ? 'select' : 'rectangle')}
               />
@@ -534,19 +534,19 @@ function DiagramEditorInner({
                     <div className="w-3 h-3 border-2 border-current rounded" />
                   </div>
                 )}
-                title="Rounded Rectangle"
+                title={t('diagram.roundedRectangle')}
                 active={activeTool === 'rounded'}
                 onClick={() => setActiveTool(activeTool === 'rounded' ? 'select' : 'rounded')}
               />
               <ToolBtn
                 icon={Diamond}
-                title="Diamond (Decision)"
+                title={t('diagram.diamond')}
                 active={activeTool === 'diamond'}
                 onClick={() => setActiveTool(activeTool === 'diamond' ? 'select' : 'diamond')}
               />
               <ToolBtn
                 icon={Circle}
-                title="Circle"
+                title={t('diagram.circle')}
                 active={activeTool === 'circle'}
                 onClick={() => setActiveTool(activeTool === 'circle' ? 'select' : 'circle')}
               />
@@ -556,13 +556,13 @@ function DiagramEditorInner({
               {/* Mind map */}
               <ToolBtn
                 icon={GitBranch}
-                title="Mind Map Root"
+                title={t('diagram.mindMapRoot')}
                 active={activeTool === 'mindmap-root'}
                 onClick={() => setActiveTool(activeTool === 'mindmap-root' ? 'select' : 'mindmap-root')}
               />
               <ToolBtn
                 icon={Type}
-                title="Mind Map Branch"
+                title={t('diagram.mindMapBranch')}
                 active={activeTool === 'mindmap'}
                 onClick={() => setActiveTool(activeTool === 'mindmap' ? 'select' : 'mindmap')}
               />
@@ -574,7 +574,7 @@ function DiagramEditorInner({
                 <button
                   onClick={() => setShowColorPicker(v => !v)}
                   className="p-1.5 rounded hover:bg-accent transition-colors"
-                  title="Node Color"
+                  title={t('diagram.nodeColor')}
                 >
                   <div
                     className="w-4 h-4 rounded border border-border"
@@ -607,14 +607,14 @@ function DiagramEditorInner({
               {/* Auto layout */}
               <ToolBtn
                 icon={LayoutGrid}
-                title="Auto Layout (Top-Bottom)"
+                title={t('diagram.autoLayoutTB')}
                 onClick={() => autoLayout('TB')}
               />
               <ToolBtn
                 icon={({ className }: { className?: string }) => (
                   <ArrowRight className={className} />
                 )}
-                title="Auto Layout (Left-Right)"
+                title={t('diagram.autoLayoutLR')}
                 onClick={() => autoLayout('LR')}
               />
             </div>

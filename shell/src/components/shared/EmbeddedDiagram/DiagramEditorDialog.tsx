@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useT } from '@/lib/i18n';
 
 const X6DiagramEditor = dynamic(
   () => import('@/components/diagram-editor/X6DiagramEditor').then((m) => ({ default: m.default })),
@@ -16,6 +17,7 @@ interface DiagramEditorDialogProps {
 }
 
 export function DiagramEditorDialog({ diagramId, onClose }: DiagramEditorDialogProps) {
+  const { t } = useT();
   const backdropRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
@@ -53,7 +55,7 @@ export function DiagramEditorDialog({ diagramId, onClose }: DiagramEditorDialogP
     >
       <div className="relative w-[90vw] h-[85vh] bg-background rounded-lg overflow-hidden shadow-2xl border border-border flex flex-col">
         <div className="flex items-center justify-between h-10 px-3 border-b border-border bg-card shrink-0">
-          <span className="text-sm font-medium text-foreground">Edit Diagram</span>
+          <span className="text-sm font-medium text-foreground">{t('diagram.editDiagram')}</span>
           <button
             onClick={handleClose}
             className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"

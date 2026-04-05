@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { KeyboardManager } from '@/lib/keyboard';
+import { useT } from '@/lib/i18n';
 
 function formatKey(shortcut: { key: string; modifiers?: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } }): string {
   const parts: string[] = [];
@@ -22,6 +23,7 @@ function formatKey(shortcut: { key: string; modifiers?: { meta?: boolean; ctrl?:
 }
 
 export function ShortcutHelpPanel() {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -82,7 +84,7 @@ export function ShortcutHelpPanel() {
       <div className="relative w-full max-w-md bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">Keyboard Shortcuts</h2>
+          <h2 className="text-sm font-semibold text-foreground">{t('shortcuts.title')}</h2>
           <button
             onClick={() => setOpen(false)}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"

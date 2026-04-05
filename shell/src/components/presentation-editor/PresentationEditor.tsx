@@ -1094,7 +1094,7 @@ export function PresentationEditor({
               <button
                 onClick={startPresentation}
                 className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                title="Present"
+                title={t('toolbar.present')}
               >
                 <Play className="h-3.5 w-3.5" />
               </button>
@@ -1150,10 +1150,10 @@ export function PresentationEditor({
             <button
               onClick={startPresentation}
               className="flex items-center gap-1 px-2 py-1 rounded text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              title="Present"
+              title={t('toolbar.present')}
             >
               <Play className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Present</span>
+              <span className="hidden sm:inline">{t('toolbar.present')}</span>
             </button>
             <button
               onClick={() => { setShowComments(v => !v); setShowHistory(false); }}
@@ -1196,11 +1196,11 @@ export function PresentationEditor({
 
       {/* ─── Toolbar (simplified) ──────────────────────── */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0 bg-muted/30">
-        <ToolBtn icon={MousePointer2} active={selectedTool === 'select'} onClick={() => setSelectedTool('select')} title="Select" />
+        <ToolBtn icon={MousePointer2} active={selectedTool === 'select'} onClick={() => setSelectedTool('select')} title={t('toolbar.select')} />
         <div className="w-px h-5 bg-border mx-1" />
-        <ToolBtn icon={Type} onClick={addTextbox} title="Text" />
+        <ToolBtn icon={Type} onClick={addTextbox} title={t('toolbar.text')} />
         <div className="relative">
-          <ToolBtn icon={Hexagon} active={showShapePicker} onClick={() => setShowShapePicker(v => !v)} title="Shapes" />
+          <ToolBtn icon={Hexagon} active={showShapePicker} onClick={() => setShowShapePicker(v => !v)} title={t('toolbar.shapes')} />
           {showShapePicker && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowShapePicker(false)} />
@@ -1210,9 +1210,9 @@ export function PresentationEditor({
             </>
           )}
         </div>
-        <ToolBtn icon={ImageIcon} onClick={addImage} title="Image" />
-        <ToolBtn icon={Table2} onClick={() => addTable(3, 3)} title="Table" />
-        <ToolBtn icon={Workflow} onClick={insertDiagram} title="Insert Diagram" />
+        <ToolBtn icon={ImageIcon} onClick={addImage} title={t('toolbar.image')} />
+        <ToolBtn icon={Table2} onClick={() => addTable(3, 3)} title={t('toolbar.table')} />
+        <ToolBtn icon={Workflow} onClick={insertDiagram} title={t('toolbar.insertDiagram')} />
         <div className="w-px h-5 bg-border mx-1" />
         {/* Spacer to push format toggle to the right */}
         <div className="flex-1" />
@@ -1234,7 +1234,7 @@ export function PresentationEditor({
         <div className="w-[220px] border-r border-border flex-col shrink-0 bg-muted/20 hidden md:flex">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border">
             <span className="text-xs font-medium text-muted-foreground">Slides ({slides.length})</span>
-            <button onClick={addSlide} className="p-1 text-muted-foreground hover:text-foreground" title="Add slide">
+            <button onClick={addSlide} className="p-1 text-muted-foreground hover:text-foreground" title={t('toolbar.addSlide')}>
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -1272,16 +1272,16 @@ export function PresentationEditor({
           </div>
           {/* Slide actions */}
           <div className="flex items-center justify-center gap-1 px-2 py-1.5 border-t border-border">
-            <button onClick={duplicateSlide} className="p-1 text-muted-foreground hover:text-foreground" title="Duplicate slide">
+            <button onClick={duplicateSlide} className="p-1 text-muted-foreground hover:text-foreground" title={t('toolbar.duplicateSlide')}>
               <Copy className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => moveSlide(-1)} disabled={currentSlideIndex === 0} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move up">
+            <button onClick={() => moveSlide(-1)} disabled={currentSlideIndex === 0} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title={t('toolbar.moveUp')}>
               <ChevronUp className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => moveSlide(1)} disabled={currentSlideIndex >= slides.length - 1} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title="Move down">
+            <button onClick={() => moveSlide(1)} disabled={currentSlideIndex >= slides.length - 1} className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30" title={t('toolbar.moveDown')}>
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            <button onClick={deleteSlide} disabled={slides.length <= 1} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30" title="Delete slide">
+            <button onClick={deleteSlide} disabled={slides.length <= 1} className="p-1 text-muted-foreground hover:text-destructive disabled:opacity-30" title={t('toolbar.deleteSlide')}>
               <Minus className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -1376,7 +1376,7 @@ export function PresentationEditor({
               onClose={() => setShowComments(false)}
             />
           </div>
-          <BottomSheet open={true} onClose={() => setShowComments(false)} title="Comments" initialHeight="full">
+          <BottomSheet open={true} onClose={() => setShowComments(false)} title={t('content.comments')} initialHeight="full">
             <CommentPanel
               targetType="presentation"
               targetId={`presentation:${presentationId}`}
@@ -1495,7 +1495,7 @@ function PropertyPanel({
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           {selectedObj ? `${objType || 'Object'} Properties` : 'Slide Properties'}
         </span>
-        <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title="Close panel">
+        <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title={t('toolbar.closePanel')}>
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -1689,28 +1689,28 @@ function CommonPropertiesSection({
         <button
           onClick={() => { canvas?.bringObjectToFront(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Bring to front"
+          title={t('toolbar.bringToFront')}
         >
           <ArrowUpToLine className="h-3 w-3" /> Front
         </button>
         <button
           onClick={() => { canvas?.bringObjectForward(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Bring forward"
+          title={t('toolbar.bringForward')}
         >
           <MoveUp className="h-3 w-3" />
         </button>
         <button
           onClick={() => { canvas?.sendObjectBackwards(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Send backward"
+          title={t('toolbar.sendBackward')}
         >
           <MoveDown className="h-3 w-3" />
         </button>
         <button
           onClick={() => { canvas?.sendObjectToBack(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Send to back"
+          title={t('toolbar.sendToBack')}
         >
           <ArrowDownToLine className="h-3 w-3" /> Back
         </button>
@@ -1721,14 +1721,14 @@ function CommonPropertiesSection({
         <button
           onClick={() => { obj.set('flipX', !obj.flipX); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Flip horizontal"
+          title={t('toolbar.flipHorizontal')}
         >
           <FlipHorizontal2 className="h-3 w-3" /> Flip H
         </button>
         <button
           onClick={() => { obj.set('flipY', !obj.flipY); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
-          title="Flip vertical"
+          title={t('toolbar.flipVertical')}
         >
           <FlipVertical2 className="h-3 w-3" /> Flip V
         </button>
@@ -1788,28 +1788,28 @@ function TextPropertiesSection({
           <ToggleBtn
             active={obj.fontWeight === 'bold'}
             onClick={() => updateAndSave('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold')}
-            title="Bold"
+            title={t('toolbar.bold')}
           >
             <Bold className="h-3.5 w-3.5" />
           </ToggleBtn>
           <ToggleBtn
             active={obj.fontStyle === 'italic'}
             onClick={() => updateAndSave('fontStyle', obj.fontStyle === 'italic' ? 'normal' : 'italic')}
-            title="Italic"
+            title={t('toolbar.italic')}
           >
             <Italic className="h-3.5 w-3.5" />
           </ToggleBtn>
           <ToggleBtn
             active={!!obj.underline}
             onClick={() => updateAndSave('underline', !obj.underline)}
-            title="Underline"
+            title={t('toolbar.underline')}
           >
             <Underline className="h-3.5 w-3.5" />
           </ToggleBtn>
           <ToggleBtn
             active={!!obj.linethrough}
             onClick={() => updateAndSave('linethrough', !obj.linethrough)}
-            title="Strikethrough"
+            title={t('toolbar.strikethrough')}
           >
             <Strikethrough className="h-3.5 w-3.5" />
           </ToggleBtn>
@@ -1817,16 +1817,16 @@ function TextPropertiesSection({
 
         {/* Text align */}
         <div className="flex items-center gap-1">
-          <ToggleBtn active={obj.textAlign === 'left'} onClick={() => updateAndSave('textAlign', 'left')} title="Left">
+          <ToggleBtn active={obj.textAlign === 'left'} onClick={() => updateAndSave('textAlign', 'left')} title={t('toolbar.alignLeft')}>
             <AlignLeft className="h-3.5 w-3.5" />
           </ToggleBtn>
-          <ToggleBtn active={obj.textAlign === 'center'} onClick={() => updateAndSave('textAlign', 'center')} title="Center">
+          <ToggleBtn active={obj.textAlign === 'center'} onClick={() => updateAndSave('textAlign', 'center')} title={t('toolbar.alignCenter')}>
             <AlignCenter className="h-3.5 w-3.5" />
           </ToggleBtn>
-          <ToggleBtn active={obj.textAlign === 'right'} onClick={() => updateAndSave('textAlign', 'right')} title="Right">
+          <ToggleBtn active={obj.textAlign === 'right'} onClick={() => updateAndSave('textAlign', 'right')} title={t('toolbar.alignRight')}>
             <AlignRight className="h-3.5 w-3.5" />
           </ToggleBtn>
-          <ToggleBtn active={obj.textAlign === 'justify'} onClick={() => updateAndSave('textAlign', 'justify')} title="Justify">
+          <ToggleBtn active={obj.textAlign === 'justify'} onClick={() => updateAndSave('textAlign', 'justify')} title={t('toolbar.alignJustify')}>
             <AlignJustify className="h-3.5 w-3.5" />
           </ToggleBtn>
         </div>

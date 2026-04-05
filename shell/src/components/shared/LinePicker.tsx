@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 export interface LinePickerProps {
   style: 'solid' | 'dashed' | 'dotted';
@@ -27,6 +28,7 @@ export function LinePicker({
   onWidthChange,
   className,
 }: LinePickerProps) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -64,7 +66,7 @@ export function LinePicker({
       <button
         className="h-7 px-1.5 flex items-center gap-1.5 rounded hover:bg-muted"
         onClick={() => setOpen(!open)}
-        title="Line style"
+        title={t('toolbar.lineStyle')}
       >
         {/* Preview of current line style */}
         <svg width={20} height={10} className="shrink-0">

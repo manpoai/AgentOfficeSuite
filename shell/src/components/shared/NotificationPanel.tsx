@@ -7,6 +7,7 @@ import { Bell, Check, MessageSquare, FileText, Table2, Bot, X } from 'lucide-rea
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
+import { useT } from '@/lib/i18n';
 
 const NOTIF_ICON: Record<string, React.ReactNode> = {
   doc_update: <FileText className="h-4 w-4" />,
@@ -22,6 +23,7 @@ interface NotificationPanelProps {
 }
 
 export function NotificationPanel({ open, onClose, anchorRect }: NotificationPanelProps) {
+  const { t } = useT();
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -97,7 +99,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">Notifications</span>
+            <span className="text-sm font-semibold text-foreground">{t('toolbar.notifications')}</span>
             {unreadCount > 0 && (
               <span className="text-[10px] font-medium bg-sidebar-primary text-sidebar-primary-foreground px-1.5 py-0.5 rounded-full">
                 {unreadCount}
@@ -109,7 +111,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
               <button
                 onClick={handleMarkAllRead}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-accent"
-                title="Mark all as read"
+                title={t('toolbar.markAllRead')}
               >
                 <Check className="h-3.5 w-3.5 inline mr-1" />
                 Mark all
@@ -129,7 +131,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
           {notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <Bell className="h-8 w-8 mb-2 opacity-30" />
-              <p className="text-sm">No notifications</p>
+              <p className="text-sm">{t('notification.noNotifications')}</p>
             </div>
           ) : (
             notifications.map(notif => (
