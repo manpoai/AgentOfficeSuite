@@ -11,6 +11,7 @@
 import React from 'react';
 import { Search, Bell, AtSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 interface MobileNavProps {
   userName?: string;
@@ -35,6 +36,7 @@ export function MobileNav({
   onAgents,
   className,
 }: MobileNavProps) {
+  const { t } = useT();
   return (
     <div
       className={cn(
@@ -63,7 +65,7 @@ export function MobileNav({
       <div className="flex items-center gap-1.5">
         <button
           onClick={onSearch}
-          aria-label="Search"
+          aria-label={t('toolbar.search')}
           className="w-11 h-11 flex items-center justify-center rounded-full bg-white dark:bg-card active:opacity-60 transition-opacity"
         >
           <Search className="w-5 h-5 text-black dark:text-white" strokeWidth={2} />
@@ -71,7 +73,7 @@ export function MobileNav({
 
         <button
           onClick={onNotifications}
-          aria-label="Notifications"
+          aria-label={t('toolbar.notifications')}
           className="w-11 h-11 flex items-center justify-center rounded-full bg-white dark:bg-card active:opacity-60 transition-opacity"
         >
           <div className="relative">
@@ -88,7 +90,7 @@ export function MobileNav({
         <button
           type="button"
           onClick={onAgents}
-          aria-label="Agents"
+          aria-label={t('toolbar.agents')}
           className="w-11 h-11 flex items-center justify-center rounded-full bg-sidebar-primary active:opacity-80 transition-opacity"
         >
           <AtSign className="w-6 h-6 text-white" strokeWidth={2} />

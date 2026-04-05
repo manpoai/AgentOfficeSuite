@@ -566,6 +566,8 @@
     "empty": "空のダイアグラム",
     "editDiagram": "ダイアグラムを編集",
     "searchDiagrams": "ダイアグラムを検索...",
+    "embedEmpty": "空のダイアグラム",
+    "embedBadge": "◇ ダイアグラム",
     "shortcuts": {
       "addChild": "子ノードを追加",
       "addSibling": "兄弟ノードを追加",
@@ -805,5 +807,11 @@
   },
   "tree": {
     "addChild": "子項目を追加"
+  },
+  "login": {
+    "username": "ユーザー名",
+    "password": "パスワード",
+    "signingIn": "サインイン中...",
+    "signIn": "サインイン"
   }
 }

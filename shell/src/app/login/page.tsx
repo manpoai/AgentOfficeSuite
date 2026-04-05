@@ -2,10 +2,12 @@
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
+import { useT } from '@/lib/i18n';
 
 export default function LoginPage() {
   const { login, actor } = useAuth();
   const router = useRouter();
+  const { t } = useT();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -58,7 +60,7 @@ export default function LoginPage() {
 
         <input
           type="text"
-          placeholder="Username"
+          placeholder={t('login.username')}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
@@ -73,7 +75,7 @@ export default function LoginPage() {
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder={t('login.password')}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           style={{
@@ -100,7 +102,7 @@ export default function LoginPage() {
             opacity: loading ? 0.7 : 1,
           }}
         >
-          {loading ? 'Signing in...' : 'Sign in'}
+          {loading ? t('login.signingIn') : t('login.signIn')}
         </button>
       </form>
     </div>

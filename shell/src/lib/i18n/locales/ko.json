@@ -566,6 +566,8 @@
     "empty": "빈 다이어그램",
     "editDiagram": "다이어그램 편집",
     "searchDiagrams": "다이어그램 검색...",
+    "embedEmpty": "빈 다이어그램",
+    "embedBadge": "◇ 다이어그램",
     "shortcuts": {
       "addChild": "자식 노드 추가",
       "addSibling": "형제 노드 추가",
@@ -805,5 +807,11 @@
   },
   "tree": {
     "addChild": "하위 항목 추가"
+  },
+  "login": {
+    "username": "사용자 이름",
+    "password": "비밀번호",
+    "signingIn": "로그인 중...",
+    "signIn": "로그인"
   }
 }

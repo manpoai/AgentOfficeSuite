@@ -566,6 +566,8 @@
     "empty": "空白流程图",
     "editDiagram": "编辑流程图",
     "searchDiagrams": "搜索流程图...",
+    "embedEmpty": "空白图表",
+    "embedBadge": "◇ 图表",
     "shortcuts": {
       "addChild": "添加子节点",
       "addSibling": "添加兄弟节点",
@@ -805,5 +807,11 @@
   },
   "tree": {
     "addChild": "添加子项"
+  },
+  "login": {
+    "username": "用户名",
+    "password": "密码",
+    "signingIn": "登录中...",
+    "signIn": "登录"
   }
 }

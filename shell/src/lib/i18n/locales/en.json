@@ -566,6 +566,8 @@
     "empty": "Empty diagram",
     "editDiagram": "Edit Diagram",
     "searchDiagrams": "Search diagrams...",
+    "embedEmpty": "Empty Diagram",
+    "embedBadge": "◇ Diagram",
     "shortcuts": {
       "addChild": "Add child node",
       "addSibling": "Add sibling node",
@@ -805,5 +807,11 @@
   },
   "tree": {
     "addChild": "Add child"
+  },
+  "login": {
+    "username": "Username",
+    "password": "Password",
+    "signingIn": "Signing in...",
+    "signIn": "Sign in"
   }
 }

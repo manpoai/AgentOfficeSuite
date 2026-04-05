@@ -9,6 +9,7 @@
  */
 
 import type { DiagramData } from '../DiagramPreview';
+import { getT } from '@/lib/i18n';
 
 interface FabricEmbedOptions {
   left?: number;
@@ -43,6 +44,7 @@ export function createFabricDiagramEmbed(
     height = 300,
   } = options;
 
+  const t = getT();
   const objects: any[] = [];
 
   // Background
@@ -118,7 +120,7 @@ export function createFabricDiagramEmbed(
     });
     objects.push(icon);
 
-    const label = new fabric.Text('Empty Diagram', {
+    const label = new fabric.Text(t('diagram.embedEmpty'), {
       fontSize: 12,
       fill: '#94a3b8',
       originX: 'center',
@@ -129,7 +131,7 @@ export function createFabricDiagramEmbed(
   }
 
   // "Diagram" badge at bottom
-  const badge = new fabric.Text('◇ Diagram', {
+  const badge = new fabric.Text(t('diagram.embedBadge'), {
     fontSize: 10,
     fill: '#64748b',
     originX: 'center',
