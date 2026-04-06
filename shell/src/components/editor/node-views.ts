@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify';
 import { ContentLinkView } from './content-link-node';
 import { DiagramEmbedView } from './diagram-embed-node';
 import { pickFile } from '@/lib/utils/pick-file';
+import { getT } from '@/lib/i18n';
 
 /** Lazy-load mermaid via CDN <script> tag (avoids webpack bundling issues). */
 let mermaidPromise: Promise<any> | null = null;
@@ -46,7 +47,7 @@ class MathBlockView implements NodeView {
   private async renderKatex() {
     const tex = this.node.textContent.trim();
     if (!tex) {
-      this.dom.innerHTML = '<span style="color: hsl(0 0% 60%); font-style: italic;">Empty math block</span>';
+      this.dom.innerHTML = `<span style="color: hsl(0 0% 60%); font-style: italic;">${getT()('editor.emptyMathBlock')}</span>`;
       return;
     }
 
@@ -230,6 +231,7 @@ class ImageNodeView implements NodeView {
   }
 
   private buildToolbar(): HTMLElement {
+    const t = getT();
     const tb = document.createElement('div');
     tb.className = 'image-toolbar';
     tb.style.cssText = 'display:none;position:absolute;top:-44px;left:50%;transform:translateX(-50%);background:hsl(var(--card, 0 0% 100%));border:1px solid hsl(var(--border, 0 0% 90%));border-radius:8px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.12);z-index:20;white-space:nowrap;display:none;';
@@ -239,11 +241,11 @@ class ImageNodeView implements NodeView {
 
     // Layout/alignment buttons (matching Outline's 5-button layout)
     const layouts = [
-      { svg: this.svgIcon('alignLeft'), align: 'left', title: 'Align left' },
-      { svg: this.svgIcon('alignCenter'), align: 'center', title: 'Center' },
-      { svg: this.svgIcon('alignRight'), align: 'right', title: 'Align right' },
-      { svg: this.svgIcon('fullWidth'), align: 'full', title: 'Full width' },
-      { svg: this.svgIcon('fitWidth'), align: 'fit', title: 'Fit to page' },
+      { svg: this.svgIcon('alignLeft'), align: 'left', title: t('editor.imageToolbar.alignLeft') },
+      { svg: this.svgIcon('alignCenter'), align: 'center', title: t('editor.imageToolbar.center') },
+      { svg: this.svgIcon('alignRight'), align: 'right', title: t('editor.imageToolbar.alignRight') },
+      { svg: this.svgIcon('fullWidth'), align: 'full', title: t('editor.imageToolbar.fullWidth') },
+      { svg: this.svgIcon('fitWidth'), align: 'fit', title: t('editor.imageToolbar.fitToPage') },
     ];
 
     for (const layout of layouts) {
@@ -273,11 +275,11 @@ class ImageNodeView implements NodeView {
 
     // Action buttons (size display and link button removed per spec)
     const actions = [
-      { svg: this.svgIcon('download'), title: 'Download', action: () => this.downloadImage() },
-      { svg: this.svgIcon('replace'), title: 'Replace', action: () => this.replaceImage() },
-      { svg: this.svgIcon('delete'), title: 'Delete', action: () => this.deleteImage() },
-      { svg: this.svgIcon('caption'), title: 'Alt text', action: () => this.editAltText() },
-      { svg: this.svgIcon('comment'), title: 'Comment', action: () => this.addComment() },
+      { svg: this.svgIcon('download'), title: t('editor.imageToolbar.download'), action: () => this.downloadImage() },
+      { svg: this.svgIcon('replace'), title: t('editor.imageToolbar.replace'), action: () => this.replaceImage() },
+      { svg: this.svgIcon('delete'), title: t('editor.imageToolbar.delete'), action: () => this.deleteImage() },
+      { svg: this.svgIcon('caption'), title: t('editor.imageToolbar.altText'), action: () => this.editAltText() },
+      { svg: this.svgIcon('comment'), title: t('editor.imageToolbar.comment'), action: () => this.addComment() },
     ];
 
     for (const act of actions) {
@@ -596,7 +598,7 @@ class MermaidBlockView implements NodeView {
     label.appendChild(labelText);
     const toggleBtn = document.createElement('button');
     toggleBtn.style.cssText = 'border: none; background: transparent; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: hsl(var(--muted-foreground)); display: flex; align-items: center; gap: 4px;';
-    toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg> Edit`;
+    toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg> ${getT()('common.edit')}`;
     toggleBtn.addEventListener('mouseenter', () => { toggleBtn.style.background = 'hsl(var(--accent))'; });
     toggleBtn.addEventListener('mouseleave', () => { toggleBtn.style.background = 'transparent'; });
     toggleBtn.addEventListener('mousedown', (e) => {
@@ -610,10 +612,10 @@ class MermaidBlockView implements NodeView {
       console.log('[Mermaid] click on toggle, focused:', this.focused);
       if (this.focused) {
         this.exitEditMode();
-        toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg> Edit`;
+        toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg> ${getT()('common.edit')}`;
       } else {
         this.enterEditMode();
-        toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> Preview`;
+        toggleBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> ${getT()('editor.preview')}`;
       }
     });
     label.appendChild(toggleBtn);
@@ -666,7 +668,7 @@ class MermaidBlockView implements NodeView {
   private async renderMermaid() {
     const code = this.node.textContent.trim();
     if (!code) {
-      this.preview.innerHTML = '<span style="color: hsl(var(--muted-foreground)); font-style: italic;">Empty mermaid diagram</span>';
+      this.preview.innerHTML = `<span style="color: hsl(var(--muted-foreground)); font-style: italic;">${getT()('editor.emptyMermaidDiagram')}</span>`;
       return;
     }
 
@@ -709,7 +711,7 @@ class MermaidBlockView implements NodeView {
       }
     } catch (err) {
       const errMsg = document.createElement('span');
-      errMsg.textContent = (err as Error).message || 'Mermaid render error';
+      errMsg.textContent = (err as Error).message || getT()('editor.mermaidRenderError');
       this.preview.innerHTML = `<pre style="color: hsl(var(--destructive)); font-size: 12px; margin: 0;"></pre>`;
       this.preview.querySelector('pre')!.appendChild(errMsg);
     }

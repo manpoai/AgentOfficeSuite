@@ -268,14 +268,14 @@ export function CommandPalette() {
           {isSearchMode && isSearching && displayItems.length === 0 && (
             <div className="flex items-center justify-center gap-2 py-8">
               <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
-              <p className="text-sm text-muted-foreground">Searching...</p>
+              <p className="text-sm text-muted-foreground">{t('common.searching')}</p>
             </div>
           )}
 
           {/* No results */}
           {!isSearching && displayItems.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">
-              {isSearchMode ? 'No results found' : t('command.noResults')}
+              {isSearchMode ? t('common.noResultsFound') : t('command.noResults')}
             </p>
           )}
 

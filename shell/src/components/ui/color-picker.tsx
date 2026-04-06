@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_COLORS = [
@@ -31,6 +32,7 @@ export function ColorPicker({
   presetColors,
   className,
 }: ColorPickerProps) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -70,7 +72,7 @@ export function ColorPicker({
       <button
         className="h-7 px-1.5 flex items-center gap-1.5 rounded hover:bg-muted text-sm"
         onClick={() => setOpen(!open)}
-        title={label || 'Color'}
+        title={label || t('ppt.properties.color')}
       >
         <div
           className="w-4 h-4 rounded border border-border shrink-0"
@@ -102,7 +104,7 @@ export function ColorPicker({
               onClick={() => { onChange('transparent'); setOpen(false); }}
             >
               <span className="text-red-500">&#8709;</span>
-              <span>No color</span>
+              <span>{t('toolbar.removeColor')}</span>
             </button>
           )}
 
@@ -131,7 +133,7 @@ export function ColorPicker({
               className="w-6 h-6 rounded border border-border cursor-pointer bg-transparent"
             />
             <span className="text-xs text-muted-foreground flex-1">
-              {isTransparent ? 'transparent' : color}
+              {isTransparent ? t('toolbar.common.none') : color}
             </span>
           </div>
         </div>

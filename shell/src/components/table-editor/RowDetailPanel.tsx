@@ -118,7 +118,7 @@ export function RowDetailPanel({
                     className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5"
                   >
                     <Trash2 className="h-4 w-4" />
-                    {t('rowDetail.deleteRow') || 'Delete'}
+                    {t('rowDetail.deleteRow')}
                   </button>
                 </div>
               </>
@@ -254,6 +254,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
   tableId: string;
   onSaved: () => void;
 }) {
+  const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState('');
   const [saving, setSaving] = useState(false);
@@ -282,7 +283,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: saveVal });
       onSaved();
     } catch (e) {
-      showError('Save failed', e);
+      showError(t('errors.saveFailed'), e);
     } finally {
       setSaving(false);
       setEditing(false);
@@ -296,7 +297,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: newVal });
       onSaved();
     } catch (e) {
-      showError('Toggle failed', e);
+      showError(t('errors.toggleCheckboxFailed'), e);
     }
   };
 
@@ -305,7 +306,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
-      showError('Set rating failed', e);
+      showError(t('errors.setRatingFailed'), e);
     }
   };
 
@@ -314,7 +315,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: v });
       onSaved();
     } catch (e) {
-      showError('Set select failed', e);
+      showError(t('errors.setOptionFailed'), e);
     }
   };
 
@@ -326,7 +327,7 @@ function FieldRow({ col, value, rowId, tableId, onSaved }: {
       await br.updateRow(tableId, rowId, { [col.title]: newItems.join(',') });
       onSaved();
     } catch (e) {
-      showError('Toggle multi failed', e);
+      showError(t('errors.toggleMultiSelectFailed'), e);
     }
   };
 
@@ -572,7 +573,7 @@ function FieldDisplay({ value, col }: { value: unknown; col: br.BRColumn }) {
       try {
         await br.updateRow(tableId, rowId, { [col.title]: updated });
         onSaved();
-      } catch (e) { showError('Delete attachment failed', e); }
+      } catch (e) { showError(t('errors.deleteAttachmentFailed'), e); }
     };
     return (
       <div className="flex flex-wrap gap-2 py-1">
@@ -696,7 +697,7 @@ function DateField({ value, col, rowId, tableId, onSaved }: {
     try {
       await br.updateRow(tableId, rowId, { [col.title]: dateStr || null });
       onSaved();
-    } catch (e) { showError('Date update failed', e); }
+    } catch (e) { showError(t('errors.dateUpdateFailed'), e); }
   };
 
   return (
@@ -852,7 +853,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
       const merged = [...attachments, ...uploaded];
       await br.updateRow(tableId, rowId, { [col.title]: merged });
       onSaved();
-    } catch (e) { showError('Attachment upload failed', e); }
+    } catch (e) { showError(t('errors.uploadAttachmentFailed'), e); }
     finally { setUploading(false); }
   };
 
@@ -861,7 +862,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
     try {
       await br.updateRow(tableId, rowId, { [col.title]: updated });
       onSaved();
-    } catch (e) { showError('Delete attachment failed', e); }
+    } catch (e) { showError(t('errors.deleteAttachmentFailed'), e); }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -890,7 +891,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
             try {
               await br.updateRow(tableId, rowId, { [col.title]: reordered });
               onSaved();
-            } catch (e) { showError('Reorder failed', e); onSaved(); }
+            } catch (e) { showError(t('errors.reorderFailed'), e); onSaved(); }
           }}
         >
         <SortableContext items={attachments.map((_: any, i: number) => i)} strategy={rectSortingStrategy}>

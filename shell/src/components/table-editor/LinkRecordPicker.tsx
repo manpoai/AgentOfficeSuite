@@ -68,7 +68,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
   }, [relatedMeta]);
 
   const displayCol = visibleCols[0];
-  const displayColTitle = displayCol?.title || 'Title';
+  const displayColTitle = displayCol?.title || t('dataTable.defaultColumnTitle');
 
   // Build option color map from column definitions
   const optionColorMap = useMemo(() => {
@@ -113,7 +113,7 @@ export function LinkRecordPicker({ tableId, rowId, column, onClose, onRefresh }:
       refetchLinked();
       onRefresh();
     } catch (e) {
-      showError('Link toggle failed', e);
+      showError(t('errors.linkToggleFailed'), e);
     } finally {
       setLinking(prev => { const s = new Set(prev); s.delete(targetRowId); return s; });
     }

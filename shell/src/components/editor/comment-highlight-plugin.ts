@@ -92,11 +92,11 @@ function findBlockForQuote(doc: any, quoteText: string): { pos: number; end: num
 
     if (quoteText === '---' && name === 'horizontal_rule') {
       found = { pos: offset, end: offset + node.nodeSize };
-    } else if (quoteText === 'Mermaid diagram' && name === 'mermaid_block') {
+    } else if (quoteText === getT()('editor.mermaidDiagram') && name === 'mermaid_block') {
       found = { pos: offset, end: offset + node.nodeSize };
-    } else if ((quoteText === 'Math block' || quoteText === node.textContent) && name === 'math_block') {
+    } else if ((quoteText === getT()('editor.mathBlock') || quoteText === node.textContent) && name === 'math_block') {
       found = { pos: offset, end: offset + node.nodeSize };
-    } else if (quoteText === 'Image' && name === 'image') {
+    } else if (quoteText === getT()('editor.image') && name === 'image') {
       found = { pos: offset, end: offset + node.nodeSize };
     } else if (name === 'image' && (quoteText === (node.attrs.alt || node.attrs.title))) {
       found = { pos: offset, end: offset + node.nodeSize };
@@ -104,13 +104,13 @@ function findBlockForQuote(doc: any, quoteText: string): { pos: number; end: num
       // Match table by first row content
       const cells: string[] = [];
       node.firstChild?.forEach((cell: any) => { cells.push(cell.textContent); });
-      const headerText = cells.join(' | ') || 'Table';
+      const headerText = cells.join(' | ') || getT()('editor.table');
       if (quoteText === headerText || quoteText.startsWith(headerText.slice(0, 50))) {
         found = { pos: offset, end: offset + node.nodeSize };
       }
-    } else if (name === 'code_block' && quoteText === 'Code block') {
+    } else if (name === 'code_block' && quoteText === getT()('editor.codeBlock')) {
       found = { pos: offset, end: offset + node.nodeSize };
-    } else if (name === 'container_notice' && (quoteText === 'Notice' || quoteText === node.textContent)) {
+    } else if (name === 'container_notice' && (quoteText === getT()('editor.notice') || quoteText === node.textContent)) {
       found = { pos: offset, end: offset + node.nodeSize };
     }
   });

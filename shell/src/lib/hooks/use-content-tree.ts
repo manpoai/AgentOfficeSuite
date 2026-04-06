@@ -355,7 +355,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
         id: item.id,
         rawId: item.raw_id,
         type: item.type as 'doc' | 'table' | 'presentation' | 'diagram',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? (t('content.untitledDiagram') || 'Untitled Diagram') : (t('content.untitledPresentation') || 'Untitled Presentation')),
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : t('content.untitledPresentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,

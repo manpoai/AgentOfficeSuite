@@ -21,6 +21,8 @@ interface ContentSidebarProps {
   /** Whether the sidebar is collapsed (56px) or expanded (232px) */
   collapsed: boolean;
   onToggleCollapse: () => void;
+  width: number;
+  onWidthChange: (w: number) => void;
   /** Whether the sidebar is visible on desktop (used by detail panels) */
   visible: boolean;
   /** Content tree rendering slot - passed as children */
@@ -40,6 +42,8 @@ interface ContentSidebarProps {
 export function ContentSidebar({
   collapsed,
   onToggleCollapse,
+  width,
+  onWidthChange,
   visible,
   children,
   sidebarView,
@@ -64,9 +68,11 @@ export function ContentSidebar({
   const [showAgentsMenu, setShowAgentsMenu] = useState(false);
   const [showMessageMenu, setShowMessageMenu] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  const [isDraggingWidth, setIsDraggingWidth] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const agentsRef = useRef<HTMLDivElement>(null);
@@ -160,15 +166,68 @@ export function ContentSidebar({
     return () => document.removeEventListener('mousedown', handler);
   }, [showMessageMenu]);
 
+  const handleDoubleClick = () => {
+    onWidthChange(232);
+  };
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    setIsDraggingWidth(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (event: MouseEvent) => {
+      const delta = event.clientX - startX;
+      onWidthChange(Math.max(200, Math.min(480, startWidth + delta)));
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      dragCleanupRef.current = null;
+      setIsDraggingWidth(false);
+    };
+
+    dragCleanupRef.current = cleanup;
+
+    const onMouseUp = () => {
+      cleanup();
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+
   if (!visible) return null;
 
   return (
     <div
       className={cn(
-        'hidden md:flex flex-col shrink-0 transition-all duration-200 ease-in-out bg-sidebar h-full overflow-hidden',
-        collapsed ? 'w-14' : 'w-[232px]'
+        'hidden md:flex flex-col shrink-0 bg-sidebar h-full overflow-hidden relative',
+        collapsed ? 'w-14 transition-all duration-200 ease-in-out' : isDraggingWidth ? '' : 'transition-[width] duration-200 ease-in-out'
       )}
+      style={collapsed ? undefined : { width: `${width}px` }}
     >
+      {!collapsed && (
+        <div
+          className="hidden md:block absolute top-0 right-0 w-1 h-full cursor-col-resize z-10"
+          onMouseDown={handleDragStart}
+          onDoubleClick={handleDoubleClick}
+        />
+      )}
+
       {/* ─── Top: Profile row ─── */}
       {!collapsed ? (
         <div className="px-3 pt-4 pb-2 shrink-0">
@@ -192,7 +251,7 @@ export function ContentSidebar({
               }}
               className="flex items-center gap-1 text-sm font-medium text-foreground/70 hover:text-foreground transition-colors min-w-0"
             >
-              <span className="truncate">{actor?.display_name || actor?.username || 'User'}</span>
+              <span className="truncate">{actor?.display_name || actor?.username || t('common.user')}</span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-0 group-hover/header:opacity-50 transition-opacity" />
             </button>
             {/* + button (far right) — PlusCircle with circle border */}
@@ -274,7 +333,7 @@ export function ContentSidebar({
                         disabled={savingProfile}
                       />
                     ) : (
-                      <span className="text-sm font-medium text-foreground truncate">{actor?.display_name || actor?.username || 'User'}</span>
+                      <span className="text-sm font-medium text-foreground truncate">{actor?.display_name || actor?.username || t('common.user')}</span>
                     )}
                     <button
                       onClick={() => {
@@ -598,7 +657,7 @@ export function ContentSidebar({
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
             >
               <Users className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-              Agents
+              {t('content.agents')}
             </button>
           </div>
         </>

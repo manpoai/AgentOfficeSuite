@@ -6,7 +6,8 @@ import type { Graph, Node, Edge, Cell } from '@antv/x6';
 import * as gw from '@/lib/api/gateway';
 import {
   ArrowLeft, ChevronRight,
-  Plus, GitBranch, Type, Trash, X,
+  Plus, GitBranch, Type, Trash, X, Undo2, Redo2,
+  MessageSquare, MoreHorizontal, Clock, Link2, Download, Trash2,
 } from 'lucide-react';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { BottomSheet } from '@/components/shared/BottomSheet';
@@ -400,6 +401,7 @@ function X6DiagramEditorInner({
   const showComments = showCommentsProp ?? false;
   const showHistory = showHistoryProp ?? false;
   const [migrationNeeded, setMigrationNeeded] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Floating toolbar selection tracking
   const [diagramToolbarCell, setDiagramToolbarCell] = useState<Cell | null>(null);
@@ -1615,7 +1617,7 @@ function X6DiagramEditorInner({
       // TODO: implement delete API
       onDeleted?.();
     } catch (e) {
-      showError('Delete diagram failed', e);
+      showError(t('errors.deleteDiagramFailed'), e);
     }
   }, [onDeleted]);
 
@@ -1696,13 +1698,13 @@ function X6DiagramEditorInner({
           onBack={onBack}
           docListVisible={docListVisible}
           onToggleDocList={onToggleDocList}
-          title={(diagram as any)?.title || 'Untitled Diagram'}
-          titlePlaceholder="Untitled Diagram"
+          title={(diagram as any)?.title || t('content.untitledDiagram')}
+          titlePlaceholder={t('content.untitledDiagram')}
           onTitleChange={async (newTitle) => {
             // TODO: update diagram title via gateway API if supported
           }}
           mode={isMobile && mobileEditing ? 'edit' : undefined}
-          statusText={saving ? 'Saving...' : lastSaved ? `Saved ${formatRelativeTime(lastSaved)}` : ''}
+          statusText={saving ? t('content.saving') : lastSaved ? `${t('content.saved')} ${formatRelativeTime(lastSaved)}` : ''}
           actions={<>
             <button
               className="p-1.5 rounded hover:bg-muted text-muted-foreground"
@@ -1725,25 +1727,6 @@ function X6DiagramEditorInner({
             >
               <MessageSquare size={16} />
             </button>
-            <div className="relative">
-              <button
-                className="p-1.5 rounded hover:bg-muted text-muted-foreground"
-                onClick={() => setShowMenu(!showMenu)}
-              >
-                <MoreHorizontal size={16} />
-              </button>
-              {showMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-card rounded-lg shadow-lg border border-border py-1 w-44 z-50">
-                  <MenuButton icon={<Clock size={14} />} label="版本历史" onClick={() => { setShowHistory(true); setShowComments(false); setShowMenu(false); }} />
-                  {onCopyLink && (
-                    <MenuButton icon={<Link2 size={14} />} label="复制链接" onClick={() => { onCopyLink(); setShowMenu(false); }} />
-                  )}
-                  <MenuButton icon={<Download size={14} />} label="导出 PNG" onClick={() => { handleExport(); setShowMenu(false); }} />
-                  <div className="border-t border-border my-1" />
-                  <MenuButton icon={<Trash2 size={14} />} label="删除图表" onClick={() => { handleDelete(); setShowMenu(false); }} danger />
-                </div>
-              )}
-            </div>
           </>}
         />
       </div>

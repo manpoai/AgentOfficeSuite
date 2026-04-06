@@ -2,16 +2,12 @@
 
 /**
  * CommentPanel — Unified comment panel for all content types.
- *
- * Used in Docs, Tables, PPT, and Diagrams to display and manage comments.
- * Supports threaded replies, @mentions, and resolve/unresolve.
- *
- * Desktop: side drawer | Mobile: BottomSheet (handled by parent)
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOptimisticMutation } from '@/lib/hooks/use-optimistic-mutation';
+import { useT } from '@/lib/i18n';
 import {
   MessageSquare,
   Send,
@@ -43,15 +39,10 @@ import {
 } from '@/lib/api/gateway';
 
 export interface CommentPanelProps {
-  /** Content type */
   targetType: 'doc' | 'table' | 'presentation' | 'diagram';
-  /** Content ID (e.g. "doc:abc123" for content, or raw table ID) */
   targetId: string;
-  /** Row ID for table comments */
   rowId?: string;
-  /** Additional CSS class */
   className?: string;
-  /** Called when panel should close */
   onClose?: () => void;
 }
 
@@ -62,6 +53,7 @@ export function CommentPanel({
   className,
   onClose,
 }: CommentPanelProps) {
+  const { t } = useT();
   const queryClient = useQueryClient();
   const [newComment, setNewComment] = useState('');
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -82,8 +74,6 @@ export function CommentPanel({
     staleTime: 10_000,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
-
   const createMut = useOptimisticMutation<Comment[], { text: string; parentId?: string }>({
     mutationFn: (vars) =>
       isTable
@@ -103,8 +93,11 @@ export function CommentPanel({
         resolved_at: null,
       } as Comment,
     ],
-    onSuccess: () => { setNewComment(''); setReplyTo(null); },
-    errorMessage: 'Failed to post comment',
+    onSuccess: () => {
+      setNewComment('');
+      setReplyTo(null);
+    },
+    errorMessage: t('comments.postFailed'),
   });
 
   const editMut = useOptimisticMutation<Comment[], { id: string; text: string }>({
@@ -115,8 +108,11 @@ export function CommentPanel({
     queryKey,
     optimisticUpdate: (old = [], vars) =>
       old.map((c) => (c.id === vars.id ? { ...c, text: vars.text } : c)),
-    onSuccess: () => { setEditingId(null); setEditText(''); },
-    errorMessage: 'Failed to edit comment',
+    onSuccess: () => {
+      setEditingId(null);
+      setEditText('');
+    },
+    errorMessage: t('comments.editFailed'),
   });
 
   const deleteMut = useOptimisticMutation<Comment[], string>({
@@ -124,7 +120,7 @@ export function CommentPanel({
       isTable ? deleteTableComment(id) : deleteContentComment(id),
     queryKey,
     optimisticUpdate: (old = [], id) => old.filter((c) => c.id !== id),
-    errorMessage: 'Failed to delete comment',
+    errorMessage: t('comments.deleteFailed'),
   });
 
   const resolveMut = useOptimisticMutation<Comment[], string>({
@@ -133,7 +129,7 @@ export function CommentPanel({
     queryKey,
     optimisticUpdate: (old = [], id) =>
       old.map((c) => (c.id === id ? { ...c, resolved_at: new Date().toISOString(), resolved_by: 'You' } : c)),
-    errorMessage: 'Failed to resolve comment',
+    errorMessage: t('comments.resolveFailed'),
   });
 
   const unresolveMut = useOptimisticMutation<Comment[], string>({
@@ -142,7 +138,7 @@ export function CommentPanel({
     queryKey,
     optimisticUpdate: (old = [], id) =>
       old.map((c) => (c.id === id ? { ...c, resolved_at: null, resolved_by: null } : c)),
-    errorMessage: 'Failed to unresolve comment',
+    errorMessage: t('comments.unresolveFailed'),
   });
 
   const handleSubmit = useCallback(() => {
@@ -161,43 +157,35 @@ export function CommentPanel({
     [handleSubmit],
   );
 
-  // Focus input when replying
   useEffect(() => {
     if (replyTo) inputRef.current?.focus();
   }, [replyTo]);
 
-  // Separate resolved and unresolved
   const topLevel = comments.filter((c) => !c.parent_id);
   const resolved = topLevel.filter((c) => c.resolved_at);
   const unresolved = topLevel.filter((c) => !c.resolved_at);
-  const repliesOf = (parentId: string) =>
-    comments.filter((c) => c.parent_id === parentId);
+  const repliesOf = (parentId: string) => comments.filter((c) => c.parent_id === parentId);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Header */}
       <div className="flex items-center justify-between px-2 py-2.5 border-b border-border">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Comments</span>
+          <span className="text-sm font-medium">{t('comments.title')}</span>
           <button
             onClick={() => setShowResolved(v => !v)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <span>{showResolved ? 'Resolved' : 'Open'}</span>
+            <span>{showResolved ? t('comments.resolved') : t('comments.open')}</span>
             <ChevronDown className="w-3.5 h-3.5" />
           </button>
         </div>
         {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-muted transition-colors"
-          >
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
 
-      {/* Comment list */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
@@ -208,7 +196,7 @@ export function CommentPanel({
           if (visibleComments.length === 0) {
             return (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                {showResolved ? 'No resolved comments' : 'No comments yet'}
+                {showResolved ? t('comments.noResolved') : t('comments.noComments')}
               </div>
             );
           }
@@ -240,15 +228,11 @@ export function CommentPanel({
         })()}
       </div>
 
-      {/* Input area */}
       <div className="border-t border-border px-3 py-2">
         {replyTo && (
           <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
-            <span>Replying to comment...</span>
-            <button
-              onClick={() => setReplyTo(null)}
-              className="hover:text-foreground"
-            >
+            <span>{t('comments.replyPlaceholder')}</span>
+            <button onClick={() => setReplyTo(null)} className="hover:text-foreground">
               <X className="w-3 h-3" />
             </button>
           </div>
@@ -260,7 +244,7 @@ export function CommentPanel({
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`Add a comment... (\u2318+Enter to send)`}
+            placeholder={t('comments.addCommentWithShortcut')}
             className={cn(
               'w-full rounded-md border border-border bg-background pl-3 pr-10 py-2',
               'text-sm placeholder:text-muted-foreground/40 outline-none',
@@ -289,7 +273,6 @@ export function CommentPanel({
   );
 }
 
-/** A single comment thread (top-level comment + its replies) */
 function CommentThread({
   comment,
   replies,
@@ -359,7 +342,6 @@ function CommentThread({
   );
 }
 
-/** A single comment item */
 function CommentItem({
   comment,
   isEditing,
@@ -389,6 +371,7 @@ function CommentItem({
   isReply?: boolean;
   isHighlighted?: boolean;
 }) {
+  const { t } = useT();
   const [showMenu, setShowMenu] = useState(false);
 
   return (
@@ -422,13 +405,13 @@ function CommentItem({
                   onClick={onEditSave}
                   className="text-xs px-2 py-0.5 rounded bg-sidebar-primary text-white hover:bg-sidebar-primary/90"
                 >
-                  Save
+                  {t('comments.save')}
                 </button>
                 <button
                   onClick={onEditCancel}
                   className="text-xs px-2 py-0.5 rounded hover:bg-muted"
                 >
-                  Cancel
+                  {t('comments.cancel')}
                 </button>
               </div>
             </div>
@@ -439,7 +422,6 @@ function CommentItem({
           )}
         </div>
 
-        {/* Actions */}
         {!isEditing && (
           <div className="relative shrink-0">
             <button
@@ -450,10 +432,7 @@ function CommentItem({
             </button>
             {showMenu && (
               <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setShowMenu(false)}
-                />
+                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-6 z-50 bg-popover border border-border rounded-md shadow-lg py-1 min-w-[120px]">
                   {onReply && (
                     <MenuButton
@@ -462,7 +441,7 @@ function CommentItem({
                         setShowMenu(false);
                       }}
                     >
-                      <MessageSquare className="w-3 h-3" /> Reply
+                      <MessageSquare className="w-3 h-3" /> {t('comments.reply')}
                     </MenuButton>
                   )}
                   <MenuButton
@@ -471,7 +450,7 @@ function CommentItem({
                       setShowMenu(false);
                     }}
                   >
-                    <Pencil className="w-3 h-3" /> Edit
+                    <Pencil className="w-3 h-3" /> {t('comments.edit')}
                   </MenuButton>
                   {onResolve && (
                     <MenuButton
@@ -480,7 +459,7 @@ function CommentItem({
                         setShowMenu(false);
                       }}
                     >
-                      <CheckCircle2 className="w-3 h-3" /> Resolve
+                      <CheckCircle2 className="w-3 h-3" /> {t('comments.markAsResolved')}
                     </MenuButton>
                   )}
                   {onUnresolve && (
@@ -490,7 +469,7 @@ function CommentItem({
                         setShowMenu(false);
                       }}
                     >
-                      <Circle className="w-3 h-3" /> Unresolve
+                      <Circle className="w-3 h-3" /> {t('comments.markAsUnresolved')}
                     </MenuButton>
                   )}
                   <MenuButton
@@ -500,7 +479,7 @@ function CommentItem({
                     }}
                     danger
                   >
-                    <Trash2 className="w-3 h-3" /> Delete
+                    <Trash2 className="w-3 h-3" /> {t('comments.delete')}
                   </MenuButton>
                 </div>
               </>

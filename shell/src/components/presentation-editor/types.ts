@@ -35,26 +35,26 @@ export const DEFAULT_SLIDE: SlideData = {
 };
 
 export const FONT_FAMILIES = [
-  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
-  { label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
-  { label: '\u601D\u6E90\u9ED1\u4F53', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
-  { label: '\u601D\u6E90\u5B8B\u4F53', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
-  { label: '\u5FAE\u8F6F\u96C5\u9ED1', value: '"Microsoft YaHei", sans-serif' },
-  { label: '\u82F9\u679C\u82F9\u65B9', value: '"PingFang SC", sans-serif' },
+  { labelKey: 'toolbar.fonts.inter', label: 'Inter', value: 'Inter, system-ui, sans-serif' },
+  { labelKey: 'toolbar.fonts.arial', label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { labelKey: 'toolbar.fonts.georgia', label: 'Georgia', value: 'Georgia, serif' },
+  { labelKey: 'toolbar.fonts.timesNewRoman', label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  { labelKey: 'toolbar.fonts.courierNew', label: 'Courier New', value: '"Courier New", Courier, monospace' },
+  { labelKey: 'toolbar.fonts.verdana', label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { labelKey: 'toolbar.fonts.trebuchetMs', label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
+  { labelKey: 'toolbar.fonts.comicSansMs', label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
+  { labelKey: 'toolbar.fonts.notoSansSC', label: '思源黑体', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
+  { labelKey: 'toolbar.fonts.notoSerifSC', label: '思源宋体', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
+  { labelKey: 'toolbar.fonts.microsoftYaHei', label: '微软雅黑', value: '"Microsoft YaHei", sans-serif' },
+  { labelKey: 'toolbar.fonts.pingFangSC', label: '苹果苹方', value: '"PingFang SC", sans-serif' },
 ];
 
 export const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 96];
 
-export const STROKE_DASH_STYLES: { label: string; value: number[] | undefined }[] = [
-  { label: 'Solid', value: undefined },
-  { label: 'Dashed', value: [8, 4] },
-  { label: 'Dotted', value: [2, 4] },
+export const STROKE_DASH_STYLES: { labelKey: string; label: string; value: number[] | undefined }[] = [
+  { labelKey: 'toolbar.common.solidLine', label: 'Solid', value: undefined },
+  { labelKey: 'toolbar.common.dashedLine', label: 'Dashed', value: [8, 4] },
+  { labelKey: 'toolbar.common.dottedLine', label: 'Dotted', value: [2, 4] },
 ];
 
 // ─── Helpers ────────────────────────────────────────

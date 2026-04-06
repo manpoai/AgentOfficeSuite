@@ -127,7 +127,19 @@
     "loading": "加载中...",
     "noRevisions": "没有历史版本",
     "restoreVersion": "恢复此版本",
+    "restoreVersionFailed": "恢复版本失败，请重试。",
+    "restoreVersionWarning": "这会用此版本替换当前{type}。当前版本会被自动备份。",
+    "confirmRestore": "确认恢复",
     "restoring": "恢复中...",
+    "latestVersion": "最新版本",
+    "versionN": "版本 {n}",
+    "noSavedVersions": "还没有已保存的版本",
+    "versionsAutoSaved": "编辑过程中会自动保存版本",
+    "typeContent": "内容",
+    "typeDocument": "文档",
+    "typeTable": "表格",
+    "typePresentation": "演示文稿",
+    "typeDiagram": "图表",
     "justNow": "刚刚",
     "minutesAgo": "分钟前",
     "hoursAgo": "小时前",
@@ -146,7 +158,22 @@
     "fullWidth": "全宽",
     "searchContent": "搜索内容...",
     "lastModified": "最后修改",
-    "by": "由"
+    "by": "由",
+    "link": "Link",
+    "presentation": "演示文稿",
+    "presentationNotFound": "未找到演示文稿",
+    "pinned": "置顶",
+    "library": "知识库",
+    "trashEmpty": "回收站为空",
+    "permanentDeleteConfirm": "永久删除？此操作不可撤销。",
+    "deleteDocWithChildren": "该文档包含子文档",
+    "deleteOnly": "仅删除此文档",
+    "deleteOnlyDesc": "子文档将上移一级",
+    "deleteAll": "连同所有子文档一起删除",
+    "deleteAllDesc": "所有子文档也将被移入回收站",
+    "agents": "Agents",
+    "noResultsFound": "未找到结果",
+    "noRecentContent": "暂无最近内容"
   },
   "contacts": {
     "title": "Agent 管理",
@@ -156,7 +183,7 @@
     "online": "在线",
     "offline": "离线",
     "noAgents": "暂无 Agent",
-    "registerHint": "Agent 通过 self-register API 接入",
+    "registerHint": "Agent 通过自注册 API 接入",
     "sendMessage": "发消息",
     "assignTask": "分配任务"
   },
@@ -235,6 +262,26 @@
     "listNumbering": {
       "continueFrom": "继续编号（从{n}开始）",
       "startNew": "开始新列表（从1开始）"
+    },
+    "emptyMathBlock": "空的数学公式块",
+    "emptyMermaidDiagram": "空的 Mermaid 图表",
+    "error": "编辑器错误",
+    "insertDiagramEmbedFailed": "插入嵌入画板失败",
+    "mermaidDiagram": "Mermaid 图表",
+    "mermaidRenderError": "Mermaid 渲染错误",
+    "notice": "提示",
+    "preview": "预览",
+    "imageToolbar": {
+      "alignLeft": "左对齐",
+      "center": "居中",
+      "alignRight": "右对齐",
+      "fullWidth": "全宽",
+      "fitToPage": "适应页面",
+      "download": "下载",
+      "replace": "替换",
+      "delete": "删除",
+      "altText": "替代文本",
+      "comment": "评论"
     }
   },
   "comments": {
@@ -262,7 +309,13 @@
     "resolved": "已解决",
     "noResolved": "没有已解决的评论",
     "resolvedBy": "由 {name} 解决",
-    "addComment": "添加评论"
+    "addComment": "添加评论",
+    "addCommentWithShortcut": "添加评论...（⌘+Enter 发送）",
+    "postFailed": "发表评论失败",
+    "editFailed": "编辑评论失败",
+    "deleteFailed": "删除评论失败",
+    "resolveFailed": "解决评论失败",
+    "unresolveFailed": "重新打开评论失败"
   },
   "table": {
     "alignLeft": "左对齐",
@@ -285,7 +338,15 @@
     "deleteColumn": "删除列",
     "deleteRow": "删除行",
     "mergeCells": "合并单元格",
-    "splitCell": "拆分单元格"
+    "splitCell": "拆分单元格",
+    "duplicateField": "复制字段",
+    "editField": "编辑字段",
+    "freezeUpTo": "冻结至此列",
+    "groupBy": "按此列分组",
+    "insertColumnLeft": "在左侧插入列",
+    "insertColumnRight": "在右侧插入列",
+    "removeGroupBy": "取消分组",
+    "unfreezeAll": "取消所有冻结"
   },
   "dataTable": {
     "colTypes": {
@@ -404,6 +465,10 @@
     "fieldTitle": "字段标题",
     "fieldName": "字段名",
     "fieldType": "字段类型",
+    "options": "选项",
+    "optionN": "选项 {n}",
+    "addOption": "添加选项",
+    "formulaPlaceholder": "CONCAT({Name}, ' - ', {Country})",
     "typeChangeLossyConfirm": "将类型从「{from}」改为「{to}」可能导致部分数据丢失。确定继续？",
     "typeChangeClearConfirm": "将类型从「{from}」改为「{to}」将清空此列的所有数据，且无法恢复。确定继续？",
     "lossy": "有损",
@@ -520,7 +585,11 @@
     "pasteHint": "或 ⌘+V 粘贴图片",
     "addFileOrImage": "添加文件或图片",
     "formSubmitFailed": "表单提交失败",
-    "updateFieldFailed": "更新字段失败"
+    "updateFieldFailed": "更新字段失败",
+    "file": "文件",
+    "renderError": "表格渲染错误",
+    "currencySymbol": "货币",
+    "defaultColumnTitle": "标题"
   },
   "dataTableHistory": {
     "title": "历史版本",
@@ -564,7 +633,15 @@
     "close": "关闭",
     "confirm": "确定",
     "new": "新建",
-    "settings": "设置"
+    "settings": "设置",
+    "yes": "是",
+    "no": "否",
+    "unknown": "未知",
+    "replace": "替换",
+    "user": "用户",
+    "searching": "搜索中...",
+    "noResults": "无结果",
+    "noResultsFound": "未找到结果"
   },
   "shell": {
     "tasks": "任务",
@@ -618,7 +695,21 @@
       "addSibling": "添加兄弟节点",
       "editLabel": "编辑标签",
       "selectAll": "全选"
-    }
+    },
+    "clickToEdit": "点击编辑",
+    "diagram": "画板",
+    "doubleClickToEdit": "双击编辑",
+    "doubleClickToEditShort": "双击编辑",
+    "emptyDiagram": "空白画板",
+    "failedToLoadDiagram": "加载画板失败",
+    "loadingDiagram": "加载画板中...",
+    "noNodes": "无节点",
+    "untitledDiagram": "无标题画板",
+    "branch": "分支",
+    "newNode": "新节点",
+    "export": "导出",
+    "noMatchingDiagrams": "没有匹配的图表",
+    "noDiagramsYet": "暂无图表"
   },
   "toolbar": {
     "fonts": {
@@ -808,7 +899,33 @@
     "restoreFailed": "恢复失败",
     "permanentDeleteFailed": "永久删除失败",
     "renameItemFailed": "重命名失败",
-    "updateIconFailed": "更新图标失败"
+    "updateIconFailed": "更新图标失败",
+    "duplicateViewFailed": "复制视图失败",
+    "linkToggleFailed": "关联切换失败",
+    "loadSnapshotsFailed": "加载快照列表失败",
+    "createSnapshotFailed": "创建快照失败",
+    "loadSnapshotFailed": "加载快照失败",
+    "saveFailed": "保存失败",
+    "dateUpdateFailed": "日期更新失败",
+    "deleteAttachmentFailed": "删除附件失败",
+    "reorderFailed": "重新排序失败",
+    "postCommentFailed": "发表评论失败",
+    "editCommentFailed": "编辑评论失败",
+    "deleteCommentFailed": "删除评论失败",
+    "resolveCommentFailed": "解决评论失败",
+    "unresolveCommentFailed": "取消解决评论失败",
+    "replyCommentFailed": "回复失败",
+    "diagramAutoSaveFailed": "图表自动保存失败",
+    "markAllNotificationsReadFailed": "标记所有通知已读失败",
+    "notificationClickFailed": "通知点击失败",
+    "customIconUploadFailed": "自定义图标上传失败",
+    "presentationAutoSaveFailed": "演示文稿自动保存失败",
+    "insertDiagramFailed": "插入图表失败",
+    "refreshDiagramPreviewFailed": "刷新图表预览失败",
+    "renderVersionFailed": "渲染此版本失败",
+    "diffComputationFailed": "差异计算失败",
+    "parseDocumentFailed": "解析文档内容失败",
+    "loginFailed": "登录失败"
   },
   "entities": {
     "doc": "文档",
@@ -899,5 +1016,42 @@
     "password": "密码",
     "signingIn": "登录中...",
     "signIn": "登录"
+  },
+  "ppt": {
+    "properties": {
+      "background": "背景",
+      "color": "颜色",
+      "image": "图片",
+      "uploadBackgroundImage": "上传背景图片",
+      "applyToAllSlides": "应用到全部幻灯片",
+      "position": "位置",
+      "size": "尺寸",
+      "transform": "变换",
+      "layer": "图层",
+      "front": "置前",
+      "back": "置后",
+      "flipHorizontalShort": "水平翻转",
+      "flipVerticalShort": "垂直翻转",
+      "text": "文本",
+      "font": "字体",
+      "shape": "形状",
+      "fill": "填充",
+      "stroke": "描边",
+      "dash": "线型",
+      "shadow": "阴影",
+      "border": "边框",
+      "radius": "圆角",
+      "borderWidthShort": "边框宽",
+      "imageSection": "图片",
+      "replaceImage": "替换图片",
+      "resetToDefault": "恢复默认",
+      "table": "表格",
+      "tableDimensions": "{rows} 行 × {cols} 列",
+      "tableEditHint": "点击画布中的表格进行编辑。可使用工具栏添加/删除行列、合并单元格等。",
+      "slideProperties": "幻灯片属性",
+      "objectProperties": "对象属性",
+      "objectPropertiesWithType": "{type} 属性",
+      "objectFallback": "对象"
+    }
   }
 }

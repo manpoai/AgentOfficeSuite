@@ -662,7 +662,7 @@ export const markdownParser = new MarkdownParser(schema, md, {
   // Diagram embed
   diagram_embed: { node: 'diagram_embed', getAttrs: (tok) => ({
     diagramId: tok.attrGet('diagramId') || '',
-    title: tok.attrGet('title') || 'Untitled Diagram',
+    title: tok.attrGet('title') || getT()('diagram.untitledDiagram'),
   }), noCloseToken: true },
 
   // HTML inline/block tokens (e.g. <br>) — ignore to prevent parse errors
@@ -1090,7 +1090,7 @@ export const markdownSerializer = new MarkdownSerializer(
     },
     diagram_embed(state, node) {
       const id = node.attrs.diagramId || '';
-      const title = (node.attrs.title || 'Untitled Diagram').replace(/"/g, '&quot;');
+      const title = (node.attrs.title || getT()('diagram.untitledDiagram')).replace(/"/g, '&quot;');
       state.write(`<div class="diagram-embed-node" data-diagram-id="${id}" data-title="${title}"></div>`);
       state.closeBlock(node);
     },

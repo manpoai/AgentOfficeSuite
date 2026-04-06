@@ -169,7 +169,7 @@ export function ViewTabsBar(props: ViewTabsBarProps) {
                           const newView = await br.createView(tableId, copyTitle, VIEW_TYPES.find(vt => vt.typeNum === v.type)?.type || 'grid');
                           refreshMeta();
                           setActiveViewId(newView.view_id);
-                        } catch (e) { showError('Duplicate view failed', e); }
+                        } catch (e) { showError(t('errors.duplicateViewFailed'), e); }
                       }}
                       className="w-full flex items-center gap-2 px-3 py-1 text-xs text-foreground hover:bg-accent"
                     >
@@ -252,7 +252,7 @@ export function ViewTabsBar(props: ViewTabsBarProps) {
                     }
                     refreshMeta();
                     setActiveViewId(newView.view_id);
-                  } catch (e) { showError('Create view failed', e); }
+                  } catch (e) { showError(t('errors.createViewFailed'), e); }
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-accent"
               >

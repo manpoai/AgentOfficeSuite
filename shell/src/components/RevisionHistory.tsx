@@ -91,7 +91,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Clock size={14} />
-          {t('content.versionHistory') || 'Version History'}
+          {t('content.versionHistory')}
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -100,7 +100,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
               'relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors',
               highlightChanges ? 'bg-sidebar-primary' : 'bg-muted'
             )}
-            title={t('content.highlightChanges') || 'Highlight changes'}
+            title={t('content.highlightChanges')}
           >
             <span className={cn(
               'pointer-events-none inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform mt-0.5 ml-0.5',
@@ -110,7 +110,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
           <button
             onClick={onClose}
             className="rounded-md p-1 hover:bg-accent"
-            title={t('common.close') || 'Close'}
+            title={t('common.close')}
           >
             <X size={14} />
           </button>
@@ -126,7 +126,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
         )}
       >
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium">{t('content.currentVersion') || 'Current'}</span>
+          <span className="text-xs font-medium">{t('content.currentVersion')}</span>
           <span className="text-[10px] text-muted-foreground">{formatTime(doc.updated_at)}</span>
         </div>
         <div className="text-[11px] text-muted-foreground mt-0.5">{doc.updated_by}</div>
@@ -136,7 +136,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
       <div className="overflow-y-auto flex-1">
         {loading && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('content.loading') || 'Loading...'}
+            {t('content.loading')}
           </div>
         )}
         {error && (
@@ -144,7 +144,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
         )}
         {!loading && revisions.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('content.noRevisions') || 'No previous versions'}
+            {t('content.noRevisions')}
           </div>
         )}
         {revisions.map((rev) => (
@@ -163,7 +163,7 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
               <ChevronRight size={14} className="text-muted-foreground" />
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              {rev.createdBy?.name || 'Unknown'} · {formatTime(rev.createdAt)}
+              {rev.createdBy?.name || t('common.unknown')} · {formatTime(rev.createdAt)}
             </div>
           </button>
         ))}
@@ -179,8 +179,8 @@ export default function RevisionHistory({ doc, onClose, onRestored, onSelect, hi
           >
             <RotateCcw size={14} />
             {restoring
-              ? (t('content.restoring') || 'Restoring...')
-              : (t('content.restoreVersion') || 'Restore this version')}
+              ? t('content.restoring')
+              : t('content.restoreVersion')}
           </button>
         </div>
       )}

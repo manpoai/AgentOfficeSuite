@@ -13,10 +13,10 @@ export interface LinePickerProps {
   className?: string;
 }
 
-const LINE_STYLES: { value: 'solid' | 'dashed' | 'dotted'; label: string; dashArray: string }[] = [
-  { value: 'solid', label: 'Solid', dashArray: '' },
-  { value: 'dashed', label: 'Dashed', dashArray: '8 4' },
-  { value: 'dotted', label: 'Dotted', dashArray: '2 4' },
+const LINE_STYLES: { value: 'solid' | 'dashed' | 'dotted'; labelKey: string; dashArray: string }[] = [
+  { value: 'solid', labelKey: 'toolbar.common.solidLine', dashArray: '' },
+  { value: 'dashed', labelKey: 'toolbar.common.dashedLine', dashArray: '8 4' },
+  { value: 'dotted', labelKey: 'toolbar.common.dottedLine', dashArray: '2 4' },
 ];
 
 const LINE_WIDTHS = [1, 2, 3, 4, 6];
@@ -89,7 +89,7 @@ export function LinePicker({
         >
           {/* Style options */}
           <div className="px-1 pb-1">
-            <div className="text-[10px] text-muted-foreground px-2 py-0.5">Style</div>
+            <div className="text-[10px] text-muted-foreground px-2 py-0.5">{t('toolbar.diagram.lineStyle')}</div>
             {LINE_STYLES.map((ls) => (
               <button
                 key={ls.value}
@@ -107,7 +107,7 @@ export function LinePicker({
                     strokeDasharray={ls.dashArray}
                   />
                 </svg>
-                <span className="text-xs">{ls.label}</span>
+                <span className="text-xs">{t(ls.labelKey)}</span>
               </button>
             ))}
           </div>
@@ -115,7 +115,7 @@ export function LinePicker({
           {/* Width options */}
           {onWidthChange && (
             <div className="px-1 pt-1 border-t border-border">
-              <div className="text-[10px] text-muted-foreground px-2 py-0.5">Width</div>
+              <div className="text-[10px] text-muted-foreground px-2 py-0.5">{t('toolbar.diagram.lineWidth')}</div>
               {LINE_WIDTHS.map((w) => (
                 <button
                   key={w}

@@ -963,7 +963,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     if (!isCol || isRow) {
       cellToolbar.appendChild(iconBtn(
         svgIcon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/>', 16),
-        t('table.toggleHeader') || 'Toggle header row',
+        t('table.toggleHeader'),
         () => { toggleHeaderRow(view.state, view.dispatch); }
       ));
     }
@@ -971,7 +971,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     if (!isRow || isCol) {
       cellToolbar.appendChild(iconBtn(
         svgIcon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>', 16),
-        t('table.toggleHeaderCol') || 'Toggle header column',
+        t('table.toggleHeaderCol'),
         () => { toggleHeaderColumn(view.state, view.dispatch); }
       ));
     }
@@ -979,14 +979,14 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     const canMerge = isCellSel && mergeCells(view.state);
     const canSplit = splitCell(view.state);
     if (canMerge) {
-      cellToolbar.appendChild(iconBtn(icons.merge, t('table.mergeCells') || 'Merge cells', () => {
+      cellToolbar.appendChild(iconBtn(icons.merge, t('table.mergeCells'), () => {
         mergeCells(view.state, view.dispatch);
       }));
     }
     if (canSplit) {
       cellToolbar.appendChild(iconBtn(
         svgIcon('<rect x="2" y="2" width="20" height="20" rx="2"/><path d="M9 2v10"/><path d="M15 2v10"/><path d="M2 12h20"/>', 14),
-        t('table.splitCell') || 'Split cell',
+        t('table.splitCell'),
         () => { splitCell(view.state, view.dispatch); }
       ));
     }
@@ -995,7 +995,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
     // ── Group 2: Cell background color ──
     const colorBtn = el('div', `${P}-toolbar-btn ${P}-color-btn`);
-    colorBtn.title = t('table.cellColor') || 'Cell background color';
+    colorBtn.title = t('table.cellColor');
     colorBtn.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:linear-gradient(135deg,#fef3c7,#bfdbfe,#d1fae5,#fce7f3);border:1px solid rgba(0,0,0,0.1)"></span>';
     colorBtn.style.cursor = 'pointer';
     colorBtn.style.display = 'flex';
@@ -1012,10 +1012,10 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
     // ── Group 3: Basic styles (Bold, Italic, Strikethrough, Underline) ──
     const styleItems = [
-      { icon: svgIcon('<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>', 16), title: t('editor.bold') || 'Bold', mark: 'strong' },
-      { icon: svgIcon('<line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/>'), title: t('editor.italic') || 'Italic', mark: 'em' },
-      { icon: svgIcon('<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" x2="20" y1="12" y2="12"/>'), title: t('editor.strikethrough') || 'Strikethrough', mark: 'strikethrough' },
-      { icon: svgIcon('<path d="M6 4v6a6 6 0 0 0 12 0V4"/><line x1="4" x2="20" y1="20" y2="20"/>'), title: t('editor.underline') || 'Underline', mark: 'underline' },
+      { icon: svgIcon('<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>', 16), title: t('editor.bold'), mark: 'strong' },
+      { icon: svgIcon('<line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/>'), title: t('editor.italic'), mark: 'em' },
+      { icon: svgIcon('<path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" x2="20" y1="12" y2="12"/>'), title: t('editor.strikethrough'), mark: 'strikethrough' },
+      { icon: svgIcon('<path d="M6 4v6a6 6 0 0 0 12 0V4"/><line x1="4" x2="20" y1="20" y2="20"/>'), title: t('editor.underline'), mark: 'underline' },
     ];
     for (const item of styleItems) {
       cellToolbar.appendChild(iconBtn(item.icon, item.title, () => {
@@ -1029,7 +1029,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     // Highlight color
     const hlBtn = el('div', `${P}-toolbar-btn`);
     hlBtn.innerHTML = svgIcon('<path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>');
-    hlBtn.title = t('editor.highlight') || 'Highlight';
+    hlBtn.title = t('editor.highlight');
     hlBtn.style.cursor = 'pointer';
     hlBtn.style.display = 'flex';
     hlBtn.style.alignItems = 'center';
@@ -1043,12 +1043,12 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
     cellToolbar.appendChild(iconBtn(
       svgIcon('<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>'),
-      t('editor.inlineCode') || 'Code',
+      t('editor.inlineCode'),
       () => { toggleMarkOnSelection('code'); }
     ));
     cellToolbar.appendChild(iconBtn(
       svgIcon('<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>'),
-      t('editor.quote') || 'Quote',
+      t('editor.quote'),
       () => { toggleBlockquoteOnSelection(view); }
     ));
 
@@ -1090,7 +1090,7 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     // ── Group 7: Comment ──
     cellToolbar.appendChild(iconBtn(
       svgIcon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
-      t('editor.comment') || 'Comment',
+      t('editor.comment'),
       () => {
         // Extract text from selected cells or current selection
         let text = '';
@@ -1111,12 +1111,12 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     if (isCellSel && (isRow || isCol)) {
       cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
       if (isRow) {
-        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteRow') || 'Delete row', () => {
+        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteRow'), () => {
           deleteRow(view.state, view.dispatch);
         }));
       }
       if (isCol) {
-        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteColumn') || 'Delete column', () => {
+        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteColumn'), () => {
           deleteColumn(view.state, view.dispatch);
         }));
       }
@@ -1173,9 +1173,9 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     const sel = view.state.selection;
     const isCellSel2 = sel instanceof CellSelection;
     const aligns = [
-      { align: 'left', icon: icons.alignLeft, title: t('table.alignLeft') || 'Left' },
-      { align: 'center', icon: icons.alignCenter, title: t('table.alignCenter') || 'Center' },
-      { align: 'right', icon: icons.alignRight, title: t('table.alignRight') || 'Right' },
+      { align: 'left', icon: icons.alignLeft, title: t('table.alignLeft') },
+      { align: 'center', icon: icons.alignCenter, title: t('table.alignCenter') },
+      { align: 'right', icon: icons.alignRight, title: t('table.alignRight') },
     ];
 
     for (const a of aligns) {
@@ -1281,9 +1281,9 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
     alignDropdown.style.zIndex = '999';
 
     const listItems = [
-      { icon: svgIcon('<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><line x1="13" x2="21" y1="6" y2="6"/><line x1="13" x2="21" y1="12" y2="12"/><line x1="13" x2="21" y1="18" y2="18"/>'), title: t('editor.checkboxList') || 'Todo', type: 'checkbox_list' },
-      { icon: svgIcon('<line x1="10" x2="21" y1="6" y2="6"/><line x1="10" x2="21" y1="12" y2="12"/><line x1="10" x2="21" y1="18" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>'), title: t('editor.orderedList') || 'Ordered list', type: 'ordered_list' },
-      { icon: svgIcon('<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>'), title: t('editor.bulletList') || 'Bullet list', type: 'bullet_list' },
+      { icon: svgIcon('<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><line x1="13" x2="21" y1="6" y2="6"/><line x1="13" x2="21" y1="12" y2="12"/><line x1="13" x2="21" y1="18" y2="18"/>'), title: t('editor.checkboxList'), type: 'checkbox_list' },
+      { icon: svgIcon('<line x1="10" x2="21" y1="6" y2="6"/><line x1="10" x2="21" y1="12" y2="12"/><line x1="10" x2="21" y1="18" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>'), title: t('editor.orderedList'), type: 'ordered_list' },
+      { icon: svgIcon('<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>'), title: t('editor.bulletList'), type: 'bullet_list' },
     ];
     for (const item of listItems) {
       alignDropdown.appendChild(iconBtn(item.icon, item.title, () => {

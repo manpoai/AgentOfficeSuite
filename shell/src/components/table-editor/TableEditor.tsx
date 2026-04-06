@@ -306,11 +306,11 @@ class TableEditorErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-          <p className="text-destructive font-medium">Table rendering error</p>
+          <p className="text-destructive font-medium">{getT()('dataTable.renderError')}</p>
           <p className="text-sm text-muted-foreground max-w-md text-center">{this.state.error?.message}</p>
           <div className="flex gap-2">
-            <button onClick={() => this.setState({ hasError: false, error: null })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">Retry</button>
-            <button onClick={this.props.onBack} className="px-3 py-1.5 text-sm border rounded">Back</button>
+            <button onClick={() => this.setState({ hasError: false, error: null })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">{getT()('dataTable.retry')}</button>
+            <button onClick={this.props.onBack} className="px-3 py-1.5 text-sm border rounded">{getT()('dataTable.back')}</button>
           </div>
         </div>
       );
@@ -1584,7 +1584,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         refresh();
       } catch (e) {
         console.error('Update field failed:', e);
-        alert(`Update field failed: ${e instanceof Error ? e.message : String(e)}`);
+        alert(`${t('errors.updateFieldFailed')}: ${e instanceof Error ? e.message : String(e)}`);
       }
     } else {
       // Add new column
@@ -1834,11 +1834,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   if (metaError) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-        <p className="text-destructive font-medium">{t('dataTable.loadError') || 'Failed to load table'}</p>
+        <p className="text-destructive font-medium">{t('dataTable.loadError')}</p>
         <p className="text-sm text-muted-foreground">{(metaErrorDetail as Error)?.message}</p>
         <div className="flex gap-2">
-          <button onClick={() => queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">{t('dataTable.retry') || 'Retry'}</button>
-          <button onClick={onBack} className="px-3 py-1.5 text-sm border rounded">{t('dataTable.back') || 'Back'}</button>
+          <button onClick={() => queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] })} className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded">{t('dataTable.retry')}</button>
+          <button onClick={onBack} className="px-3 py-1.5 text-sm border rounded">{t('dataTable.back')}</button>
         </div>
       </div>
     );
@@ -2824,7 +2824,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                     queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
                   } catch (e: unknown) {
                     console.error('[TableEditor] Restore error:', e);
-                    alert(e instanceof Error ? e.message : 'Restore failed');
+                    alert(e instanceof Error ? e.message : t('errors.restoreFailed'));
                   }
                 }}
                 className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
@@ -3480,10 +3480,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                                                   <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
                                                 </div>
                                               )}
-                                              <span className="flex-1 text-xs text-foreground truncate">{att.title || att.path?.split('/').pop() || 'file'}</span>
+                                              <span className="flex-1 text-xs text-foreground truncate">{att.title || att.path?.split('/').pop() || t('dataTable.file')}</span>
                                               <a
                                                 href={ncAttachmentUrl(att)}
-                                                download={att.title || att.path?.split('/').pop() || 'file'}
+                                                download={att.title || att.path?.split('/').pop() || t('dataTable.file')}
                                                 onClick={e => e.stopPropagation()}
                                                 className="hidden group-hover/att:block p-0.5 text-muted-foreground hover:text-sidebar-primary shrink-0"
                                                 title={t('common.download')}
@@ -3760,7 +3760,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
               {newColType === 'Currency' && (
                 <div className="space-y-3">
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.currencySymbol') || 'Currency'}</div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.currencySymbol')}</div>
                     <select
                       value={currencySymbol}
                       onChange={e => setCurrencySymbol(e.target.value)}

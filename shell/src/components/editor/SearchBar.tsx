@@ -156,7 +156,7 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
           className="flex-1 text-sm bg-muted rounded px-2 py-1 text-foreground outline-none placeholder:text-muted-foreground min-w-0"
         />
         <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
-          {matchInfo.total > 0 ? `${matchInfo.current}/${matchInfo.total}` : query ? 'No results' : ''}
+          {matchInfo.total > 0 ? `${matchInfo.current}/${matchInfo.total}` : query ? t('common.noResults') : ''}
         </span>
         <button
           onClick={() => setCaseSensitive(v => !v)}

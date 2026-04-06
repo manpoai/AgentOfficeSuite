@@ -11,6 +11,7 @@
  */
 import type { Node as PMNode, NodeSpec } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';
+import { getT } from '@/lib/i18n';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { getContentItem } from '@/lib/api/gateway';
 
@@ -70,7 +71,7 @@ export class ContentLinkView implements NodeView {
   constructor(private node: PMNode, private view: EditorView, private getPos: () => number | undefined) {
     const type = getContentType(node.attrs.contentId);
     const icon = TYPE_ICONS[type] || TYPE_ICONS.doc;
-    const label = node.attrs.title || TYPE_LABELS[type] || 'Link';
+    const label = node.attrs.title || TYPE_LABELS[type] || getT()('content.link');
 
     this.dom = document.createElement('span');
     this.dom.className = 'content-link-node';
@@ -119,7 +120,7 @@ export class ContentLinkView implements NodeView {
     // Update DOM when title changes (e.g. after async title resolution)
     const type = getContentType(node.attrs.contentId);
     const icon = TYPE_ICONS[type] || TYPE_ICONS.doc;
-    const label = node.attrs.title || TYPE_LABELS[type] || 'Link';
+    const label = node.attrs.title || TYPE_LABELS[type] || getT()('content.link');
     this.dom.innerHTML = `<span style="font-size:0.85em">${icon}</span><span>${this.escapeHtml(label)}</span>`;
     return true;
   }

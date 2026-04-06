@@ -6,6 +6,7 @@ import Picker from '@emoji-mart/react';
 import { useTheme } from 'next-themes';
 import { Upload } from 'lucide-react';
 import { showError } from '@/lib/utils/error';
+import { useT } from '@/lib/i18n';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
@@ -15,6 +16,7 @@ interface EmojiPickerProps {
 }
 
 export function EmojiPicker({ onSelect, onRemove, onUploadImage }: EmojiPickerProps) {
+  const { t } = useT();
   const { resolvedTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -30,7 +32,7 @@ export function EmojiPicker({ onSelect, onRemove, onUploadImage }: EmojiPickerPr
       const url = await onUploadImage(file);
       onSelect(url);
     } catch (err) {
-      showError('Custom icon upload failed', err);
+      showError(t('errors.customIconUploadFailed'), err);
     }
     // Reset input so same file can be re-selected
     e.target.value = '';

@@ -12,6 +12,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
   SHAPES,
@@ -51,6 +52,7 @@ export function ShapePicker({
   draggable,
   onDragStart,
 }: ShapePickerProps) {
+  const { t } = useT();
   const displayCategories = categories || CATEGORIES;
 
   return (
@@ -68,7 +70,7 @@ export function ShapePicker({
           <div key={cat} className="mb-2 last:mb-0">
             {showCategories && (
               <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-1 mb-1">
-                {CATEGORY_LABELS[cat]}
+                {t(CATEGORY_LABELS[cat].labelKey || CATEGORY_LABELS[cat].label)}
               </div>
             )}
             <div
@@ -106,10 +108,11 @@ function ShapeButton({
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
 }) {
+  const { t } = useT();
   return (
     <button
       onClick={onClick}
-      title={shape.label}
+      title={t(shape.labelKey || shape.label)}
       draggable={isDraggable}
       onDragStart={onDragStart}
       className={cn(

@@ -5,9 +5,12 @@ export function escapeXml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+import { getT } from '@/lib/i18n';
+
 export function renderCellsToSVG(cells: any[]): string {
+  const t = getT();
   if (!cells || cells.length === 0) {
-    return '<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">Empty diagram</text></svg>';
+    return `<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">${t('diagram.emptyDiagram')}</text></svg>`;
   }
 
   // Find bounds
@@ -32,7 +35,7 @@ export function renderCellsToSVG(cells: any[]): string {
   }
 
   if (nodes.length === 0) {
-    return '<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">No nodes</text></svg>';
+    return `<svg viewBox="0 0 600 200" xmlns="http://www.w3.org/2000/svg"><text x="300" y="100" text-anchor="middle" fill="#999" font-size="14">${t('diagram.noNodes')}</text></svg>`;
   }
 
   const padding = 40;

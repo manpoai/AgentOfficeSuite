@@ -53,7 +53,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
       setSnapshots(list);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      setError(e instanceof Error ? e.message : t('errors.loadSnapshotsFailed'));
     } finally {
       setLoading(false);
     }
@@ -67,7 +67,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
       await gw.createTableSnapshot(tableId);
       await loadSnapshots();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Create failed');
+      setError(e instanceof Error ? e.message : t('errors.createSnapshotFailed'));
     } finally {
       setCreating(false);
     }
@@ -92,7 +92,7 @@ export default function TableHistory({ tableId, onClose, onRestored, onSelectVer
         rows,
       });
     } catch (e) {
-      showError('Load snapshot failed', e);
+      showError(t('errors.loadSnapshotFailed'), e);
       onSelectVersion(null);
     } finally {
       setLoadingSnapshotId(null);

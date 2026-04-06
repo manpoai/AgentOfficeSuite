@@ -44,10 +44,10 @@ export interface RevisionHistoryProps {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  doc: 'Document',
-  table: 'Table',
-  presentation: 'Presentation',
-  diagram: 'Diagram',
+  doc: 'content.typeDocument',
+  table: 'content.typeTable',
+  presentation: 'content.typePresentation',
+  diagram: 'content.typeDiagram',
 };
 
 export function RevisionHistory({
@@ -84,7 +84,7 @@ export function RevisionHistory({
       onRestore?.(result.data);
     },
     onError: (error: Error) => {
-      setRestoreError(error.message || 'Failed to restore version. Please try again.');
+      setRestoreError(error.message || t('content.restoreVersionFailed'));
     },
   });
 
@@ -102,9 +102,9 @@ export function RevisionHistory({
         ) : revisions.length === 0 ? (
           <div className="text-center py-8">
             <Clock className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No saved versions yet</p>
+            <p className="text-sm text-muted-foreground">{t('content.noSavedVersions')}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Versions are saved automatically as you edit
+              {t('content.versionsAutoSaved')}
             </p>
           </div>
         ) : (
@@ -125,11 +125,11 @@ export function RevisionHistory({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">
-                      {index === 0 ? 'Latest' : `Version ${revisions.length - index}`}
+                      {index === 0 ? t('content.latestVersion') : t('content.versionN', { n: revisions.length - index })}
                     </span>
                     {index === 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sidebar-primary/10 text-sidebar-primary font-medium">
-                        Current
+                        {t('content.currentVersion')}
                       </span>
                     )}
                   </div>
@@ -163,8 +163,7 @@ export function RevisionHistory({
               <div className="flex items-start gap-2 text-xs text-amber-600">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  This will replace the current {TYPE_LABELS[contentType]?.toLowerCase() || 'content'} with
-                  this version. A backup of the current version will be saved automatically.
+                  {t('content.restoreVersionWarning', { type: t(TYPE_LABELS[contentType] || 'content.typeContent') })}
                 </span>
               </div>
               {restoreError && (
@@ -188,13 +187,13 @@ export function RevisionHistory({
                   ) : (
                     <RotateCcw className="w-4 h-4" />
                   )}
-                  Confirm Restore
+                  {t('content.confirmRestore')}
                 </button>
                 <button
                   onClick={() => { setConfirmRestore(null); setRestoreError(null); }}
                   className="px-3 py-2 rounded-md text-sm hover:bg-muted transition-colors"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </div>
@@ -207,7 +206,7 @@ export function RevisionHistory({
               )}
             >
               <RotateCcw className="w-4 h-4" />
-              Restore this version
+              {t('content.restoreVersion')}
             </button>
           )}
         </div>
@@ -234,7 +233,7 @@ export function RevisionHistory({
     <div className={cn('flex flex-col h-full', className)}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="text-sm font-medium">Version History</span>
+        <span className="text-sm font-medium">{t('content.versionHistory')}</span>
         {onClose && (
           <button
             onClick={onClose}

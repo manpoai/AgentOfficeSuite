@@ -164,7 +164,7 @@ export function ContentLinkPicker({
                   <TypeIcon className="w-4 h-4 text-muted-foreground shrink-0" />
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm truncate">{item.title || 'Untitled'}</div>
+                  <div className="text-sm truncate">{item.title || t('content.untitled')}</div>
                   {item.updated_at && (
                     <div className="text-[10px] text-muted-foreground">
                       {formatRelativeTime(item.updated_at)}
@@ -176,7 +176,7 @@ export function ContentLinkPicker({
           })
         ) : (
           <div className="text-center py-6 text-sm text-muted-foreground">
-            {query ? 'No results found' : 'No recent content'}
+            {query ? t('content.noResultsFound') : t('content.noRecentContent')}
           </div>
         )}
       </div>

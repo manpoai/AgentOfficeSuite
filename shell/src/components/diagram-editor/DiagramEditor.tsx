@@ -233,7 +233,7 @@ function DiagramEditorInner({
         edges: edges.map(e => ({ ...e, selected: undefined })),
         viewport,
       }).catch((err: Error) => {
-        showError('Diagram auto-save failed', err);
+        showError(t('errors.diagramAutoSaveFailed'), err);
       });
     }, 1000);
   }, [diagramId, nodes, edges, reactFlowInstance]);
@@ -279,7 +279,7 @@ function DiagramEditorInner({
       type: 'flowchart',
       position: pos,
       data: {
-        label: isMindmap ? (shape === 'mindmap-root' ? 'Central Topic' : 'Branch') : 'New Node',
+        label: isMindmap ? (shape === 'mindmap-root' ? t('diagram.centralTopic') : t('diagram.branch')) : t('diagram.newNode'),
         shape,
         bgColor: color.bg,
         borderColor: color.border,
@@ -383,7 +383,7 @@ function DiagramEditorInner({
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-sm">{t('common.loading') || 'Loading...'}</div>
+        <div className="text-sm">{t('common.loading')}</div>
       </div>
     );
   }
@@ -438,9 +438,9 @@ function DiagramEditorInner({
                   <button
                     onClick={startEditTitle}
                     className="text-foreground font-medium truncate hover:text-primary transition-colors"
-                    title={t('content.rename') || 'Click to rename'}
+                    title={t('content.rename')}
                   >
-                    {crumb.title || (t('content.untitledDiagram') || 'Untitled Diagram')}
+                    {crumb.title || t('content.untitledDiagram')}
                   </button>
                 )}
               </span>
@@ -458,7 +458,7 @@ function DiagramEditorInner({
             <button
               onClick={() => setShowMenu(v => !v)}
               className="p-1.5 text-muted-foreground hover:text-foreground shrink-0"
-              title={t('content.moreActions') || 'More'}
+              title={t('content.moreActions')}
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
@@ -466,13 +466,13 @@ function DiagramEditorInner({
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-52">
-                  <MenuBtn icon={Link2} label={t('content.copyLink') || 'Copy Link'} onClick={() => {
+                  <MenuBtn icon={Link2} label={t('content.copyLink')} onClick={() => {
                     setShowMenu(false);
                     onCopyLink?.();
                   }} />
-                  <MenuBtn icon={Download} label="Export" onClick={handleExport} />
+                  <MenuBtn icon={Download} label={t('diagram.export')} onClick={handleExport} />
                   <div className="border-t border-border my-1" />
-                  <MenuBtn icon={Trash2} label={t('content.delete') || 'Delete'} onClick={handleDelete} danger />
+                  <MenuBtn icon={Trash2} label={t('content.delete')} onClick={handleDelete} danger />
                 </div>
               </>
             )}

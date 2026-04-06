@@ -397,7 +397,7 @@ function buildMenuItems(): BlockMenuItem[] {
       action: (view, pos) => insertNoticeBlock(view, pos, 'tip'),
     },
     {
-      label: t('editor.comment') || 'Comment',
+      label: t('editor.comment'),
       kind: 'comment',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg>`,
       separator: true,
@@ -407,21 +407,21 @@ function buildMenuItems(): BlockMenuItem[] {
         let text = '';
         const name = node.type.name;
         if (name === 'image') {
-          text = node.attrs.alt || node.attrs.title || 'Image';
+          text = node.attrs.alt || node.attrs.title || t('editor.image');
         } else if (name === 'table') {
           const cells: string[] = [];
           node.firstChild?.forEach((cell: any) => { cells.push(cell.textContent); });
-          text = cells.join(' | ') || 'Table';
+          text = cells.join(' | ') || t('editor.table');
         } else if (name === 'mermaid_block') {
-          text = 'Mermaid diagram';
+          text = t('editor.mermaidDiagram');
         } else if (name === 'math_block') {
-          text = node.textContent || 'Math block';
+          text = node.textContent || t('editor.mathBlock');
         } else if (name === 'code_block') {
-          text = node.textContent || 'Code block';
+          text = node.textContent || t('editor.codeBlock');
         } else if (name === 'horizontal_rule') {
           text = '---';
         } else if (name === 'container_notice') {
-          text = node.textContent || 'Notice';
+          text = node.textContent || t('editor.notice');
         } else if (name === 'paragraph') {
           // Check for image-only paragraphs
           let imgNode: any = null;
@@ -431,7 +431,7 @@ function buildMenuItems(): BlockMenuItem[] {
             else hasOtherContent = true;
           });
           if (imgNode && !hasOtherContent) {
-            text = imgNode.attrs.alt || imgNode.attrs.title || 'Image';
+            text = imgNode.attrs.alt || imgNode.attrs.title || t('editor.image');
           } else {
             text = node.textContent || '';
           }
@@ -446,7 +446,7 @@ function buildMenuItems(): BlockMenuItem[] {
       },
     },
     {
-      label: t('editor.copy') || 'Copy',
+      label: t('editor.copy'),
       kind: 'copy',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="12" height="12" rx="2"/><path d="M16 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/></svg>`,
       separator: true,
@@ -460,7 +460,7 @@ function buildMenuItems(): BlockMenuItem[] {
       },
     },
     {
-      label: t('content.delete') || 'Delete',
+      label: t('content.delete'),
       kind: 'delete',
       icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`,
       separator: true,

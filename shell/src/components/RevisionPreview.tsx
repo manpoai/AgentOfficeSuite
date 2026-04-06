@@ -56,7 +56,7 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
       } catch (e) {
         showError(getT()('errors.revisionParseFailed'), e);
         if (mountRef.current) {
-          mountRef.current.textContent = 'Failed to render this version';
+          mountRef.current.textContent = getT()('errors.renderVersionFailed');
         }
         return;
       }
@@ -72,7 +72,7 @@ export default function RevisionPreview({ data, prevData, highlightChanges }: Re
             },
           });
         } catch (e) {
-          showError('Diff computation failed', e);
+          showError(getT()('errors.diffComputationFailed'), e);
         }
       }
 

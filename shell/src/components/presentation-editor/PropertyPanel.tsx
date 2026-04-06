@@ -17,7 +17,41 @@ import { SlideData, FONT_FAMILIES, getObjType } from './types';
 import { getFabricModule } from './useFabric';
 import { pickFile } from '@/lib/utils/pick-file';
 
-// ─── Shared UI Components ───────────────────────────
+const PPT_PROPERTY_T_KEYS = {
+  background: 'ppt.properties.background',
+  color: 'ppt.properties.color',
+  image: 'ppt.properties.image',
+  uploadBackgroundImage: 'ppt.properties.uploadBackgroundImage',
+  applyToAllSlides: 'ppt.properties.applyToAllSlides',
+  position: 'ppt.properties.position',
+  size: 'ppt.properties.size',
+  transform: 'ppt.properties.transform',
+  layer: 'ppt.properties.layer',
+  front: 'ppt.properties.front',
+  back: 'ppt.properties.back',
+  flipHorizontalShort: 'ppt.properties.flipHorizontalShort',
+  flipVerticalShort: 'ppt.properties.flipVerticalShort',
+  text: 'ppt.properties.text',
+  font: 'ppt.properties.font',
+  shape: 'ppt.properties.shape',
+  fill: 'ppt.properties.fill',
+  stroke: 'ppt.properties.stroke',
+  dash: 'ppt.properties.dash',
+  shadow: 'ppt.properties.shadow',
+  border: 'ppt.properties.border',
+  imageSection: 'ppt.properties.imageSection',
+  replaceImage: 'ppt.properties.replaceImage',
+  resetToDefault: 'ppt.properties.resetToDefault',
+  table: 'ppt.properties.table',
+  tableDimensions: 'ppt.properties.tableDimensions',
+  tableEditHint: 'ppt.properties.tableEditHint',
+  slideProperties: 'ppt.properties.slideProperties',
+  objectPropertiesWithType: 'ppt.properties.objectPropertiesWithType',
+  objectFallback: 'ppt.properties.objectFallback',
+  radius: 'ppt.properties.radius',
+  borderWidthShort: 'ppt.properties.borderWidthShort',
+  padding: 'ppt.properties.padding',
+} as const;
 
 function SectionLabel({ label }: { label: string }) {
   return (
@@ -83,7 +117,6 @@ function ToggleBtn({
   );
 }
 
-// ─── Slide Properties Section ───────────────────────
 function SlidePropertiesSection({
   currentSlide,
   onBackgroundChange,
@@ -95,6 +128,8 @@ function SlidePropertiesSection({
   onBackgroundImageChange: (bgImage: string | undefined) => void;
   onApplyToAll: () => void;
 }) {
+  const { t } = useT();
+
   const handleUploadBgImage = () => {
     pickFile({ accept: 'image/*' }).then(async (files) => {
       const file = files[0];
@@ -115,34 +150,27 @@ function SlidePropertiesSection({
 
   return (
     <>
-      <SectionLabel label="Background" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.background)} />
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Color</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.color)}</label>
           <ColorPicker
             color={currentSlide.background || '#ffffff'}
             onChange={(c) => onBackgroundChange(c)}
           />
         </div>
 
-        {/* Background Image */}
         <div className="space-y-1.5">
-          <label className="text-muted-foreground">Image</label>
+          <label className="text-muted-foreground">{t(PPT_PROPERTY_T_KEYS.image)}</label>
           {currentSlide.backgroundImage ? (
             <div className="relative rounded border border-border overflow-hidden" style={{ aspectRatio: '16/9' }}>
-              <img src={currentSlide.backgroundImage} alt="Background" className="w-full h-full object-cover" />
+              <img src={currentSlide.backgroundImage} alt={t(PPT_PROPERTY_T_KEYS.image)} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/0 hover:bg-black/30 transition-colors flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
-                <button
-                  onClick={handleUploadBgImage}
-                  className="px-2 py-1 rounded bg-card/90 text-xs text-foreground hover:bg-card"
-                >
-                  Replace
+                <button onClick={handleUploadBgImage} className="px-2 py-1 rounded bg-card/90 text-xs text-foreground hover:bg-card">
+                  {t('common.replace')}
                 </button>
-                <button
-                  onClick={() => onBackgroundImageChange(undefined)}
-                  className="px-2 py-1 rounded bg-card/90 text-xs text-destructive hover:bg-card"
-                >
-                  Remove
+                <button onClick={() => onBackgroundImageChange(undefined)} className="px-2 py-1 rounded bg-card/90 text-xs text-destructive hover:bg-card">
+                  {t('common.delete')}
                 </button>
               </div>
             </div>
@@ -152,7 +180,7 @@ function SlidePropertiesSection({
               className="w-full py-3 rounded border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors text-xs flex items-center justify-center gap-1.5"
             >
               <ImageIcon className="h-3.5 w-3.5" />
-              Upload Background Image
+              {t(PPT_PROPERTY_T_KEYS.uploadBackgroundImage)}
             </button>
           )}
         </div>
@@ -161,14 +189,13 @@ function SlidePropertiesSection({
           onClick={onApplyToAll}
           className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
         >
-          Apply to All Slides
+          {t(PPT_PROPERTY_T_KEYS.applyToAllSlides)}
         </button>
       </div>
     </>
   );
 }
 
-// ─── Common Properties Section ──────────────────────
 function CommonPropertiesSection({
   obj,
   canvas,
@@ -189,21 +216,22 @@ function CommonPropertiesSection({
   propVersion: number;
 }) {
   const { t } = useT();
+
   return (
     <>
-      <SectionLabel label="Position" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.position)} />
       <div className="grid grid-cols-2 gap-2">
         <PropInput label="X" value={Math.round(obj.left || 0)} onChange={(v) => updateAndSave('left', v)} />
         <PropInput label="Y" value={Math.round(obj.top || 0)} onChange={(v) => updateAndSave('top', v)} />
       </div>
 
-      <SectionLabel label="Size" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.size)} />
       <div className="grid grid-cols-2 gap-2">
         <PropInput label="W" value={getVisualW()} onChange={(v) => setVisualW(v)} />
         <PropInput label="H" value={getVisualH()} onChange={(v) => setVisualH(v)} />
       </div>
 
-      <SectionLabel label="Transform" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.transform)} />
       <div className="grid grid-cols-2 gap-2">
         <PropInput label="Angle" value={Math.round(obj.angle || 0)} onChange={(v) => updateAndSave('angle', v)} />
         <div className="flex items-center gap-1">
@@ -220,15 +248,14 @@ function CommonPropertiesSection({
         </div>
       </div>
 
-      {/* Layer order */}
-      <SectionLabel label="Layer" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.layer)} />
       <div className="flex items-center gap-1">
         <button
           onClick={() => { canvas?.fire('before:modified', { target: obj }); canvas?.bringObjectToFront(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
           title={t('toolbar.bringToFront')}
         >
-          <ArrowUpToLine className="h-3 w-3" /> Front
+          <ArrowUpToLine className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.front)}
         </button>
         <button
           onClick={() => { canvas?.fire('before:modified', { target: obj }); canvas?.bringObjectForward(obj); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
@@ -249,25 +276,24 @@ function CommonPropertiesSection({
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
           title={t('toolbar.sendToBack')}
         >
-          <ArrowDownToLine className="h-3 w-3" /> Back
+          <ArrowDownToLine className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.back)}
         </button>
       </div>
 
-      {/* Flip */}
       <div className="flex items-center gap-1">
         <button
           onClick={() => { canvas?.fire('before:modified', { target: obj }); obj.set('flipX', !obj.flipX); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
           title={t('toolbar.flipHorizontal')}
         >
-          <FlipHorizontal2 className="h-3 w-3" /> Flip H
+          <FlipHorizontal2 className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.flipHorizontalShort)}
         </button>
         <button
           onClick={() => { canvas?.fire('before:modified', { target: obj }); obj.set('flipY', !obj.flipY); canvas?.renderAll(); canvas?.fire('object:modified', { target: obj }); }}
           className="flex-1 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center gap-1"
           title={t('toolbar.flipVertical')}
         >
-          <FlipVertical2 className="h-3 w-3" /> Flip V
+          <FlipVertical2 className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.flipVerticalShort)}
         </button>
       </div>
 
@@ -276,7 +302,6 @@ function CommonPropertiesSection({
   );
 }
 
-// ─── Text Properties Section ────────────────────────
 function TextPropertiesSection({
   obj,
   canvas,
@@ -289,27 +314,26 @@ function TextPropertiesSection({
   propVersion: number;
 }) {
   const { t } = useT();
+
   return (
     <>
-      <SectionLabel label="Text" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.text)} />
       <div className="space-y-2">
-        {/* Font family */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-10 shrink-0">Font</label>
+          <label className="text-muted-foreground w-10 shrink-0">{t(PPT_PROPERTY_T_KEYS.font)}</label>
           <select
             value={obj.fontFamily || 'Inter, system-ui, sans-serif'}
             onChange={(e) => updateAndSave('fontFamily', e.target.value)}
             className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
           >
             {FONT_FAMILIES.map(f => (
-              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{t((f as any).labelKey || f.label)}</option>
             ))}
           </select>
         </div>
 
-        {/* Font size */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-10 shrink-0">Size</label>
+          <label className="text-muted-foreground w-10 shrink-0">{t(PPT_PROPERTY_T_KEYS.size)}</label>
           <input
             type="number"
             value={obj.fontSize || 24}
@@ -321,7 +345,6 @@ function TextPropertiesSection({
           <span className="text-muted-foreground">px</span>
         </div>
 
-        {/* Style toggles */}
         <div className="flex items-center gap-1">
           <ToggleBtn active={obj.fontWeight === 'bold'} onClick={() => updateAndSave('fontWeight', obj.fontWeight === 'bold' ? 'normal' : 'bold')} title={t('toolbar.bold')}>
             <Bold className="h-3.5 w-3.5" />
@@ -337,7 +360,6 @@ function TextPropertiesSection({
           </ToggleBtn>
         </div>
 
-        {/* Text align */}
         <div className="flex items-center gap-1">
           <ToggleBtn active={obj.textAlign === 'left'} onClick={() => updateAndSave('textAlign', 'left')} title={t('toolbar.alignLeft')}>
             <AlignLeft className="h-3.5 w-3.5" />
@@ -353,26 +375,22 @@ function TextPropertiesSection({
           </ToggleBtn>
         </div>
 
-        {/* Line height + char spacing */}
         <div className="grid grid-cols-2 gap-2">
           <PropInput label="LnH" value={Number((obj.lineHeight || 1.3).toFixed(1))} onChange={(v) => updateAndSave('lineHeight', v)} step={0.1} min={0.5} max={5} />
           <PropInput label="Spc" value={Math.round(obj.charSpacing || 0)} onChange={(v) => updateAndSave('charSpacing', v)} />
         </div>
 
-        {/* Fill color */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-10 shrink-0">Color</label>
+          <label className="text-muted-foreground w-10 shrink-0">{t(PPT_PROPERTY_T_KEYS.color)}</label>
           <ColorPicker color={obj.fill || '#333333'} onChange={(c) => updateAndSave('fill', c)} />
         </div>
 
-        {/* Padding */}
-        <PropInput label="Padding" value={obj.padding || 0} onChange={(v) => updateAndSave('padding', v)} min={0} max={100} />
+        <PropInput label={t(PPT_PROPERTY_T_KEYS.padding)} value={obj.padding || 0} onChange={(v) => updateAndSave('padding', v)} min={0} max={100} />
       </div>
     </>
   );
 }
 
-// ─── Shape Properties Section ───────────────────────
 function ShapePropertiesSection({
   obj,
   canvas,
@@ -384,23 +402,22 @@ function ShapePropertiesSection({
   updateAndSave: (prop: string, val: any) => void;
   propVersion: number;
 }) {
+  const { t } = useT();
   const fabricMod = getFabricModule();
   const objType = getObjType(obj);
   const [shadowEnabled, setShadowEnabled] = useState(!!obj.shadow);
 
   return (
     <>
-      <SectionLabel label="Shape" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.shape)} />
       <div className="space-y-2">
-        {/* Fill color */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Fill</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.fill)}</label>
           <ColorPicker color={obj.fill || '#e2e8f0'} onChange={(c) => updateAndSave('fill', c)} />
         </div>
 
-        {/* Stroke color */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Stroke</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.stroke)}</label>
           <ColorPicker
             color={obj.stroke || '#94a3b8'}
             onChange={(c) => {
@@ -410,12 +427,10 @@ function ShapePropertiesSection({
           />
         </div>
 
-        {/* Stroke width */}
         <PropInput label="Stroke W" value={obj.strokeWidth || 0} onChange={(v) => updateAndSave('strokeWidth', v)} min={0} max={20} />
 
-        {/* Stroke dash style */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Dash</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.dash)}</label>
           <select
             value={
               !obj.strokeDashArray ? 'solid'
@@ -429,13 +444,12 @@ function ShapePropertiesSection({
             }}
             className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
           >
-            <option value="solid">Solid</option>
-            <option value="dashed">Dashed</option>
-            <option value="dotted">Dotted</option>
+            <option value="solid">{t('toolbar.common.solidLine')}</option>
+            <option value="dashed">{t('toolbar.common.dashedLine')}</option>
+            <option value="dotted">{t('toolbar.common.dottedLine')}</option>
           </select>
         </div>
 
-        {/* Border radius (for rect) */}
         {objType === 'rect' && (
           <div className="grid grid-cols-2 gap-2">
             <PropInput label="rx" value={obj.rx || 0} onChange={(v) => { updateAndSave('rx', v); updateAndSave('ry', v); }} min={0} max={200} />
@@ -443,9 +457,8 @@ function ShapePropertiesSection({
           </div>
         )}
 
-        {/* Shadow */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Shadow</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.shadow)}</label>
           <button
             onClick={() => {
               canvas?.fire('before:modified', { target: obj });
@@ -469,13 +482,13 @@ function ShapePropertiesSection({
                 : 'border-border text-muted-foreground hover:text-foreground'
             )}
           >
-            {shadowEnabled ? 'On' : 'Off'}
+            {shadowEnabled ? t('common.yes') : t('common.no')}
           </button>
         </div>
         {shadowEnabled && obj.shadow && (
           <div className="space-y-2 pl-4">
             <div className="flex items-center gap-2">
-              <label className="text-muted-foreground w-10 shrink-0">Color</label>
+              <label className="text-muted-foreground w-10 shrink-0">{t(PPT_PROPERTY_T_KEYS.color)}</label>
               <ColorPicker
                 color={obj.shadow.color?.startsWith('rgba') ? '#000000' : (obj.shadow.color || '#000000')}
                 onChange={(c) => {
@@ -517,7 +530,6 @@ function ShapePropertiesSection({
   );
 }
 
-// ─── Image Properties Section ───────────────────────
 function ImagePropertiesSection({
   obj,
   canvas,
@@ -529,6 +541,7 @@ function ImagePropertiesSection({
   updateAndSave: (prop: string, val: any) => void;
   propVersion: number;
 }) {
+  const { t } = useT();
   const fabricMod = getFabricModule();
   const [borderRadius, setBorderRadius] = useState(
     obj.clipPath?.rx ? Math.round(obj.clipPath.rx * (obj.scaleX || 1)) : 0
@@ -610,14 +623,12 @@ function ImagePropertiesSection({
 
   return (
     <>
-      <SectionLabel label="Image" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.imageSection)} />
       <div className="space-y-2">
-        {/* Border radius */}
-        <PropInput label="Radius" value={borderRadius} onChange={(v) => applyBorderRadius(v)} min={0} max={200} />
+        <PropInput label={t(PPT_PROPERTY_T_KEYS.radius)} value={borderRadius} onChange={(v) => applyBorderRadius(v)} min={0} max={200} />
 
-        {/* Border/stroke */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Border</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.border)}</label>
           <ColorPicker
             color={obj.stroke || '#000000'}
             onChange={(c) => {
@@ -626,11 +637,10 @@ function ImagePropertiesSection({
             }}
           />
         </div>
-        <PropInput label="Border W" value={obj.strokeWidth || 0} onChange={(v) => updateAndSave('strokeWidth', v)} min={0} max={20} />
+        <PropInput label={t(PPT_PROPERTY_T_KEYS.borderWidthShort)} value={obj.strokeWidth || 0} onChange={(v) => updateAndSave('strokeWidth', v)} min={0} max={20} />
 
-        {/* Shadow */}
         <div className="flex items-center gap-2">
-          <label className="text-muted-foreground w-14 shrink-0">Shadow</label>
+          <label className="text-muted-foreground w-14 shrink-0">{t(PPT_PROPERTY_T_KEYS.shadow)}</label>
           <button
             onClick={() => {
               canvas?.fire('before:modified', { target: obj });
@@ -654,7 +664,7 @@ function ImagePropertiesSection({
                 : 'border-border text-muted-foreground hover:text-foreground'
             )}
           >
-            {shadowEnabled ? 'On' : 'Off'}
+            {shadowEnabled ? t('common.yes') : t('common.no')}
           </button>
         </div>
 
@@ -663,13 +673,13 @@ function ImagePropertiesSection({
             onClick={replaceImage}
             className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs flex items-center justify-center gap-1"
           >
-            <Replace className="h-3 w-3" /> Replace Image
+            <Replace className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.replaceImage)}
           </button>
           <button
             onClick={resetToDefault}
             className="w-full py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs flex items-center justify-center gap-1"
           >
-            <RotateCcw className="h-3 w-3" /> Reset to Default
+            <RotateCcw className="h-3 w-3" /> {t(PPT_PROPERTY_T_KEYS.resetToDefault)}
           </button>
         </div>
       </div>
@@ -677,32 +687,32 @@ function ImagePropertiesSection({
   );
 }
 
-// ─── Table Properties Section ────────────────────────
 function TablePropertiesSection({ obj, canvas, propVersion }: {
   obj: any;
   canvas: any;
   propVersion: number;
 }) {
+  const { t } = useT();
   const tJSON = obj.__tableJSON;
   const tableContent = tJSON?.content?.[0]?.content || [];
   const rows = tableContent.length || 3;
   const cols = tableContent[0]?.content?.length || 3;
+
   return (
     <>
-      <SectionLabel label="Table" />
+      <SectionLabel label={t(PPT_PROPERTY_T_KEYS.table)} />
       <div className="space-y-2 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <span>{rows} rows x {cols} columns</span>
+          <span>{t(PPT_PROPERTY_T_KEYS.tableDimensions, { rows, cols })}</span>
         </div>
         <p className="text-muted-foreground text-[10px]">
-          Click the table on canvas to edit. Use the toolbar to add/remove rows and columns, merge cells, and more.
+          {t(PPT_PROPERTY_T_KEYS.tableEditHint)}
         </p>
       </div>
     </>
   );
 }
 
-// ─── Main Property Panel ────────────────────────────
 export interface PropertyPanelProps {
   selectedObj: any;
   canvas: any;
@@ -758,7 +768,9 @@ export function PropertyPanel({
     <div className="w-[280px] border-l border-border flex flex-col shrink-0 bg-card overflow-y-auto">
       <div className="px-3 py-2 border-b border-border flex items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          {selectedObj ? `${objType || 'Object'} Properties` : 'Slide Properties'}
+          {selectedObj
+            ? t(PPT_PROPERTY_T_KEYS.objectPropertiesWithType, { type: objType || t(PPT_PROPERTY_T_KEYS.objectFallback) })
+            : t(PPT_PROPERTY_T_KEYS.slideProperties)}
         </span>
         <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title={t('toolbar.closePanel')}>
           <X className="h-3.5 w-3.5" />

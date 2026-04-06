@@ -395,6 +395,17 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
     onDeleted();
   };
 
+  const handleExport = useCallback(() => {
+    const blob = new Blob([doc.text], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `${title || 'document'}.md`; a.click();
+    URL.revokeObjectURL(url);
+  }, [doc.text, title]);
+
+  const handleCopyLink = useCallback(() => {
+    navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id }));
+  }, [doc.id]);
+
   const statusText = saveStatus === 'saving' ? t('content.saving') : saveStatus === 'unsaved' ? t('content.unsaved') : saveStatus === 'error' ? t('content.saveFailed') : '';
 
   const mobileReadOnly = isMobile && !mobileEditMode;

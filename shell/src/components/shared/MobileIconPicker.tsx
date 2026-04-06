@@ -53,7 +53,7 @@ export function MobileIconPicker({ onSelect, onRemove, onUploadImage, onClose }:
       const url = await onUploadImage(file);
       onSelect(url);
     } catch (err) {
-      showError('Custom icon upload failed', err);
+      showError(t('errors.customIconUploadFailed'), err);
     }
     setUploading(false);
     e.target.value = '';

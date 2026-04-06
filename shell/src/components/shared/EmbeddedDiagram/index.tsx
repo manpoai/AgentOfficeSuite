@@ -121,15 +121,15 @@ export function EmbeddedDiagram({
       )}
       style={{ width, height }}
       onDoubleClick={handleDoubleClick}
-      title={editable ? 'Double-click to edit diagram' : undefined}
+      title={editable ? t('diagram.doubleClickToEdit') : undefined}
     >
       {isEmpty ? (
         <div className="flex flex-col items-center justify-center h-full gap-2 bg-muted/20">
           <GitBranch className="w-8 h-8 text-muted-foreground/50" />
-          <span className="text-xs text-muted-foreground">Empty diagram</span>
+          <span className="text-xs text-muted-foreground">{t('diagram.emptyDiagram')}</span>
           {editable && (
             <span className="text-[10px] text-muted-foreground/60">
-              Double-click to edit
+              {t('diagram.doubleClickToEditShort')}
             </span>
           )}
         </div>
@@ -156,7 +156,7 @@ export function EmbeddedDiagram({
       {/* Bottom label */}
       <div className="absolute bottom-0 left-0 right-0 flex items-center gap-1.5 px-2 py-1 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
         <GitBranch className="w-3 h-3 text-white/70" />
-        <span className="text-[10px] text-white/70 font-medium">Diagram</span>
+        <span className="text-[10px] text-white/70 font-medium">{t('entities.flowchart')}</span>
       </div>
     </div>
   );

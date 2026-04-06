@@ -54,7 +54,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
       await gw.markAllNotificationsRead();
       invalidate();
     } catch (e) {
-      showError('Mark all notifications read failed', e);
+      showError(t('errors.markAllNotificationsReadFailed'), e);
     }
   }, [invalidate]);
 
@@ -69,7 +69,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
       }
       onClose();
     } catch (e) {
-      showError('Notification click handler failed', e);
+      showError(t('errors.notificationClickFailed'), e);
     }
   }, [router, onClose, invalidate]);
 

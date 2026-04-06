@@ -45,6 +45,7 @@ export type ShapeCategory = 'basic' | 'flowchart' | 'arrows' | 'callouts';
 export interface ShapeDef {
   type: ShapeType;
   label: string;
+  labelKey?: string;
   category: ShapeCategory;
   /** Default width in pixels */
   width: number;
@@ -65,6 +66,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'rect',
     label: 'Rectangle',
+    labelKey: 'shapes.rectangle',
     category: 'basic',
     width: 120, height: 60,
     iconPath: 'M3 5h18v14H3z',
@@ -73,6 +75,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'rounded-rect',
     label: 'Rounded Rectangle',
+    labelKey: 'shapes.roundedRectangle',
     category: 'basic',
     width: 120, height: 60,
     iconPath: 'M6 5h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z',
@@ -84,6 +87,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'circle',
     label: 'Circle',
+    labelKey: 'shapes.circle',
     category: 'basic',
     width: 70, height: 70,
     iconPath: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z',
@@ -96,6 +100,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'ellipse',
     label: 'Ellipse',
+    labelKey: 'shapes.ellipse',
     category: 'basic',
     width: 120, height: 70,
     iconPath: 'M12 6c5 0 9 2.7 9 6s-4 6-9 6-9-2.7-9-6 4-6 9-6z',
@@ -108,6 +113,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'triangle',
     label: 'Triangle',
+    labelKey: 'shapes.triangle',
     category: 'basic',
     width: 100, height: 80,
     iconPath: 'M12 4 22 20H2z',
@@ -116,6 +122,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'diamond',
     label: 'Diamond',
+    labelKey: 'shapes.diamond',
     category: 'basic',
     width: 100, height: 80,
     iconPath: 'M12 3 22 12 12 21 2 12z',
@@ -126,6 +133,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'parallelogram',
     label: 'Parallelogram',
+    labelKey: 'shapes.parallelogram',
     category: 'flowchart',
     width: 130, height: 60,
     iconPath: 'M6 5h15l-3 14H3z',
@@ -137,6 +145,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'trapezoid',
     label: 'Trapezoid',
+    labelKey: 'shapes.trapezoid',
     category: 'flowchart',
     width: 130, height: 60,
     iconPath: 'M6 5h12l3 14H3z',
@@ -148,6 +157,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'stadium',
     label: 'Stadium',
+    labelKey: 'shapes.stadium',
     category: 'flowchart',
     width: 130, height: 50,
     iconPath: 'M7 6h10a6 6 0 0 1 0 12H7a6 6 0 0 1 0-12z',
@@ -159,6 +169,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'hexagon',
     label: 'Hexagon',
+    labelKey: 'shapes.hexagon',
     category: 'flowchart',
     width: 110, height: 80,
     iconPath: 'M7 3h10l5 9-5 9H7l-5-9z',
@@ -170,6 +181,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'pentagon',
     label: 'Pentagon',
+    labelKey: 'shapes.pentagon',
     category: 'flowchart',
     width: 100, height: 80,
     iconPath: 'M12 3l9 7-3.5 10h-11L3 10z',
@@ -187,6 +199,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'octagon',
     label: 'Octagon',
+    labelKey: 'shapes.octagon',
     category: 'flowchart',
     width: 90, height: 90,
     iconPath: 'M8 3h8l5 5v8l-5 5H8l-5-5V8z',
@@ -198,6 +211,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'star',
     label: 'Star',
+    labelKey: 'shapes.star',
     category: 'flowchart',
     width: 90, height: 90,
     iconPath: 'M12 3l2.8 5.6 6.2.9-4.5 4.4 1.1 6.1L12 17.3 6.4 20l1.1-6.1L3 9.5l6.2-.9z',
@@ -217,6 +231,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'cross',
     label: 'Cross',
+    labelKey: 'shapes.cross',
     category: 'flowchart',
     width: 80, height: 80,
     iconPath: 'M9 3h6v6h6v6h-6v6H9v-6H3V9h6z',
@@ -228,6 +243,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'cloud',
     label: 'Cloud',
+    labelKey: 'shapes.cloud',
     category: 'flowchart',
     width: 130, height: 80,
     iconPath: 'M6 19a4 4 0 0 1-.5-7.97A7 7 0 0 1 12 5a7 7 0 0 1 6.5 6.03A4 4 0 0 1 18 19z',
@@ -237,6 +253,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'cylinder',
     label: 'Cylinder',
+    labelKey: 'shapes.cylinder',
     category: 'flowchart',
     width: 80, height: 100,
     iconPath: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3v10c0 1.7-3.6 3-8 3s-8-1.3-8-3z',
@@ -250,6 +267,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'arrow-right',
     label: 'Arrow Right',
+    labelKey: 'shapes.arrowRight',
     category: 'arrows',
     width: 130, height: 60,
     iconPath: 'M4 9h11V5l6 7-6 7v-4H4z',
@@ -262,6 +280,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'arrow-left',
     label: 'Arrow Left',
+    labelKey: 'shapes.arrowLeft',
     category: 'arrows',
     width: 130, height: 60,
     iconPath: 'M20 9H9V5L3 12l6 7v-4h11z',
@@ -274,6 +293,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'arrow-double',
     label: 'Double Arrow',
+    labelKey: 'shapes.doubleArrow',
     category: 'arrows',
     width: 130, height: 60,
     iconPath: 'M7 5l-5 7 5 7v-4h10v4l5-7-5-7v4H7z',
@@ -286,6 +306,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'chevron-right',
     label: 'Chevron Right',
+    labelKey: 'shapes.chevronRight',
     category: 'arrows',
     width: 120, height: 60,
     iconPath: 'M5 4h10l6 8-6 8H5l6-8z',
@@ -297,6 +318,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'chevron-left',
     label: 'Chevron Left',
+    labelKey: 'shapes.chevronLeft',
     category: 'arrows',
     width: 120, height: 60,
     iconPath: 'M19 4H9L3 12l6 8h10l-6-8z',
@@ -310,6 +332,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'callout',
     label: 'Callout',
+    labelKey: 'shapes.callout',
     category: 'callouts',
     width: 130, height: 80,
     iconPath: 'M4 4h16v12H13l-3 4v-4H4z',
@@ -323,6 +346,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'brace-left',
     label: 'Left Brace',
+    labelKey: 'shapes.leftBrace',
     category: 'callouts',
     width: 40, height: 100,
     iconPath: 'M12 3c-3 0-3 3-3 4.5S4 9 4 12s2 3.5 5 4.5 3 4.5 3 4.5',
@@ -334,6 +358,7 @@ export const SHAPES: ShapeDef[] = [
   {
     type: 'brace-right',
     label: 'Right Brace',
+    labelKey: 'shapes.rightBrace',
     category: 'callouts',
     width: 40, height: 100,
     iconPath: 'M12 3c3 0 3 3 3 4.5s5 1.5 5 4.5-2 3.5-5 4.5-3 4.5-3 4.5',
@@ -360,11 +385,11 @@ export function getShapesByCategory(category: ShapeCategory): ShapeDef[] {
 }
 
 /** Category labels for UI */
-export const CATEGORY_LABELS: Record<ShapeCategory, string> = {
-  basic: 'Basic',
-  flowchart: 'Flowchart',
-  arrows: 'Arrows',
-  callouts: 'Callouts',
+export const CATEGORY_LABELS: Record<ShapeCategory, { label: string; labelKey: string }> = {
+  basic: { label: 'Basic', labelKey: 'shapes.categories.basic' },
+  flowchart: { label: 'Flowchart', labelKey: 'shapes.categories.flowchart' },
+  arrows: { label: 'Arrows', labelKey: 'shapes.categories.arrows' },
+  callouts: { label: 'Callouts', labelKey: 'shapes.categories.callouts' },
 };
 
 /** All categories in display order */

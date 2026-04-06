@@ -49,7 +49,7 @@ export function MobileCommentBar({
       } as Comment,
     ],
     onSuccess: () => setText(''),
-    errorMessage: 'Failed to post comment',
+    errorMessage: t('errors.postCommentFailed'),
   });
 
   const handleSubmit = () => {

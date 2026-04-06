@@ -50,7 +50,7 @@ import type { ShortcutRegistration } from '@/lib/keyboard';
 import {
   type SlideData,
   SLIDE_WIDTH, SLIDE_HEIGHT, DEFAULT_SLIDE,
-  fitCanvasToContainer, getObjType, formatRelativeTime,
+  fitCanvasToContainer, getObjType, formatRelativeTime, FONT_FAMILIES,
 } from './types';
 import { SlidePanel } from './SlidePanel';
 import { SlideCanvas } from './SlideCanvas';
@@ -290,7 +290,7 @@ export function PresentationEditor({
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       gw.savePresentation(presentationId, { slides: updatedSlides }).catch((err) => {
-        showError('Presentation auto-save failed', err);
+        showError(t('errors.presentationAutoSaveFailed'), err);
       });
       // Auto-create revision every 5 minutes
       const now = Date.now();
@@ -1314,7 +1314,7 @@ export function PresentationEditor({
       };
       imgEl.src = url;
     } catch (err) {
-      showError('Failed to insert diagram', err);
+      showError(t('errors.insertDiagramFailed'), err);
     }
   }, [fabricModule]);
 
@@ -1366,7 +1366,7 @@ export function PresentationEditor({
           URL.revokeObjectURL(url);
         }
       } catch (err) {
-        showError('Failed to refresh diagram preview', err);
+        showError(t('errors.refreshDiagramPreviewFailed'), err);
       }
     };
     window.addEventListener('diagram-updated', handler);
@@ -1479,7 +1479,7 @@ export function PresentationEditor({
   if (isLoading || !ready) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-sm">{t('common.loading') || 'Loading...'}</div>
+        <div className="text-sm">{t('common.loading')}</div>
       </div>
     );
   }
@@ -1487,7 +1487,7 @@ export function PresentationEditor({
   if (!presentation) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-sm">Presentation not found</div>
+        <div className="text-sm">{t('content.presentationNotFound')}</div>
       </div>
     );
   }
@@ -1509,8 +1509,8 @@ export function PresentationEditor({
             onBack={onBack}
             docListVisible={docListVisible}
             onToggleDocList={onToggleDocList}
-            title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
-            titlePlaceholder={t('content.untitledPresentation') || 'Untitled Presentation'}
+            title={currentTitle || t('content.untitledPresentation')}
+            titlePlaceholder={t('content.untitledPresentation')}
             onTitleChange={async (newTitle) => {
               if (newTitle !== currentTitle) {
                 await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
@@ -1609,8 +1609,8 @@ export function PresentationEditor({
           onBack={isMobileView && mobileEditMode ? () => setMobileEditMode(false) : onBack}
           docListVisible={docListVisible}
           onToggleDocList={onToggleDocList}
-          title={currentTitle || t('content.untitledPresentation') || 'Untitled Presentation'}
-          titlePlaceholder={t('content.untitledPresentation') || 'Untitled Presentation'}
+          title={currentTitle || t('content.untitledPresentation')}
+          titlePlaceholder={t('content.untitledPresentation')}
           onTitleChange={async (newTitle) => {
             if (newTitle !== currentTitle) {
               await gw.updateContentItem(`presentation:${presentationId}`, { title: newTitle });
@@ -1656,7 +1656,7 @@ export function PresentationEditor({
             buildFixedTopBarActionItems(t, {
               id: presentationId,
               type: 'slides',
-              title: presentation?.title || 'Presentation',
+              title: presentation?.title || t('content.presentation'),
               pinned: false,
               url: typeof window !== 'undefined' ? window.location.href : '',
               startRename: () => {},
@@ -1810,21 +1810,6 @@ export function PresentationEditor({
   );
 }
 
-const FONT_FAMILIES = [
-  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { label: 'Georgia', value: 'Georgia, serif' },
-  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
-  { label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
-  { label: '思源黑体', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
-  { label: '思源宋体', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
-  { label: '微软雅黑', value: '"Microsoft YaHei", sans-serif' },
-  { label: '苹果苹方', value: '"PingFang SC", sans-serif' },
-];
-
 // ─── Property Panel ─────────────────────────────────
 function PropertyPanel({
   selectedObj,
@@ -1880,7 +1865,7 @@ function PropertyPanel({
     <div className="w-[280px] border-l border-border flex flex-col shrink-0 bg-card overflow-y-auto">
       <div className="px-3 py-2 border-b border-border flex items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-          {selectedObj ? `${objType || 'Object'} Properties` : 'Slide Properties'}
+          {selectedObj ? t('ppt.properties.objectPropertiesWithType', { type: objType || t('ppt.properties.objectFallback') }) : t('ppt.properties.slideProperties')}
         </span>
         <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground transition-colors" title={t('toolbar.closePanel')}>
           <X className="h-3.5 w-3.5" />
@@ -2154,7 +2139,7 @@ function TextPropertiesSection({
             className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
           >
             {FONT_FAMILIES.map(f => (
-              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
+              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{t((f as any).labelKey || f.label)}</option>
             ))}
           </select>
         </div>

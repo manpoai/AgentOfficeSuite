@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Graph } from '@antv/x6';
 import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
@@ -44,7 +45,7 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
         gw.createContentRevision(`diagram:${diagramId}`, diagramData).catch(() => {});
       }
     } catch (e) {
-      showError('Auto-save failed', e);
+      showError(getT()('errors.autoSaveFailed'), e);
     } finally {
       setSaving(false);
     }

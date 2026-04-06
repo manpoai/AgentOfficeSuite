@@ -18,6 +18,7 @@ import { FileText, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { getContentItem, type ContentItem } from '@/lib/api/gateway';
+import { useT } from '@/lib/i18n';
 import { TYPE_ICONS, TYPE_LABELS } from './constants';
 
 export interface ContentLinkProps {
@@ -38,6 +39,7 @@ export function ContentLink({
   inline = false,
   showPreview = true,
 }: ContentLinkProps) {
+  const { t } = useT();
   const router = useRouter();
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [hovered, setHovered] = useState(false);
@@ -112,7 +114,7 @@ export function ContentLink({
                 <TypeIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
               )}
               <span className="truncate">
-                {isError ? contentId : (item?.title || 'Untitled')}
+                {isError ? contentId : (item?.title || t('content.untitled'))}
               </span>
             </>
           )}
@@ -150,7 +152,7 @@ export function ContentLink({
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">
-                {isError ? contentId : (item?.title || 'Untitled')}
+                {isError ? contentId : (item?.title || t('content.untitled'))}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="capitalize">{type}</span>
@@ -223,7 +225,7 @@ function PreviewCard({
           <TypeIcon className="w-4 h-4 text-muted-foreground" />
         )}
         <span className="text-sm font-medium truncate flex-1">
-          {item.title || 'Untitled'}
+          {item.title || t('content.untitled')}
         </span>
       </div>
       {/* Preview snippet: rendered when ContentItem includes a snippet field */}

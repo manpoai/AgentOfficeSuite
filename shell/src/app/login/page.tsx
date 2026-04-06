@@ -27,7 +27,7 @@ export default function LoginPage() {
       await login(username, password);
       router.push('/content');
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || t('errors.loginFailed'));
     } finally {
       setLoading(false);
     }

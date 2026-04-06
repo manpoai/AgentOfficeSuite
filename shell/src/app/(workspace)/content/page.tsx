@@ -95,6 +95,15 @@ interface TreeState {
 
 const TREE_STATE_KEY = 'asuite-content-tree';
 const EXPANDED_STATE_KEY = 'asuite-content-expanded';
+const SIDEBAR_WIDTH_KEY = 'asuite-sidebar-width';
+const DEFAULT_SIDEBAR_WIDTH = 232;
+const MIN_SIDEBAR_WIDTH = 200;
+const MAX_SIDEBAR_WIDTH = 480;
+
+function clampSidebarWidth(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH;
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, value));
+}
 
 function loadTreeState(): TreeState {
   try {
@@ -206,9 +215,16 @@ export default function ContentPage() {
   const [deleteDialog, setDeleteDialog] = useState<{ nodeId: string; hasChildren: boolean } | null>(null);
   const [docListVisible, setDocListVisible] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const [hydrated, setHydrated] = useState(false);
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleSidebarWidthChange = useCallback((width: number) => {
+    const next = clampSidebarWidth(width);
+    setSidebarWidth(next);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
+  }, []);
 
   // Unread notification count for MobileNav badge
   const { data: mobileUnreadCount = 0 } = useQuery({
@@ -233,6 +249,10 @@ export default function ContentPage() {
     setTreeState(loadTreeState());
     const savedCollapsed = localStorage.getItem('asuite-sidebar-collapsed');
     if (savedCollapsed === 'true') setSidebarCollapsed(true);
+    const savedSidebarWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (savedSidebarWidth !== null) {
+      setSidebarWidth(clampSidebarWidth(Number(savedSidebarWidth)));
+    }
     setHydrated(true);
 
     // Listen for popstate events (SPA navigation from ContentLink clicks)
@@ -322,7 +342,7 @@ export default function ContentPage() {
         id: item.id,
         rawId: item.raw_id,
         type: item.type as 'doc' | 'table' | 'presentation' | 'diagram',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? (t('content.untitledDiagram') || 'Untitled Diagram') : (t('content.untitledPresentation') || 'Untitled Presentation')),
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : t('content.untitledPresentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
@@ -942,6 +962,8 @@ export default function ContentPage() {
       <ContentSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={toggleSidebarCollapse}
+        width={sidebarWidth}
+        onWidthChange={handleSidebarWidthChange}
         visible={docListVisible && mobileView === 'list' || docListVisible}
         sidebarView={sidebarView}
         onSidebarViewChange={setSidebarView}
@@ -1004,7 +1026,7 @@ export default function ContentPage() {
                       onClick={() => setPinnedCollapsed(v => !v)}
                       className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
                     >
-                      Pinned
+                      {t('content.pinned')}
                       <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', pinnedCollapsed && '-rotate-90')} />
                     </button>
                     {!pinnedCollapsed && pinnedIds.map(nodeId => (
@@ -1034,7 +1056,7 @@ export default function ContentPage() {
                     onClick={() => setLibraryCollapsed(v => !v)}
                     className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
                   >
-                    Library
+                    {t('content.library')}
                     <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', libraryCollapsed && '-rotate-90')} />
                   </button>
                 )}
@@ -1103,7 +1125,7 @@ export default function ContentPage() {
               if (entries.length === 0) {
                 return (
                   <p className="p-3 text-xs text-muted-foreground text-center">
-                    {t('content.trashEmpty') || 'Trash is empty'}
+                    {t('content.trashEmpty')}
                   </p>
                 );
               }
@@ -1125,7 +1147,7 @@ export default function ContentPage() {
                     } catch (err) { showError(t('errors.restoreFailed'), err); }
                   }}
                   onPermanentDelete={async () => {
-                    const msg = t('content.permanentDeleteConfirm') || 'Permanently delete? This cannot be undone.';
+                    const msg = t('content.permanentDeleteConfirm');
                     if (!confirm(msg)) return;
                     try {
                       await gw.permanentlyDeleteContentItem(entry.nodeId);
@@ -1177,7 +1199,7 @@ export default function ContentPage() {
                   {pinnedIds.length > 0 && (
                     <>
                       <button onClick={() => setPinnedCollapsed(v => !v)} className="px-2 pt-3 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
-                        Pinned <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', pinnedCollapsed && '-rotate-90')} />
+                        {t('content.pinned')} <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', pinnedCollapsed && '-rotate-90')} />
                       </button>
                       {!pinnedCollapsed && pinnedIds.map(nodeId => (
                         <TreeNodeRecursive key={nodeId} nodeId={nodeId} nodes={effectiveNodes} childrenMap={childrenMap} selection={selection} expandedIds={expandedIds} onSelect={handleSelect} onToggle={toggleExpand} onCreateDoc={handleCreateDoc} onCreateTable={handleCreateTable} onCreatePresentation={handleCreatePresentation} onCreateDiagram={handleCreateDiagram} onRequestDelete={requestDelete} onTogglePin={handleTogglePin} depth={0} creating={creating} dropIntent={dropIntent} dragActiveId={dragActiveId} />
@@ -1187,7 +1209,7 @@ export default function ContentPage() {
                   )}
                   {pinnedIds.length > 0 && unpinnedIds.length > 0 && (
                     <button onClick={() => setLibraryCollapsed(v => !v)} className="px-2 pt-1 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
-                      Library <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', libraryCollapsed && '-rotate-90')} />
+                      {t('content.library')} <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', libraryCollapsed && '-rotate-90')} />
                     </button>
                   )}
                   {!libraryCollapsed && unpinnedIds.map(nodeId => (
@@ -1370,24 +1392,24 @@ export default function ContentPage() {
         <>
           <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setDeleteDialog(null)} />
           <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card border border-border rounded-xl shadow-2xl p-5 w-[340px]">
-            <h3 className="text-sm font-medium mb-3">{t('content.deleteDocWithChildren') || 'This document has sub-documents'}</h3>
+            <h3 className="text-sm font-medium mb-3">{t('content.deleteDocWithChildren')}</h3>
             <div className="space-y-2">
               <button
                 onClick={() => { executeDelete(deleteDialog.nodeId, 'only'); }}
                 className="w-full text-left px-3 py-2.5 text-sm rounded-lg border border-border hover:bg-accent transition-colors"
               >
-                <div className="font-medium">{t('content.deleteOnly') || 'Delete this document only'}</div>
+                <div className="font-medium">{t('content.deleteOnly')}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {t('content.deleteOnlyDesc') || 'Sub-documents will be moved up one level'}
+                  {t('content.deleteOnlyDesc')}
                 </div>
               </button>
               <button
                 onClick={() => { executeDelete(deleteDialog.nodeId, 'all'); }}
                 className="w-full text-left px-3 py-2.5 text-sm rounded-lg border border-destructive/30 hover:bg-destructive/5 text-destructive transition-colors"
               >
-                <div className="font-medium">{t('content.deleteAll') || 'Delete with all sub-documents'}</div>
+                <div className="font-medium">{t('content.deleteAll')}</div>
                 <div className="text-xs text-destructive/70 mt-0.5">
-                  {t('content.deleteAllDesc') || 'All sub-documents will also be moved to trash'}
+                  {t('content.deleteAllDesc')}
                 </div>
               </button>
             </div>
@@ -1395,7 +1417,7 @@ export default function ContentPage() {
               onClick={() => setDeleteDialog(null)}
               className="w-full mt-3 px-3 py-2 text-sm text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent transition-colors"
             >
-              {t('common.cancel') || 'Cancel'}
+              {t('common.cancel')}
             </button>
           </div>
         </>
@@ -1488,7 +1510,7 @@ export default function ContentPage() {
                   disabled={mobileSavingProfile}
                 />
               ) : (
-                <span className="text-base font-medium text-foreground truncate flex-1">{actor?.display_name || actor?.username || 'User'}</span>
+                <span className="text-base font-medium text-foreground truncate flex-1">{actor?.display_name || actor?.username || t('common.user')}</span>
               )}
               <button
                 onClick={() => {
@@ -2021,7 +2043,7 @@ function TrashItem({ title, icon, deletedAt, onRestore, onPermanentDelete }: {
     )}>
       {icon}
       <div className="flex-1 min-w-0">
-        <span className="truncate block select-none">{title || 'Untitled'}</span>
+        <span className="truncate block select-none">{title || t('content.untitled')}</span>
         {deletedDate && (
           <span className="text-[10px] text-muted-foreground/60">{deletedDate}</span>
         )}

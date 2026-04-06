@@ -7,13 +7,14 @@ import type { EditorView, NodeView } from 'prosemirror-view';
 import DOMPurify from 'dompurify';
 import { renderCellsToSVG, escapeXml } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
 import { gwAuthHeaders } from '@/lib/api/gateway';
+import { getT } from '@/lib/i18n';
 
 export const diagramEmbedNodeSpec: NodeSpec = {
   group: 'block',
   atom: true,
   attrs: {
     diagramId: { default: '' },
-    title: { default: 'Untitled Diagram' },
+    title: { default: 'diagram.untitledDiagram' },
   },
   parseDOM: [{
     tag: 'div.diagram-embed-node',
@@ -21,7 +22,7 @@ export const diagramEmbedNodeSpec: NodeSpec = {
       const el = dom as HTMLElement;
       return {
         diagramId: el.getAttribute('data-diagram-id') || '',
-        title: el.getAttribute('data-title') || 'Untitled Diagram',
+        title: el.getAttribute('data-title') || 'diagram.untitledDiagram',
       };
     },
   }],
@@ -30,7 +31,7 @@ export const diagramEmbedNodeSpec: NodeSpec = {
       class: 'diagram-embed-node',
       'data-diagram-id': node.attrs.diagramId,
       'data-title': node.attrs.title,
-    }, node.attrs.title || 'Diagram'];
+    }, node.attrs.title || 'diagram.diagram'];
   },
 };
 
@@ -53,11 +54,13 @@ export class DiagramEmbedView implements NodeView {
       transition: border-color 0.15s, box-shadow 0.15s;
     `;
 
+    const t = getT();
+
     // SVG container
     const svgContainer = document.createElement('div');
     svgContainer.className = 'diagram-embed-preview';
     svgContainer.style.cssText = 'padding: 16px; min-height: 160px; display: flex; align-items: center; justify-content: center;';
-    svgContainer.innerHTML = '<span style="color: hsl(var(--muted-foreground)); font-size: 13px;">Loading diagram...</span>';
+    svgContainer.innerHTML = `<span style="color: hsl(var(--muted-foreground)); font-size: 13px;">${t('diagram.loadingDiagram')}</span>`;
     this.dom.appendChild(svgContainer);
 
     // Hover overlay
@@ -67,7 +70,7 @@ export class DiagramEmbedView implements NodeView {
       background: rgba(0,0,0,0.04); opacity: 0; transition: opacity 0.15s;
       pointer-events: none; border-radius: 8px;
     `;
-    overlay.innerHTML = '<span style="padding: 6px 14px; background: hsl(var(--primary, 142 71% 45%)); color: white; border-radius: 6px; font-size: 13px; font-weight: 500;">Click to edit</span>';
+    overlay.innerHTML = `<span style="padding: 6px 14px; background: hsl(var(--primary, 142 71% 45%)); color: white; border-radius: 6px; font-size: 13px; font-weight: 500;">${t('diagram.clickToEdit')}</span>`;
     this.dom.appendChild(overlay);
 
     this.dom.addEventListener('mouseenter', () => {
@@ -131,7 +134,7 @@ export class DiagramEmbedView implements NodeView {
         svg.style.maxHeight = '300px';
       }
     } catch {
-      container.innerHTML = '<span style="color: hsl(var(--destructive, 0 72% 51%)); font-size: 13px;">Failed to load diagram</span>';
+      container.innerHTML = `<span style="color: hsl(var(--destructive, 0 72% 51%)); font-size: 13px;">${getT()('diagram.failedToLoadDiagram')}</span>`;
     }
     this.loading = false;
   }

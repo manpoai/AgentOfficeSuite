@@ -113,7 +113,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
 
         const doc = parseMarkdown(defaultValue || '');
         if (!doc) {
-          setError('Failed to parse document content');
+          setError(getT()('errors.parseDocumentFailed'));
           return;
         }
 
@@ -294,7 +294,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
         }
       } catch (e: any) {
         showError(getT()('editor.initFailed'), e);
-        setError(e.message || 'Editor initialization failed');
+        setError(e.message || getT()('editor.initFailed'));
       }
     })();
 
@@ -330,7 +330,7 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
   if (error) {
     return (
       <div className={`outline-editor ${className || ''}`}>
-        <div className="p-4 text-sm text-destructive">Editor error: {error}</div>
+        <div className="p-4 text-sm text-destructive">{getT()('editor.error')}: {error}</div>
       </div>
     );
   }
@@ -365,13 +365,13 @@ function EditorInner({ defaultValue, onChange, readOnly = false, autoFocus = fal
       const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
       const node = schema.nodes.diagram_embed.create({
         diagramId: rawId,
-        title: item.title || 'Untitled Diagram',
+        title: item.title || getT()('diagram.untitledDiagram'),
       });
       const { from, to } = view.state.selection;
       view.dispatch(view.state.tr.replaceWith(from, to, node).scrollIntoView());
       view.focus();
     } catch (err) {
-      showError('Failed to insert diagram embed', err);
+      showError(getT()('editor.insertDiagramEmbedFailed'), err);
     }
   }, []);
 

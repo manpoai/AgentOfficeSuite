@@ -59,12 +59,12 @@ export function DiagramPicker({ onSelect, onCancel, embedded }: DiagramPickerPro
     try {
       const item = await createContentItem({
         type: 'diagram',
-        title: query || 'Untitled Diagram',
+        title: query || t('content.untitledDiagram'),
         embedded,
       });
       onSelect(item.id, item);
     } catch (err) {
-      showError('Failed to create diagram', err);
+      showError(t('errors.createDiagramFailed'), err);
     } finally {
       setCreating(false);
     }
@@ -128,7 +128,7 @@ export function DiagramPicker({ onSelect, onCancel, embedded }: DiagramPickerPro
       <div className="max-h-64 overflow-y-auto">
         {diagrams.length === 0 && (
           <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-            {query ? 'No diagrams match your search' : 'No diagrams yet'}
+            {query ? t('diagram.noMatchingDiagrams') : t('diagram.noDiagramsYet')}
           </div>
         )}
         {diagrams.map((item, i) => (
@@ -140,7 +140,7 @@ export function DiagramPicker({ onSelect, onCancel, embedded }: DiagramPickerPro
             }`}
           >
             <span className="shrink-0">🔀</span>
-            <span className="flex-1 truncate">{item.title || 'Untitled Diagram'}</span>
+            <span className="flex-1 truncate">{item.title || t('content.untitledDiagram')}</span>
             {item.updated_at && (
               <span className="text-xs text-muted-foreground shrink-0">{formatTime(item.updated_at)}</span>
             )}

@@ -27,7 +27,13 @@ function getNestedValue(obj: any, path: string, returnObjects = false): any {
     val = val[k];
   }
   if (returnObjects && (Array.isArray(val) || (typeof val === 'object' && val !== null))) return val;
-  return typeof val === 'string' ? val : path;
+  if (typeof val !== 'string') {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[i18n] Missing key: "${path}"`);
+    }
+    return path;
+  }
+  return val;
 }
 
 interface I18nContextType {
@@ -65,7 +71,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (k === 'returnObjects') return;
-        str = str.replace(`{${k}}`, String(v));
+        str = str.replaceAll(`{${k}}`, String(v));
       });
     }
     return str;
@@ -96,7 +102,7 @@ export function getT(): (key: string, params?: Record<string, string | number>) 
     let str = getNestedValue(LOCALES[locale], key);
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        str = str.replace(`{${k}}`, String(v));
+        str = str.replaceAll(`{${k}}`, String(v));
       });
     }
     return str;

@@ -41,7 +41,7 @@ export function getX6ShapeOptions() {
     if (!groups[shape.category]) groups[shape.category] = [];
     groups[shape.category].push({
       type: shape.type,
-      label: shape.label,
+      label: shape.labelKey || shape.label,
       iconPath: shape.iconPath,
     });
   });

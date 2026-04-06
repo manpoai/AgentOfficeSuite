@@ -118,13 +118,14 @@ export function getDocsImageItems(): ToolbarItem[] {
 
 function getFontFamilies(t: ReturnType<typeof getT>) {
   return [
-    { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
-    { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
-    { value: 'Georgia, serif', label: 'Georgia' },
-    { value: '"Times New Roman", Times, serif', label: 'Times New Roman' },
-    { value: '"Courier New", Courier, monospace', label: 'Courier New' },
-    { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
-    { value: '"Trebuchet MS", sans-serif', label: 'Trebuchet MS' },
+    { value: 'Inter, system-ui, sans-serif', label: t('toolbar.fonts.inter') },
+    { value: 'Arial, Helvetica, sans-serif', label: t('toolbar.fonts.arial') },
+    { value: 'Georgia, serif', label: t('toolbar.fonts.georgia') },
+    { value: '"Times New Roman", Times, serif', label: t('toolbar.fonts.timesNewRoman') },
+    { value: '"Courier New", Courier, monospace', label: t('toolbar.fonts.courierNew') },
+    { value: 'Verdana, Geneva, sans-serif', label: t('toolbar.fonts.verdana') },
+    { value: '"Trebuchet MS", sans-serif', label: t('toolbar.fonts.trebuchetMs') },
+    { value: '"Comic Sans MS", cursive', label: t('toolbar.fonts.comicSansMs') },
     { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: t('toolbar.fonts.notoSansSC') },
     { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: t('toolbar.fonts.notoSerifSC') },
     { value: '"Microsoft YaHei", sans-serif', label: t('toolbar.fonts.microsoftYaHei') },

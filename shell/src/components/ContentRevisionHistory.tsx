@@ -48,7 +48,7 @@ export default function ContentRevisionHistory({ contentId, onClose, onRestored 
       await onRestored(result.data);
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Restore failed');
+      setError(err instanceof Error ? err.message : t('errors.restoreFailed'));
       setRestoring(false);
     }
   }, [selectedId, contentId, onRestored, onClose]);
@@ -69,12 +69,12 @@ export default function ContentRevisionHistory({ contentId, onClose, onRestored 
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Clock size={14} />
-          {t('content.versionHistory') || 'Version History'}
+          {t('content.versionHistory')}
         </div>
         <button
           onClick={onClose}
           className="rounded-md p-1 hover:bg-accent"
-          title={t('common.close') || 'Close'}
+          title={t('common.close')}
         >
           <X size={14} />
         </button>
@@ -84,7 +84,7 @@ export default function ContentRevisionHistory({ contentId, onClose, onRestored 
       <div className="overflow-y-auto flex-1">
         {loading && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('content.loading') || 'Loading...'}
+            {t('content.loading')}
           </div>
         )}
         {error && (
@@ -92,7 +92,7 @@ export default function ContentRevisionHistory({ contentId, onClose, onRestored 
         )}
         {!loading && revisions.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            {t('content.noRevisions') || 'No previous versions'}
+            {t('content.noRevisions')}
           </div>
         )}
         {revisions.map((rev) => (
@@ -127,8 +127,8 @@ export default function ContentRevisionHistory({ contentId, onClose, onRestored 
           >
             <RotateCcw size={14} />
             {restoring
-              ? (t('content.restoring') || 'Restoring...')
-              : (t('content.restoreVersion') || 'Restore this version')}
+              ? t('content.restoring')
+              : t('content.restoreVersion')}
           </button>
         </div>
       )}

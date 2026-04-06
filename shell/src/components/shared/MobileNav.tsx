@@ -58,7 +58,7 @@ export function MobileNav({
             {userName?.[0]?.toUpperCase() || '?'}
           </div>
         )}
-        <span className="text-base font-normal text-foreground">{userName || 'User'}</span>
+        <span className="text-base font-normal text-foreground">{userName || t('common.user')}</span>
       </button>
 
       {/* Right: Action buttons */}
