@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as docApi from '@/lib/api/documents';
 import type { Document as DocType } from '@/lib/api/documents';
 import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, GitBranch, Pencil } from 'lucide-react';
+import { CREATE_CONTENT_ITEMS } from '@/actions/create-content.actions';
 import { ENTITY_NAMES, CREATABLE_TYPES } from '@/actions/entity-names';
 import { SwipeBack } from '@/components/shared/SwipeBack';
 import { ContentSidebar } from '@/components/ContentSidebar';
@@ -1232,38 +1233,27 @@ export default function ContentPage() {
           {/* FAB menu — BottomSheet */}
           <BottomSheet open={showMobileFabMenu} onClose={() => setShowMobileFabMenu(false)} title={t('common.new')}>
             <div className="py-2">
-              <button
-                onClick={() => { setShowMobileFabMenu(false); handleCreateDoc(); }}
-                disabled={creating}
-                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
-              >
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                {t('actions.newDoc')}
-              </button>
-              <button
-                onClick={() => { setShowMobileFabMenu(false); handleCreateTable(); }}
-                disabled={creating}
-                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
-              >
-                <Table2 className="h-5 w-5 text-muted-foreground" />
-                {t('actions.newTable')}
-              </button>
-              <button
-                onClick={() => { setShowMobileFabMenu(false); handleCreatePresentation(); }}
-                disabled={creating}
-                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
-              >
-                <Presentation className="h-5 w-5 text-muted-foreground" />
-                {t('actions.newSlides')}
-              </button>
-              <button
-                onClick={() => { setShowMobileFabMenu(false); handleCreateDiagram(); }}
-                disabled={creating}
-                className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
-              >
-                <GitBranch className="h-5 w-5 text-muted-foreground" />
-                {t('actions.newFlowchart')}
-              </button>
+              {CREATE_CONTENT_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const onClick = () => {
+                  setShowMobileFabMenu(false);
+                  if (item.type === 'doc') handleCreateDoc();
+                  else if (item.type === 'table') handleCreateTable();
+                  else if (item.type === 'presentation') handleCreatePresentation();
+                  else handleCreateDiagram();
+                };
+                return (
+                  <button
+                    key={item.type}
+                    onClick={onClick}
+                    disabled={creating}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-base text-foreground active:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    <Icon className="h-5 w-5 text-muted-foreground" />
+                    {item.label(t)}
+                  </button>
+                );
+              })}
             </div>
           </BottomSheet>
         </div>
@@ -1918,38 +1908,20 @@ function DraggableTreeNode({
               <>
                 <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); }} />
                 <div ref={addMenuRef} className="fixed z-50 bg-card border border-border rounded-lg shadow-lg py-1 w-36 overflow-y-auto" style={getMenuPos(addBtnRef, addMenuRef, 144)}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('doc'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('actions.newDoc')}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('table'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('actions.newTable')}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('presentation'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <Presentation className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('actions.newSlides')}
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild('diagram'); }}
-                    disabled={creating}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                    {t('actions.newFlowchart')}
-                  </button>
+                  {CREATE_CONTENT_ITEMS.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.type}
+                        onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); onCreateChild(item.type); }}
+                        disabled={creating}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                      >
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        {item.label(t)}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}
