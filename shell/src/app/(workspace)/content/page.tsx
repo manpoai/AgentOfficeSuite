@@ -11,6 +11,7 @@ import { SwipeBack } from '@/components/shared/SwipeBack';
 import { ContentSidebar } from '@/components/ContentSidebar';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { MobileIconPicker } from '@/components/shared/MobileIconPicker';
+import { ContentMenuList } from '@/components/shared/ContentMenuList';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { formatRelativeTime, formatDate } from '@/lib/utils/time';
@@ -1939,18 +1940,13 @@ function DraggableTreeNode({
               <>
                 <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setShowMoreMenu(false); }} />
                 <div ref={moreMenuRef} className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-white/10 rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-[172px] overflow-y-auto" style={getMenuPos(moreBtnRef, moreMenuRef, 172)}>
-                  {toContentMenuItems(contentItemSurfaces.topBarMore, contentActionMap, buildContentItemCtx(), t, isMobile).map((item, i) => (
-                    <React.Fragment key={i}>
-                      {item.separator && <div className="border-t border-black/10 dark:border-white/10 my-0.5" />}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowMoreMenu(false); item.onClick(); }}
-                        className={`w-full flex items-center gap-3 px-4 h-10 text-sm font-medium hover:bg-black/[0.04] dark:hover:bg-accent transition-colors ${item.danger ? 'text-destructive' : 'text-black/70 dark:text-white/70'}`}
-                      >
-                        {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
-                        {item.label}
-                      </button>
-                    </React.Fragment>
-                  ))}
+                  <ContentMenuList
+                    items={toContentMenuItems(contentItemSurfaces.topBarMore, contentActionMap, buildContentItemCtx(), t, isMobile)}
+                    onItemClick={(item) => {
+                      setShowMoreMenu(false);
+                      item.onClick();
+                    }}
+                  />
                 </div>
               </>
             )}
