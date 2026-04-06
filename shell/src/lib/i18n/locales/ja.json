@@ -144,7 +144,9 @@
     "daysAgo": "日前",
     "viewerInsights": "閲覧者のインサイトを有効化",
     "enableEmbeds": "埋め込みを有効化",
-    "fullWidth": "全幅"
+    "fullWidth": "全幅",
+    "lastModified": "最終更新",
+    "by": "作成者"
   },
   "contacts": {
     "title": "Agent管理",

@@ -144,7 +144,9 @@
     "daysAgo": "일 전",
     "viewerInsights": "뷰어 인사이트 활성화",
     "enableEmbeds": "임베드 활성화",
-    "fullWidth": "전체 너비"
+    "fullWidth": "전체 너비",
+    "lastModified": "마지막 수정",
+    "by": "작성자"
   },
   "contacts": {
     "title": "Agent 관리",
