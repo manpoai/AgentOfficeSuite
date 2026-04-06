@@ -17,6 +17,7 @@ import {
   CreditCard, Image, MessageSquare, UserCheck, RotateCcw,
 } from 'lucide-react';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
+import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-common.actions';
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import { SortableContext, useSortable, verticalListSortingStrategy, horizontalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -1810,60 +1811,37 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
               )}
             </div>
           }
-          actions={<>
-            <button
-              onClick={() => setShowTableComments(v => !v)}
-              className={cn('p-1.5 rounded transition-colors', showTableComments ? 'text-[#2fcc71] bg-[#2fcc71]/10' : 'text-[#2fcc71] hover:text-[#27ae60]')}
-              title={t('content.comments')}
-            >
-              <MessageSquare className="h-5 w-5 md:h-4 md:w-4" />
-            </button>
-            <div className="relative">
-              <button onClick={() => setShowTableMenu(v => !v)} className="p-1.5 text-muted-foreground hover:text-foreground shrink-0" title={t('content.moreActions')}>
-                <MoreHorizontal className="h-5 w-5 md:h-4 md:w-4" />
-              </button>
-              {showTableMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowTableMenu(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl py-1 w-44">
-                    <button
-                      onClick={() => { setShowTableMenu(false); setShowHistory(true); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.versionHistory')}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowTableMenu(false);
-                        if (onCopyLink) { onCopyLink(); }
-                        else {
-                          const url = new URL(window.location.href);
-                          url.searchParams.set('id', `table:${tableId}`);
-                          navigator.clipboard.writeText(url.toString());
-                        }
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.copyLink')}
-                    </button>
-                    <button
-                      onClick={handleExportCSV}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-                    >
-                      <Download className="h-3.5 w-3.5 text-muted-foreground" /> {t('content.download')}
-                    </button>
-                    <div className="border-t border-border my-1" />
-                    <button
-                      onClick={() => { setShowTableMenu(false); handleDeleteTable(); }}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" /> {t('content.delete')}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </>}
+          onHistory={() => setShowHistory(true)}
+          onComments={() => setShowTableComments(v => !v)}
+          menuItems={buildContentTopBarCommonMenuItems(t, {
+            id: tableId,
+            type: 'table',
+            title: meta?.title || '',
+            pinned: false,
+            url: typeof window !== 'undefined' ? (() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set('id', `table:${tableId}`);
+              return url.toString();
+            })() : '',
+            startRename: () => {},
+            openIconPicker: () => {},
+            togglePin: () => {},
+            deleteItem: handleDeleteTable,
+            downloadItem: handleExportCSV,
+            shareItem: () => {},
+            copyLink: () => {
+              if (onCopyLink) onCopyLink();
+              else {
+                const url = new URL(window.location.href);
+                url.searchParams.set('id', `table:${tableId}`);
+                navigator.clipboard.writeText(url.toString());
+              }
+            },
+            showHistory: () => setShowHistory(true),
+            showComments: () => setShowTableComments(v => !v),
+            search: () => {},
+          })}
+          actions={null}
         />
       </div>
 
