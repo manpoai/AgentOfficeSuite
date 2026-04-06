@@ -472,7 +472,6 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
             ) },
           ]}
           actions={<>
-            {/* Search — Figma: magnifying glass */}
             <button
               onClick={() => { setShowSearch(true); setSearchWithReplace(false); }}
               className="p-2 text-black/70 dark:text-white/70 hover:text-foreground rounded transition-colors"
@@ -480,12 +479,10 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
             >
               <Search className="h-4 w-4" />
             </button>
-            {/* Share button — Figma: bordered, external-link icon + text */}
             <button className="flex items-center gap-1.5 h-8 px-3 ml-1 border border-black/20 dark:border-white/20 rounded-lg text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors">
               <ExternalLink className="h-4 w-4" />
               {t('actions.share')}
             </button>
-            {/* History — Figma: bordered square */}
             <button
               onClick={() => setShowHistory(v => !v)}
               className={cn('flex items-center justify-center w-8 h-8 ml-1 border border-black/20 dark:border-white/20 rounded-lg transition-colors', showHistory ? 'text-sidebar-primary bg-sidebar-primary/10 border-sidebar-primary/20' : 'text-black/70 dark:text-white/70 hover:bg-black/[0.04]')}
@@ -493,7 +490,6 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
             >
               <Clock className="h-4 w-4" />
             </button>
-            {/* @ Comments — Figma: green circle */}
             <button
               onClick={() => setShowComments(v => !v)}
               className={cn('flex items-center justify-center w-8 h-8 ml-1 rounded-lg transition-colors', showComments ? 'bg-sidebar-primary/80' : 'bg-sidebar-primary hover:bg-sidebar-primary/90')}
