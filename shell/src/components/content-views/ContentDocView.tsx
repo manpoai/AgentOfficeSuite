@@ -6,7 +6,7 @@ import * as docApi from '@/lib/api/documents';
 import type { Document as DocType, Revision as DocRevision } from '@/lib/api/documents';
 import { X, Search, Clock, MessageSquare as MessageSquareIcon, Download, Smile, Maximize2, Link2, Pin, Undo2, Redo2, ExternalLink, AtSign, Share2, Pencil, Trash2 } from 'lucide-react';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { ContentTopBarCommonActions } from '@/components/shared/ContentTopBarActions';
+import { buildFixedTopBarActionItems, renderFixedTopBarActions } from '@/actions/content-topbar-fixed.actions';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, formatDateTime } from '@/lib/utils/time';
@@ -472,16 +472,28 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
               }} />
             ) },
           ]}
-          actions={
-            <ContentTopBarCommonActions
-              onSearch={() => { setShowSearch(true); setSearchWithReplace(false); }}
-              onShare={() => {}}
-              onHistory={() => setShowHistory(v => !v)}
-              onComments={() => setShowComments(v => !v)}
-              showHistory={showHistory}
-              showComments={showComments}
-            />
-          }
+          actions={renderFixedTopBarActions(
+            buildFixedTopBarActionItems(t, {
+              id: doc.id,
+              type: 'doc',
+              title: doc.title,
+              pinned: false,
+              url: typeof window !== 'undefined' ? window.location.href : '',
+              startRename: () => {},
+              openIconPicker: () => {},
+              togglePin: () => {},
+              deleteItem: handleDelete,
+              downloadItem: handleExport,
+              shareItem: () => {},
+              copyLink: handleCopyLink,
+              showHistory: () => setShowHistory(v => !v),
+              showComments: () => setShowComments(v => !v),
+              search: () => { setShowSearch(true); setSearchWithReplace(false); },
+              showHistoryActive: showHistory,
+              showCommentsActive: showComments,
+            }),
+            { t, ctx: { showHistoryActive: showHistory, showCommentsActive: showComments } as any }
+          )}
         />
       </div>
 

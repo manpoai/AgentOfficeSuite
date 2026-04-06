@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { useT, getT } from '@/lib/i18n';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { ContentTopBarSlidesActions } from '@/components/shared/ContentTopBarActions';
+import { buildFixedTopBarActionItems, renderFixedTopBarActions } from '@/actions/content-topbar-fixed.actions';
 import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-common.actions';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
@@ -1652,17 +1652,28 @@ export function PresentationEditor({
             }),
             { icon: Play, label: t('toolbar.present'), onClick: () => startPresentation() },
           ]}
-          actions={
-            <ContentTopBarSlidesActions
-              onSearch={() => {}}
-              onShare={() => {}}
-              onHistory={() => { setShowHistory(v => !v); setShowComments(false); }}
-              onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
-              showHistory={showHistory}
-              showComments={showComments}
-              onPresent={startPresentation}
-            />
-          }
+          actions={renderFixedTopBarActions(
+            buildFixedTopBarActionItems(t, {
+              id: presentationId,
+              type: 'slides',
+              title: presentation?.title || 'Presentation',
+              pinned: false,
+              url: typeof window !== 'undefined' ? window.location.href : '',
+              startRename: () => {},
+              openIconPicker: () => {},
+              togglePin: () => {},
+              deleteItem: onDelete || (() => {}),
+              shareItem: () => {},
+              copyLink: onCopyLink,
+              showHistory: () => { setShowHistory(v => !v); setShowComments(false); },
+              showComments: () => { setShowComments(v => !v); setShowHistory(false); },
+              search: () => {},
+              showHistoryActive: showHistory,
+              showCommentsActive: showComments,
+              present: startPresentation,
+            }),
+            { t, ctx: { showHistoryActive: showHistory, showCommentsActive: showComments, present: startPresentation } as any, includePresent: true }
+          )}
         />
       </div>
 

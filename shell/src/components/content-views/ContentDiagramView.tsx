@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Clock, MessageSquare as MessageSquareIcon, Download, Link2, Pin, ExternalLink, AtSign, Share2, Trash2 } from 'lucide-react';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { ContentTopBarCommonActions } from '@/components/shared/ContentTopBarActions';
+import { buildFixedTopBarActionItems, renderFixedTopBarActions } from '@/actions/content-topbar-fixed.actions';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import dynamic from 'next/dynamic';
@@ -125,16 +125,27 @@ export function ContentDiagramView({ diagramId, breadcrumb, onBack, onDeleted, o
                 search: () => {},
               }),
             ]}
-            actions={
-              <ContentTopBarCommonActions
-                onSearch={() => {}}
-                onShare={() => {}}
-                onHistory={() => { setShowHistory(v => !v); setShowComments(false); }}
-                onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
-                showHistory={showHistory}
-                showComments={showComments}
-              />
-            }
+            actions={renderFixedTopBarActions(
+              buildFixedTopBarActionItems(t, {
+                id: diagramId,
+                type: 'diagram',
+                title: contentItem?.title || 'Diagram',
+                pinned: false,
+                url: typeof window !== 'undefined' ? window.location.href : '',
+                startRename: () => {},
+                openIconPicker: () => {},
+                togglePin: () => {},
+                deleteItem: onDelete || (() => {}),
+                shareItem: () => {},
+                copyLink: onCopyLink,
+                showHistory: () => { setShowHistory(v => !v); setShowComments(false); },
+                showComments: () => { setShowComments(v => !v); setShowHistory(false); },
+                search: () => {},
+                showHistoryActive: showHistory,
+                showCommentsActive: showComments,
+              }),
+              { t, ctx: { showHistoryActive: showHistory, showCommentsActive: showComments } as any }
+            )}
           />
         </div>
 

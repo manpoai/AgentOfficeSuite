@@ -17,7 +17,7 @@ import {
   CreditCard, Image, MessageSquare, UserCheck, RotateCcw,
 } from 'lucide-react';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
-import { ContentTopBarCommonActions } from '@/components/shared/ContentTopBarActions';
+import { buildFixedTopBarActionItems, renderFixedTopBarActions } from '@/actions/content-topbar-fixed.actions';
 import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-common.actions';
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers';
@@ -1843,16 +1843,39 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             showComments: () => setShowTableComments(v => !v),
             search: () => {},
           })}
-          actions={
-            <ContentTopBarCommonActions
-              onSearch={() => setShowSearch(v => !v)}
-              onShare={() => {}}
-              onHistory={() => setShowHistory(true)}
-              onComments={() => setShowTableComments(v => !v)}
-              showHistory={showHistory}
-              showComments={showTableComments}
-            />
-          }
+          actions={renderFixedTopBarActions(
+            buildFixedTopBarActionItems(t, {
+              id: tableId,
+              type: 'table',
+              title: meta?.title || '',
+              pinned: false,
+              url: typeof window !== 'undefined' ? (() => {
+                const url = new URL(window.location.href);
+                url.searchParams.set('id', `table:${tableId}`);
+                return url.toString();
+              })() : '',
+              startRename: () => {},
+              openIconPicker: () => {},
+              togglePin: () => {},
+              deleteItem: handleDeleteTable,
+              downloadItem: handleExportCSV,
+              shareItem: () => {},
+              copyLink: () => {
+                if (onCopyLink) onCopyLink();
+                else {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('id', `table:${tableId}`);
+                  navigator.clipboard.writeText(url.toString());
+                }
+              },
+              showHistory: () => setShowHistory(true),
+              showComments: () => setShowTableComments(v => !v),
+              search: () => setShowSearch(v => !v),
+              showHistoryActive: showHistory,
+              showCommentsActive: showTableComments,
+            }),
+            { t, ctx: { showHistoryActive: showHistory, showCommentsActive: showTableComments } as any }
+          )}
         />
       </div>
 
