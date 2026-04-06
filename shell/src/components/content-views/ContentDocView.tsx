@@ -24,6 +24,7 @@ import type { ShortcutRegistration } from '@/lib/keyboard';
 import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
 import { buildContentLink } from '@/lib/hooks/use-content-tree';
+import { buildSharedContentTopBarMenuItems } from '@/actions/content-topbar.actions';
 
 const Editor = dynamic(
   () => import('@/components/editor/Editor').then(m => ({ default: m.Editor })),
@@ -441,18 +442,18 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
           onHistory={() => setShowHistory(true)}
           onComments={() => setShowComments(v => !v)}
           menuItems={[
-            { icon: Link2, label: t('actions.copyLink'), shortcut: '⌘⇧L', onClick: () => { navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id })); } },
-            { icon: Pin, label: t('actions.pin'), onClick: () => {} },
-            { icon: Download, label: t('actions.download'), onClick: () => {
-              const blob = new Blob([doc.text], { type: 'text/markdown' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
-              URL.revokeObjectURL(url);
-            } },
-            { icon: Share2, label: t('actions.share'), onClick: () => {} },
-            { icon: Trash2, label: t('actions.moveToTrash'), danger: true, onClick: handleDelete },
-            { icon: Clock, label: t('content.versionHistory'), separator: true, shortcut: '⌘⇧H', onClick: () => setShowHistory(true) },
-            { icon: MessageSquareIcon, label: t('content.comments'), shortcut: '⌘J', onClick: () => setShowComments(true) },
+            ...buildSharedContentTopBarMenuItems(t, {
+              copyLink: () => { navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id })); },
+              download: () => {
+                const blob = new Blob([doc.text], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
+                URL.revokeObjectURL(url);
+              },
+              deleteItem: handleDelete,
+              showHistory: () => setShowHistory(true),
+              showComments: () => setShowComments(true),
+            }),
             { icon: Search, label: t('content.findReplace'), shortcut: '⌘F', onClick: () => { setShowSearch(true); setSearchWithReplace(false); } },
             { icon: Maximize2, label: t('content.fullWidth'), separator: true, desktopOnly: true, onClick: () => {}, desktopRender: (
               <DocMenuToggle icon={Maximize2} label={t('content.fullWidth')} checked={fullWidth} onChange={async (v) => {
