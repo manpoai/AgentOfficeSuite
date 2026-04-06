@@ -24,7 +24,7 @@ import type { ShortcutRegistration } from '@/lib/keyboard';
 import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
 import { buildContentLink } from '@/lib/hooks/use-content-tree';
-import { buildSharedContentTopBarMenuItems } from '@/actions/content-topbar.actions';
+import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-common.actions';
 
 const Editor = dynamic(
   () => import('@/components/editor/Editor').then(m => ({ default: m.Editor })),
@@ -442,19 +442,28 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
           onHistory={() => setShowHistory(true)}
           onComments={() => setShowComments(v => !v)}
           menuItems={[
-            ...buildSharedContentTopBarMenuItems(t, {
-              copyLink: () => { navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id })); },
-              download: () => {
+            ...buildContentTopBarCommonMenuItems(t, {
+              id: doc.id,
+              type: 'doc',
+              title: title || doc.title || '',
+              pinned: false,
+              url: buildContentLink({ type: 'doc', id: doc.id }),
+              startRename: () => {},
+              openIconPicker: () => {},
+              togglePin: () => {},
+              deleteItem: handleDelete,
+              downloadItem: () => {
                 const blob = new Blob([doc.text], { type: 'text/markdown' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = `${title}.md`; a.click();
                 URL.revokeObjectURL(url);
               },
-              deleteItem: handleDelete,
+              shareItem: () => {},
+              copyLink: () => { navigator.clipboard.writeText(buildContentLink({ type: 'doc', id: doc.id })); },
               showHistory: () => setShowHistory(true),
               showComments: () => setShowComments(true),
+              search: () => { setShowSearch(true); setSearchWithReplace(false); },
             }),
-            { icon: Search, label: t('content.findReplace'), shortcut: '⌘F', onClick: () => { setShowSearch(true); setSearchWithReplace(false); } },
             { icon: Maximize2, label: t('content.fullWidth'), separator: true, desktopOnly: true, onClick: () => {}, desktopRender: (
               <DocMenuToggle icon={Maximize2} label={t('content.fullWidth')} checked={fullWidth} onChange={async (v) => {
                 setFullWidth(v);

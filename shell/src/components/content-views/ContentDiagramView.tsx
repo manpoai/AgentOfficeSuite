@@ -17,7 +17,7 @@ import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import type { DiagramEditorHandle, DiagramSaveStatus } from '@/components/diagram-editor/X6DiagramEditor';
-import { buildSharedContentTopBarMenuItems } from '@/actions/content-topbar.actions';
+import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-common.actions';
 
 const DiagramEditor = dynamic(
   () => import('@/components/diagram-editor/X6DiagramEditor'),
@@ -106,14 +106,23 @@ export function ContentDiagramView({ diagramId, breadcrumb, onBack, onDeleted, o
             onHistory={() => { setShowHistory(true); setShowComments(false); }}
             onComments={() => { setShowComments(v => !v); setShowHistory(false); }}
             menuItems={[
-              ...buildSharedContentTopBarMenuItems(t, {
-                copyLink: () => onCopyLink(),
-                download: () => editorRef.current?.exportPNG(),
+              ...buildContentTopBarCommonMenuItems(t, {
+                id: diagramId,
+                type: 'diagram',
+                title,
+                pinned: false,
+                url: '',
+                startRename: () => {},
+                openIconPicker: () => {},
+                togglePin: () => {},
                 deleteItem: handleDelete,
+                downloadItem: () => editorRef.current?.exportPNG(),
+                shareItem: () => {},
+                copyLink: () => onCopyLink(),
                 showHistory: () => { setShowHistory(true); setShowComments(false); },
                 showComments: () => { setShowComments(true); setShowHistory(false); },
+                search: () => {},
               }),
-              { icon: Search, label: t('common.search'), shortcut: '⌘F', onClick: () => {} },
             ]}
             actions={<>
               {/* Search */}

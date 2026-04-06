@@ -13,6 +13,7 @@ export interface ContentItemCtx {
   deleteItem: () => void;
   downloadItem?: () => void;
   shareItem?: () => void;
+  copyLink?: () => void;
 }
 
 export const contentItemActions: ActionDef<ContentItemCtx>[] = [
@@ -42,8 +43,9 @@ export const contentItemActions: ActionDef<ContentItemCtx>[] = [
     id: 'copy-link',
     label: t => t('actions.copyLink'),
     icon: Link2,
+    shortcut: '⌘⇧L',
     group: 'share',
-    execute: ctx => navigator.clipboard.writeText(ctx.url).catch(() => {}),
+    execute: ctx => ctx.copyLink ? ctx.copyLink() : navigator.clipboard.writeText(ctx.url).catch(() => {}),
   },
   {
     id: 'pin',
