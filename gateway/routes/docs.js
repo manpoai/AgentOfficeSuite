@@ -447,103 +447,18 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     res.json(updated);
   });
 
-  // ─── Document Comments (Shell-facing) ───────────────────────────────────────
-
-  // GET /api/documents/:id/comments — list comments for a document
-  app.get('/api/documents/:id/comments', authenticateAgent, (req, res) => {
-    const rawId = req.params.id;
-    const doc = db.prepare('SELECT id FROM documents WHERE id = ?').get(rawId);
-    if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
-
-    const unifiedId = rawId.startsWith('doc:') ? rawId : `doc:${rawId}`;
-    const comments = listUnifiedComments(db, unifiedId);
-    res.json({ data: comments.map(formatDocComment) });
-  });
-
-  // POST /api/documents/:id/comments — create comment
-  app.post('/api/documents/:id/comments', authenticateAgent, (req, res) => {
-    const rawId = req.params.id;
-    const doc = db.prepare('SELECT id FROM documents WHERE id = ? AND deleted_at IS NULL').get(rawId);
-    if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
-
-    const { data, parent_comment_id } = req.body;
-    if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data (ProseMirror JSON) required' });
-
-    const unifiedId = rawId.startsWith('doc:') ? rawId : `doc:${rawId}`;
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const commentText = extractTextFromProseMirror(data);
-    const created = createUnifiedComment(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, {
-      targetType: 'doc',
-      targetId: unifiedId,
-      text: commentText,
-      parentId: parent_comment_id || null,
-      actorId: actId,
-      actorName: displayName,
-      idPrefix: 'cmt',
+  // ─── Document Comments (removed legacy routes; use unified content comment APIs) ───────
+  function commentApiMoved(res) {
+    return res.status(410).json({
+      error: 'COMMENT_API_MOVED',
+      message: 'Document comment routes were removed. Use /api/content-items/:id/comments and /api/content-comments/:commentId instead.',
     });
+  }
 
-    db.prepare('UPDATE comments SET data_json = ? WHERE id = ?').run(JSON.stringify(data), created.id);
-    const inserted = db.prepare("SELECT c.*, a.display_name AS latest_name, a.avatar_url AS actor_avatar_url, a.platform AS actor_platform FROM comments c LEFT JOIN actors a ON a.id = c.actor_id WHERE c.id = ?").get(created.id);
-    res.status(201).json(formatDocComment(inserted));
-  });
-
-  // PATCH /api/documents/comments/:commentId — update comment data
-  app.patch('/api/documents/comments/:commentId', authenticateAgent, (req, res) => {
-    const { data } = req.body;
-    if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data (ProseMirror JSON) required' });
-
-    const text = extractTextFromProseMirror(data);
-    const updated = updateUnifiedCommentText(db, { humanClients, pushHumanEvent }, req.params.commentId, text);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    db.prepare('UPDATE comments SET data_json = ? WHERE id = ?').run(JSON.stringify(data), req.params.commentId);
-
-    const hydrated = db.prepare("SELECT c.*, a.display_name AS latest_name, a.avatar_url AS actor_avatar_url, a.platform AS actor_platform FROM comments c LEFT JOIN actors a ON a.id = c.actor_id WHERE c.id = ?").get(req.params.commentId);
-    res.json(formatDocComment(hydrated));
-  });
-
-  // DELETE /api/documents/comments/:commentId — delete comment
-  app.delete('/api/documents/comments/:commentId', authenticateAgent, (req, res) => {
-    const deleted = deleteUnifiedComment(db, { humanClients, pushHumanEvent }, req.params.commentId);
-    if (!deleted) return res.status(404).json({ error: 'NOT_FOUND' });
-    res.json({ deleted: true });
-  });
-
-  // POST /api/documents/comments/:commentId/resolve — mark resolved
-  app.post('/api/documents/comments/:commentId/resolve', authenticateAgent, (req, res) => {
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const updated = setUnifiedCommentResolved(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, req.params.commentId, true, actId, displayName);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    const hydrated = db.prepare("SELECT c.*, a.display_name AS latest_name, a.avatar_url AS actor_avatar_url, a.platform AS actor_platform FROM comments c LEFT JOIN actors a ON a.id = c.actor_id WHERE c.id = ?").get(req.params.commentId);
-    res.json(formatDocComment(hydrated));
-  });
-
-  // POST /api/documents/comments/:commentId/unresolve — unmark resolved
-  app.post('/api/documents/comments/:commentId/unresolve', authenticateAgent, (req, res) => {
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const updated = setUnifiedCommentResolved(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, req.params.commentId, false, actId, displayName);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    const hydrated = db.prepare("SELECT c.*, a.display_name AS latest_name, a.avatar_url AS actor_avatar_url, a.platform AS actor_platform FROM comments c LEFT JOIN actors a ON a.id = c.actor_id WHERE c.id = ?").get(req.params.commentId);
-    res.json(formatDocComment(hydrated));
-  });
+  app.get('/api/documents/:id/comments', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/documents/:id/comments', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.patch('/api/documents/comments/:commentId', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.delete('/api/documents/comments/:commentId', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/documents/comments/:commentId/resolve', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/documents/comments/:commentId/unresolve', authenticateAgent, (_req, res) => commentApiMoved(res));
 }

@@ -1130,90 +1130,19 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     res.json({ rows: rows.map(r => ({ row_id: r.anchor_id, count: r.count })) });
   });
 
-  app.get('/api/data/tables/:table_id/comments', authenticateAgent, (req, res) => {
-    const { table_id } = req.params;
-    const { row_id, include_all } = req.query;
-    const unifiedId = table_id.startsWith('table:') ? table_id : `table:${table_id}`;
-    const comments = include_all === '1' || include_all === 'true'
-      ? listUnifiedComments(db, unifiedId)
-      : listUnifiedComments(db, unifiedId, row_id ? { anchorType: 'row', anchorId: row_id } : { anchorType: undefined, anchorId: undefined })
-          .filter(c => row_id ? true : !c.anchor_type);
-    res.json({ comments: comments.map(c => ({ ...c, row_id: c.anchor_id || null })) });
-  });
-
-  app.post('/api/data/tables/:table_id/comments', authenticateAgent, (req, res) => {
-    const { table_id } = req.params;
-    const { text, parent_id, row_id } = req.body;
-    if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
-
-    const unifiedTableId = table_id.startsWith('table:') ? table_id : `table:${table_id}`;
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const created = createUnifiedComment(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, {
-      targetType: 'table',
-      targetId: unifiedTableId,
-      text,
-      parentId: parent_id || null,
-      anchorType: row_id ? 'row' : null,
-      anchorId: row_id || null,
-      actorId: actId,
-      actorName: displayName,
-      idPrefix: 'ccmt',
+  function commentApiMoved(res) {
+    return res.status(410).json({
+      error: 'COMMENT_API_MOVED',
+      message: 'Table comment routes were removed. Use /api/content-items/:id/comments and /api/content-comments/:commentId instead.',
     });
+  }
 
-    res.status(201).json({ ...created, row_id: created.anchor_id || null });
-  });
-
-  app.patch('/api/data/table-comments/:comment_id', authenticateAgent, (req, res) => {
-    const { comment_id } = req.params;
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
-
-    const updated = updateUnifiedCommentText(db, { humanClients, pushHumanEvent }, comment_id, text);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    res.json({ updated: true });
-  });
-
-  app.delete('/api/data/table-comments/:comment_id', authenticateAgent, (req, res) => {
-    const { comment_id } = req.params;
-    const deleted = deleteUnifiedComment(db, { humanClients, pushHumanEvent }, comment_id);
-    if (!deleted) return res.status(404).json({ error: 'NOT_FOUND' });
-    res.json({ deleted: true });
-  });
-
-  app.post('/api/data/table-comments/:comment_id/resolve', authenticateAgent, (req, res) => {
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const updated = setUnifiedCommentResolved(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, req.params.comment_id, true, actId, displayName);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    res.json({ resolved: true });
-  });
-
-  app.post('/api/data/table-comments/:comment_id/unresolve', authenticateAgent, (req, res) => {
-    const displayName = actorName(req);
-    const actId = req.actor?.id || req.agent?.id;
-    const updated = setUnifiedCommentResolved(db, {
-      genId,
-      pushEvent,
-      pushHumanEvent,
-      humanClients,
-      deliverWebhook,
-    }, req.params.comment_id, false, actId, displayName);
-    if (!updated) return res.status(404).json({ error: 'NOT_FOUND' });
-    res.json({ unresolved: true });
-  });
+  app.get('/api/data/tables/:table_id/comments', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/data/tables/:table_id/comments', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.patch('/api/data/table-comments/:comment_id', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.delete('/api/data/table-comments/:comment_id', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/data/table-comments/:comment_id/resolve', authenticateAgent, (_req, res) => commentApiMoved(res));
+  app.post('/api/data/table-comments/:comment_id/unresolve', authenticateAgent, (_req, res) => commentApiMoved(res));
 
   // ─── Table Snapshots ─────────────────────────────
 
