@@ -188,6 +188,7 @@ export function PresentationEditor({
   const [undoVersion, setUndoVersion] = useState(0); // triggers re-render for canUndo/canRedo
   const UNDO_LIMIT = 50;
   const isLoadingSlideRef = useRef(false);
+  const loadGenerationRef = useRef(0);
   const isUndoingRef = useRef(false); // prevent pushSnapshot during undo/redo load
   const saveCurrentSlideToStateRef = useRef<() => void>(() => {});
   const modifiedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -775,6 +776,7 @@ export function PresentationEditor({
     if (!canvas) return;
     // FIX 1: Set loading flag BEFORE clear to prevent object:removed from writing empty data
     isLoadingSlideRef.current = true;
+    const generation = ++loadGenerationRef.current;
 
     canvas.clear();
     canvas.backgroundColor = slide.background || '#ffffff';
@@ -915,6 +917,11 @@ export function PresentationEditor({
           const imgEl2 = new window.Image();
           imgEl2.crossOrigin = 'anonymous';
           imgEl2.onload = () => {
+            if (loadGenerationRef.current !== generation) {
+              pendingImages--;
+              if (pendingImages === 0) isLoadingSlideRef.current = false;
+              return;
+            }
             const fabricImg = new FabricImage(imgEl2, {
               left: el.left || 0,
               top: el.top || 0,
@@ -953,6 +960,11 @@ export function PresentationEditor({
             }
           };
           imgEl2.onerror = () => {
+            if (loadGenerationRef.current !== generation) {
+              pendingImages--;
+              if (pendingImages === 0) isLoadingSlideRef.current = false;
+              return;
+            }
             pendingImages--;
             if (pendingImages === 0) {
               isLoadingSlideRef.current = false;
@@ -997,7 +1009,7 @@ export function PresentationEditor({
     if (slidesRef.current.length > 0 && canvasRef.current) {
       loadSlideToCanvas(slidesRef.current[currentSlideIndex] || DEFAULT_SLIDE);
     }
-  }, [currentSlideIndex, loadSlideToCanvas]);
+  }, [currentSlideIndex, loadSlideToCanvas, slides.length]);
 
   // ─── Save canvas state back to slides ─────────────
   const serializeCanvas = useCallback((): SlideData | null => {
@@ -1708,7 +1720,12 @@ export function PresentationEditor({
         <SlidePreviewList
           slides={previewSlides}
           currentSlideIndex={currentSlideIndex}
-          onSlideSelect={(i) => setCurrentSlideIndex(i)}
+          onSlideSelect={(i) => {
+            if (i !== currentSlideIndex) {
+              saveCurrentSlideToState();
+            }
+            setCurrentSlideIndex(i);
+          }}
         />
         {/* Bottom comment bar — no edit FAB for PPT on mobile */}
         <MobileCommentBar
