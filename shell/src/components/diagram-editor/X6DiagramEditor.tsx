@@ -44,7 +44,6 @@ import {
   updateLabel, toggleCollapse, renderMindmapToGraph,
   type MindmapTreeNode,
 } from './utils/mindmap-tree';
-import { isReactFlowData, migrateToX6 } from './utils/migration';
 import { diagramNodeActions, diagramCanvasActions, type DiagramNodeCtx, type DiagramCanvasCtx } from '@/actions/diagram-node.actions';
 import { diagramSurfaces } from '@/surfaces/diagram.surfaces';
 import { toContextMenuItems } from '@/surfaces/bridge';
@@ -69,7 +68,8 @@ export interface DiagramEditorHandle {
 }
 
 export interface DiagramSaveStatus {
-  saving: boolean;
+  reliabilityStatus: 'clean' | 'dirty' | 'flushing' | 'flush_failed';
+  flushRetryCount: number;
   lastSaved: number | null;
 }
 
@@ -406,7 +406,6 @@ function X6DiagramEditorInner({
   const [activeConnector, setActiveConnector] = useState<ConnectorType>(DEFAULT_CONNECTOR);
   const showComments = showCommentsProp ?? false;
   const showHistory = showHistoryProp ?? false;
-  const [migrationNeeded, setMigrationNeeded] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Floating toolbar selection tracking
@@ -430,12 +429,12 @@ function X6DiagramEditorInner({
   const justFinishedEditRef = useRef(0); // timestamp — used to debounce Enter after edit commit
 
   // Auto-save
-  const { save, lastSaved, saving, flushSave } = useAutoSave(graph, diagramId);
+  const { save, lastSaved, reliabilityStatus, flushRetryCount, flushSave } = useAutoSave(graph, diagramId);
 
   // Notify parent of save status changes
   useEffect(() => {
-    onSaveStatusChange?.({ saving, lastSaved });
-  }, [saving, lastSaved, onSaveStatusChange]);
+    onSaveStatusChange?.({ reliabilityStatus, flushRetryCount, lastSaved });
+  }, [reliabilityStatus, flushRetryCount, lastSaved, onSaveStatusChange]);
 
   // ─── Pinch-to-zoom via shared hook ──
   usePinchZoom(containerRef, {
@@ -594,23 +593,14 @@ function X6DiagramEditorInner({
     const rawData = (diagram as any).data;
     if (!rawData) return;
 
-    if (isReactFlowData(rawData)) {
-      setMigrationNeeded(true);
-      const x6Data = migrateToX6(rawData);
-      graph.fromJSON(x6Data);
-      if (x6Data.viewport) {
-        graph.translate(x6Data.viewport.x || 0, x6Data.viewport.y || 0);
-        graph.zoomTo(x6Data.viewport.zoom || 1);
-      }
-    } else {
-      // X6 native format
-      if (rawData.cells) {
-        graph.fromJSON(rawData);
-      }
+    if (rawData?.cells) {
+      graph.fromJSON(rawData);
       if (rawData.viewport) {
         graph.translate(rawData.viewport.x || 0, rawData.viewport.y || 0);
+        graph.zoomTo(rawData.viewport.zoom || 1);
       }
-      graph.zoomTo(1);
+    } else {
+      console.warn('[diagram] Invalid diagram data: missing cells');
     }
 
     if (isMobile) {
@@ -1676,12 +1666,6 @@ function X6DiagramEditorInner({
     },
   }), [graph, handleExport, handleDelete, save, flushSave, diagramId, queryClient]);
 
-  // ─── Migrate data ──
-  const handleMigrate = useCallback(async () => {
-    if (!graph) return;
-    await save();
-    setMigrationNeeded(false);
-  }, [graph, save]);
 
   // ─── Drag-to-create: user drags on canvas to create a custom-sized node ──
   const handleDragCreate = useCallback((localX: number, localY: number, localW: number, localH: number) => {
@@ -1736,7 +1720,14 @@ function X6DiagramEditorInner({
             // TODO: update diagram title via gateway API if supported
           }}
           mode={isMobile && mobileEditing ? 'edit' : undefined}
-          statusText={saving ? t('content.saving') : lastSaved ? `${t('content.saved')} ${formatRelativeTime(lastSaved)}` : ''}
+          statusText={
+            reliabilityStatus === 'flushing' ? t('content.saving')
+            : reliabilityStatus === 'dirty' ? t('content.unsaved')
+            : reliabilityStatus === 'flush_failed' ? `${t('content.saveFailed')} (${flushRetryCount}/3)`
+            : ''
+          }
+          statusError={reliabilityStatus === 'flush_failed'}
+          onRetry={reliabilityStatus === 'flush_failed' ? () => save() : undefined}
           actions={<>
             <button
               className="p-1.5 rounded hover:bg-muted text-muted-foreground"
@@ -1764,18 +1755,6 @@ function X6DiagramEditorInner({
       </div>
       )}
 
-      {/* ── Migration banner ── */}
-      {migrationNeeded && (
-        <div className="bg-sidebar-accent border-b border-sidebar-primary/30 px-4 py-2 flex items-center gap-3 text-sm">
-          <span className="text-sidebar-primary">{t('diagram.migrationNotice')}</span>
-          <button
-            className="px-3 py-1 bg-sidebar-primary text-sidebar-primary-foreground rounded text-xs hover:bg-sidebar-primary/90"
-            onClick={handleMigrate}
-          >
-            {t('diagram.saveNewFormat')}
-          </button>
-        </div>
-      )}
 
       {/* ── Canvas + sidebar row ── */}
       <div className="flex-1 flex min-h-0">

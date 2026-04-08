@@ -10,18 +10,19 @@ const AUTOSAVE_DEBOUNCE_MS = 500;
 
 export function useAutoSave(graph: Graph | null, diagramId: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastRevisionRef = useRef<number>(0);
-  const REVISION_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  const [reliabilityStatus, setReliabilityStatus] = useState<'clean' | 'dirty' | 'flushing' | 'flush_failed'>('clean');
+  const [flushRetryCount, setFlushRetryCount] = useState(0);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
+  const reliabilityStatusRef = useRef<string>('clean');
+  reliabilityStatusRef.current = reliabilityStatus;
 
-  const saveRef = useRef<() => Promise<void> | void>(() => {});
+  const saveRef = useRef<(attempt?: number) => Promise<void> | void>(() => {});
   const dirtyRef = useRef(false);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (attempt = 0) => {
     if (!graph) return;
-    if (!dirtyRef.current) return; // Nothing changed
-    setSaving(true);
+    if (!dirtyRef.current && attempt === 0) return; // Nothing changed
+    setReliabilityStatus('flushing');
     try {
       const json = graph.toJSON();
       // Filter out transient preview cells (port hover previews)
@@ -31,23 +32,23 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
       const { sx } = graph.scale();
       const { tx, ty } = graph.translate();
       const diagramData = {
-        nodes: [], edges: [], // Legacy compat — gateway ignores these if cells present
         ...json,
         viewport: { x: tx, y: ty, zoom: sx },
       } as any;
       await gw.saveDiagram(diagramId, diagramData);
       dirtyRef.current = false;
       setLastSaved(Date.now());
-      // Auto-create revision every 5 minutes
-      const now = Date.now();
-      if (now - lastRevisionRef.current > REVISION_INTERVAL) {
-        lastRevisionRef.current = now;
-        gw.createContentRevision(`diagram:${diagramId}`, diagramData).catch(() => {});
-      }
+      setReliabilityStatus('clean');
+      setFlushRetryCount(0);
     } catch (e) {
+      if (attempt < 2) {
+        setFlushRetryCount(attempt + 1);
+        setTimeout(() => save(attempt + 1), 400 * (attempt + 1));
+        return;
+      }
       showError(getT()('errors.autoSaveFailed'), e);
-    } finally {
-      setSaving(false);
+      setReliabilityStatus('flush_failed');
+      setFlushRetryCount(attempt + 1);
     }
   }, [graph, diagramId]);
 
@@ -74,7 +75,11 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
     if (!graph) return;
 
     // Listen to model changes
-    const handler = () => { dirtyRef.current = true; scheduleSave(); };
+    const handler = () => {
+      dirtyRef.current = true;
+      setReliabilityStatus(prev => prev === 'flush_failed' ? prev : 'dirty');
+      scheduleSave();
+    };
     graph.on('cell:added', handler);
     graph.on('cell:removed', handler);
     graph.on('cell:changed', handler);
@@ -91,7 +96,14 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
     document.addEventListener('visibilitychange', onVisibilityChange);
 
     // Flush on page unload using fetch with keepalive for reliability
-    const onBeforeUnload = () => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Prevent leaving in dirty or flush_failed state
+      if (dirtyRef.current || reliabilityStatusRef.current === 'flush_failed') {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+      // Attempt keepalive flush without changing local state
+      // (keepalive not guaranteed to succeed; dirtyRef stays true for retry on cancel)
       if (!dirtyRef.current || !graph) return;
       try {
         const json = graph.toJSON();
@@ -99,15 +111,16 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
         const { sx } = graph.scale();
         const { tx, ty } = graph.translate();
         const payload = JSON.stringify({
-          data: { nodes: [], edges: [], ...json, viewport: { x: tx, y: ty, zoom: sx } },
+          data: { ...json, viewport: { x: tx, y: ty, zoom: sx } },
         });
+        // keepalive fetch aligned with gw.saveDiagram (gateway.ts:405-410)
         fetch(`/api/gateway/diagrams/${diagramId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
           body: payload,
           keepalive: true,
         }).catch(() => {});
-        dirtyRef.current = false;
+        // Note: do NOT set dirtyRef.current = false — keepalive may fail
       } catch {}
     };
     window.addEventListener('beforeunload', onBeforeUnload);
@@ -132,5 +145,5 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
     };
   }, [graph, scheduleSave, diagramId]);
 
-  return { save, lastSaved, saving, flushSave };
+  return { save, lastSaved, reliabilityStatus, flushRetryCount, flushSave };
 }

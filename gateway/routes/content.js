@@ -24,6 +24,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
+import { restoreDocFromSnapshot } from '../lib/doc-restore-helper.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
@@ -82,8 +83,9 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         contentId: 'presentation:' + req.params.id,
         data: JSON.parse(pres.data_json),
         triggerType: 'pre_agent_edit',
-        actorId: req.actor?.id,
+        actorId: actorName(req),
         title: pres.title || null,
+        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -98,8 +100,9 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         contentId: 'presentation:' + req.params.id,
         data: data,
         triggerType: 'post_agent_edit',
-        actorId: req.actor?.id,
+        actorId: actorName(req),
         title: null,
+        description: req.body.revision_description || 'agent 编辑后保存',
       });
     }
 
@@ -217,7 +220,7 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     const agentName = actorName(req) || 'unknown';
     const now = Date.now();
     const id = crypto.randomUUID();
-    const defaultData = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
+    const defaultData = { cells: [], viewport: { x: 0, y: 0, zoom: 1 } };
     db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, JSON.stringify(defaultData), agentName, agentName, now, now);
     res.json({ id, data: defaultData, created_by: agentName, created_at: now, updated_at: now });
@@ -227,7 +230,7 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     const row = db.prepare('SELECT * FROM diagrams WHERE id = ?').get(req.params.id);
     if (!row) return res.status(404).json({ error: 'Diagram not found' });
     let data;
-    try { data = JSON.parse(row.data_json); } catch { data = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }; }
+    try { data = JSON.parse(row.data_json); } catch { data = { cells: [], viewport: { x: 0, y: 0, zoom: 1 } }; }
     // Include title from content_items if available
     const contentItem = db.prepare('SELECT title FROM content_items WHERE raw_id = ? AND type = ?').get(row.id, 'diagram');
     res.json({ id: row.id, data, title: contentItem?.title || '', created_by: row.created_by, updated_by: row.updated_by, created_at: row.created_at, updated_at: row.updated_at });
@@ -247,8 +250,9 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         contentId: 'diagram:' + req.params.id,
         data: JSON.parse(row.data_json),
         triggerType: 'pre_agent_edit',
-        actorId: req.actor?.id,
+        actorId: actorName(req),
         title: null,
+        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -261,8 +265,9 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         contentId: 'diagram:' + req.params.id,
         data: data,
         triggerType: 'post_agent_edit',
-        actorId: req.actor?.id,
+        actorId: actorName(req),
         title: null,
+        description: req.body.revision_description || 'agent 编辑后保存',
       });
     }
 
@@ -319,6 +324,14 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         null, parent_id, collection_id || null,
         agentName, agentName, now, now, null, actorId, Date.now()
       );
+      // Initial version snapshot only for agent-created docs (human-created start empty)
+      if (isAgentRequest(req)) {
+        createSnapshot(db, { genId }, {
+          contentType: 'doc', contentId: docId,
+          data: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '' }] }] },
+          triggerType: 'auto', actorId: agentName, title: title || '',
+        });
+      }
       const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
       return res.status(201).json({ item });
     }
@@ -366,6 +379,18 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         agentName, agentName,
         now, now, null, actorId, Date.now()
       );
+
+      // Initial version snapshot only for agent-created tables (human-created start empty)
+      if (isAgentRequest(req)) {
+        const schemaJson = JSON.stringify(fields.map(f => ({
+          id: String(f.id), title: f.name, uidt: BR_TO_UIDT[f.type] || f.type, pk: !!f.primary, rqd: false,
+        })));
+        const initSnapId = genId('snap');
+        db.prepare(
+          "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at) VALUES (?, 'table', ?, 1, NULL, '[]', ?, 'auto', NULL, 0, ?, ?)"
+        ).run(initSnapId, tableId, schemaJson, agentName, now);
+      }
+
       const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
       return res.status(201).json({ item, table_id: tableId, columns: responseCols });
     }
@@ -412,6 +437,14 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         null, parent_id, null,
         agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
       );
+      // Initial version snapshot only for agent-created presentations
+      if (isAgentRequest(req)) {
+        createSnapshot(db, { genId }, {
+          contentType: 'presentation', contentId: nodeId,
+          data: { slides: [] },
+          triggerType: 'auto', actorId: agentName, title: title || '',
+        });
+      }
 
       const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
       return res.status(201).json({ item });
@@ -441,25 +474,33 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
       const id = crypto.randomUUID();
       const nowTs = Date.now();
       const isoNow = new Date().toISOString();
-      const defaultData = JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+      const defaultData = JSON.stringify({ cells: [], viewport: { x: 0, y: 0, zoom: 1 } });
 
       db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, nowTs, nowTs);
 
       // Embedded diagrams (created from PPT/Doc) don't get a content_items entry
+      const nodeId = `diagram:${id}`;
       if (!req.body.embedded) {
-        const nodeId = `diagram:${id}`;
         contentItemsUpsert.run(
           nodeId, id, 'diagram', title || '',
           null, parent_id, null,
           agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
         );
       }
+      // Initial version snapshot only for agent-created diagrams
+      if (isAgentRequest(req)) {
+        createSnapshot(db, { genId }, {
+          contentType: 'diagram', contentId: nodeId,
+          data: { cells: [], viewport: { x: 0, y: 0, zoom: 1 } },
+          triggerType: 'auto', actorId: agentName, title: title || '',
+        });
+      }
 
       // Return a synthetic item with raw_id for embedded use
       const item = req.body.embedded
-        ? { id: `diagram:${id}`, raw_id: id, type: 'diagram', title: title || '' }
-        : db.prepare('SELECT * FROM content_items WHERE id = ?').get(`diagram:${id}`);
+        ? { id: nodeId, raw_id: id, type: 'diagram', title: title || '' }
+        : db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
       return res.status(201).json({ item });
     }
   });
@@ -818,13 +859,27 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
   // ─── Content Revisions (Generic — via unified content_snapshots) ─────────────────
   app.get('/api/content-items/:id/revisions', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
+    // Snapshots may store content_id as either prefixed ("presentation:uuid") or bare ("uuid"/"621").
+    // Query all possible forms to handle inconsistencies.
+    const ids = new Set([contentId]);
+    if (contentId.includes(':')) {
+      // Also try bare ID (e.g. "table:621" → "621", "doc:doc_xxx" → "doc_xxx")
+      ids.add(contentId.split(':').slice(1).join(':'));
+    } else {
+      // Also try prefixed form
+      const ci = db.prepare('SELECT type FROM content_items WHERE raw_id = ? LIMIT 1').get(contentId);
+      if (ci) ids.add(`${ci.type}:${contentId}`);
+    }
+    const idArray = [...ids];
+    const placeholders = idArray.map(() => '?').join(',');
     const rows = db.prepare(
-      'SELECT * FROM content_snapshots WHERE content_id = ? ORDER BY created_at DESC'
-    ).all(contentId);
+      `SELECT * FROM content_snapshots WHERE content_id IN (${placeholders}) ORDER BY created_at DESC`
+    ).all(...idArray);
     const revisions = rows.map(r => ({
       id: r.id,
       content_id: r.content_id,
       trigger_type: r.trigger_type || null,
+      description: r.description || null,
       data: (() => { try { return JSON.parse(r.data_json); } catch { return null; } })(),
       created_at: r.created_at,
       created_by: r.actor_id,
@@ -834,51 +889,139 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
 
   app.post('/api/content-items/:id/revisions', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
-    const { data } = req.body;
+    const { data, trigger_type, description } = req.body;
     if (!data) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'data required' });
 
     const displayName = actorName(req);
+    const effectiveTriggerType = trigger_type || 'auto';
+    const contentType = contentId.includes(':') ? contentId.split(':')[0] : 'unknown';
+
+    // Daily granularity: auto type keeps only one per day — delete ALL existing (not LIMIT 1) to prevent accumulation from concurrent saves
+    if (effectiveTriggerType === 'auto') {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      db.prepare(`
+        DELETE FROM content_snapshots
+        WHERE content_id = ? AND trigger_type = 'auto' AND created_at >= ?
+      `).run(contentId, todayStart.toISOString());
+    }
+
     const id = genId('snap');
     const now = new Date().toISOString();
 
-    // Derive content_type from contentId prefix
-    const contentType = contentId.includes(':') ? contentId.split(':')[0] : 'unknown';
+    db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at)
+      VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, ?, NULL, ?, ?)`)
+      .run(id, contentType, contentId, JSON.stringify(data), effectiveTriggerType, description || null, displayName, now);
 
-    db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
-      VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, ?, ?)`)
-      .run(id, contentType, contentId, JSON.stringify(data), displayName, now);
+    res.status(201).json({ id, content_id: contentId, trigger_type: effectiveTriggerType, created_at: now, created_by: displayName });
+  });
 
-    res.status(201).json({ id, content_id: contentId, created_at: now, created_by: displayName });
+  // POST /api/content-items/:id/revisions/manual — server-side manual snapshot (reads current data from DB)
+  app.post('/api/content-items/:id/revisions/manual', authenticateAgent, (req, res) => {
+    const contentId = decodeURIComponent(req.params.id);
+    const { description } = req.body;
+    const displayName = actorName(req);
+
+    // Determine content type and raw ID
+    const colonIdx = contentId.indexOf(':');
+    const type = colonIdx > 0 ? contentId.substring(0, colonIdx) : '';
+    const rawId = colonIdx > 0 ? contentId.substring(colonIdx + 1) : contentId;
+
+    let dataObj = null;
+    let title = null;
+
+    if (type === 'presentation') {
+      const row = db.prepare('SELECT data_json FROM presentations WHERE id = ?').get(rawId);
+      if (!row) return res.status(404).json({ error: 'NOT_FOUND' });
+      try { dataObj = JSON.parse(row.data_json); } catch { dataObj = {}; }
+    } else if (type === 'diagram') {
+      const row = db.prepare('SELECT data_json FROM diagrams WHERE id = ?').get(rawId);
+      if (!row) return res.status(404).json({ error: 'NOT_FOUND' });
+      try { dataObj = JSON.parse(row.data_json); } catch { dataObj = {}; }
+    } else if (type === 'doc') {
+      const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL').get(rawId);
+      if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
+      dataObj = doc.data_json ? JSON.parse(doc.data_json)
+        : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+      title = doc.title;
+    } else {
+      return res.status(400).json({ error: 'UNSUPPORTED_TYPE', message: `Cannot create manual snapshot for type: ${type}` });
+    }
+
+    const ci = db.prepare('SELECT title FROM content_items WHERE id = ? OR (raw_id = ? AND type = ?)').get(contentId, rawId, type);
+    if (!title) title = ci?.title || null;
+
+    // Create the manual snapshot with current time
+    const now = new Date();
+    const manualTime = now.toISOString();
+    const snapId = genId('snap');
+    const dataJsonStr = JSON.stringify(dataObj);
+    db.prepare(`
+      INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at)
+      VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, ?, NULL, ?, ?)
+    `).run(snapId, type, contentId, title || null, dataJsonStr, 'manual', description || null, displayName, manualTime);
+
+    res.status(201).json({ id: snapId, trigger_type: 'manual', created_at: manualTime });
   });
 
   app.post('/api/content-items/:id/revisions/:revId/restore', authenticateAgent, (req, res) => {
     const contentId = decodeURIComponent(req.params.id);
+    // Snapshots may store content_id as either prefixed or bare — query all forms
+    const ids = new Set([contentId]);
+    if (contentId.includes(':')) {
+      ids.add(contentId.split(':').slice(1).join(':'));
+    } else {
+      const ci = db.prepare('SELECT type FROM content_items WHERE raw_id = ? LIMIT 1').get(contentId);
+      if (ci) ids.add(`${ci.type}:${contentId}`);
+    }
+    const idArray = [...ids];
+    const placeholders = idArray.map(() => '?').join(',');
     const revision = db.prepare(
-      'SELECT * FROM content_snapshots WHERE id = ? AND content_id = ?'
-    ).get(req.params.revId, contentId);
+      `SELECT * FROM content_snapshots WHERE id = ? AND content_id IN (${placeholders})`
+    ).get(req.params.revId, ...idArray);
     if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
 
-    // Save current working copy as pre_restore snapshot before returning revision data
-    const colonIdx = contentId.indexOf(':');
-    const type = colonIdx > 0 ? contentId.substring(0, colonIdx) : '';
-    const rawId = colonIdx > 0 ? contentId.substring(colonIdx + 1) : contentId;
+    // ── Determine content type and raw ID ──
+    const type = revision.content_type || (contentId.includes(':') ? contentId.split(':')[0] : '');
+    const rawId = contentId.includes(':') ? contentId.split(':').slice(1).join(':') : contentId;
     const tableName = type === 'presentation' ? 'presentations' : type === 'diagram' ? 'diagrams' : null;
+
     if (tableName) {
-      const current = db.prepare(`SELECT data_json, title FROM ${tableName} WHERE id = ?`).get(rawId);
+      const current = db.prepare(`SELECT data_json FROM ${tableName} WHERE id = ?`).get(rawId);
       if (current?.data_json) {
         try {
           createSnapshot(db, { genId }, {
             contentType: type,
-            contentId: contentId,
+            contentId: revision.content_id,
             data: JSON.parse(current.data_json),
             triggerType: 'pre_restore',
-            actorId: req.actor?.id,
-            title: current.title || null,
+            actorId: actorName(req),
+            title: null,
+            description: '恢复版本前自动保存',
           });
         } catch { /* non-fatal */ }
       }
+      let data;
+      try { data = JSON.parse(revision.data_json); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
+      // Write restored data back to the source table
+      const now = Date.now();
+      db.prepare(`UPDATE ${tableName} SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?`)
+        .run(revision.data_json, actorName(req), now, rawId);
+      return res.json({ data, revision_id: revision.id, created_at: revision.created_at });
     }
 
+    // ── Doc: use shared restore helper ──
+    if (revision.content_type === 'doc') {
+      const result = restoreDocFromSnapshot(db, { genId }, {
+        docId: rawId,
+        revision,
+        actorName: actorName(req),
+      });
+      if (!result) return res.status(404).json({ error: 'DOC_NOT_FOUND' });
+      return res.json({ data: result.data, revision_id: revision.id, created_at: revision.created_at, document: result.document });
+    }
+
+    // ── Fallback: return data ──
     let data;
     try { data = JSON.parse(revision.data_json); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
     res.json({ data, revision_id: revision.id, created_at: revision.created_at });
