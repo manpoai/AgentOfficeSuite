@@ -354,11 +354,11 @@ export async function getTableSnapshot(tableId: string, snapshotId: string): Pro
   return gwFetch(`/data/${tableId}/snapshots/${snapshotId}`);
 }
 
-export async function createTableSnapshot(tableId: string): Promise<TableSnapshot> {
+export async function createTableSnapshot(tableId: string, description?: string): Promise<TableSnapshot> {
   return gwFetch(`/data/${tableId}/snapshots`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ description }),
   });
 }
 

@@ -25,14 +25,23 @@ import { SortableContext, useSortable, verticalListSortingStrategy, horizontalLi
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
-import { useT } from '@/lib/i18n';
+import { useT, getT } from '@/lib/i18n';
 import * as br from '@/lib/api/baserow';
 import * as gw from '@/lib/api/gateway';
 import { RowDetailPanel } from './RowDetailPanel';
 import { ColTypeDef, COLUMN_TYPES } from './types';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { LinkRecordPicker } from './LinkRecordPicker';
-import TableHistory, { SnapshotPreview } from './TableHistory';
+import { RevisionHistory, type RevisionItem } from '@/components/shared/RevisionHistory';
+import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
+
+interface SnapshotPreview {
+  snapshotId: string;
+  version: number;
+  createdAt: string;
+  schema: { title: string; uidt: string }[];
+  rows: Record<string, unknown>[];
+}
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { BottomSheet } from '@/components/shared/BottomSheet';
 import { EditFAB } from '@/components/shared/EditFAB';
@@ -414,6 +423,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // History panel state
   const [showHistory, setShowHistory] = useState(false);
   const [previewSnapshot, setPreviewSnapshot] = useState<SnapshotPreview | null>(null);
+
   const toggleToolbarPanel = (panel: typeof activeToolbarPanel) => {
     setActiveToolbarPanel(prev => prev === panel ? null : panel);
   };
@@ -461,6 +471,59 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const newColRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const pageSize = 50;
+
+  // Adapter: Table snapshots → RevisionItem[] for unified RevisionHistory
+  const fetchTableRevisions = useCallback(async (_contentId: string): Promise<RevisionItem[]> => {
+    const snapshots = await gw.listTableSnapshots(tableId);
+    return snapshots.map(s => ({
+      id: s.id,
+      trigger_type: s.trigger_type,
+      created_at: s.created_at,
+      created_by: s.agent,
+      version: s.version,
+      row_count: s.row_count,
+    }));
+  }, [tableId]);
+
+  const restoreTableRevision = useCallback(async (_contentId: string, revisionId: string) => {
+    const result = await gw.restoreTableSnapshot(tableId, revisionId);
+    setPreviewSnapshot(null);
+    setShowHistory(false);
+    setPage(1);
+    queryClient.removeQueries({ queryKey: ['nc-rows', tableId] });
+    queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
+    return result;
+  }, [tableId, queryClient]);
+
+  const handleTableSelectRevision = useCallback(async (revision: RevisionItem | null) => {
+    if (!revision) { setPreviewSnapshot(null); return; }
+    try {
+      const full = await gw.getTableSnapshot(tableId, revision.id);
+      const schema = JSON.parse(full.schema_json || '[]');
+      const rows = JSON.parse(full.data_json || '[]');
+      setPreviewSnapshot({
+        snapshotId: revision.id,
+        version: revision.version || 0,
+        createdAt: revision.created_at,
+        schema,
+        rows,
+      });
+    } catch (e) {
+      console.error('[TableEditor] Failed to load snapshot:', e);
+      setPreviewSnapshot(null);
+    }
+  }, [tableId]);
+
+  const handleTableCreateManualVersion = useCallback(async () => {
+    await gw.createTableSnapshot(tableId);
+  }, [tableId]);
+
+  useEffect(() => {
+    const handler = () => { handleTableCreateManualVersion().catch(() => {}); };
+    window.addEventListener('save-current', handler);
+    return () => window.removeEventListener('save-current', handler);
+  }, [handleTableCreateManualVersion]);
+
   const tableColumnActionMap = useMemo(() => buildActionMap(tableColumnActions), []);
 
   // Default sort by Id for stable row ordering.
@@ -1730,6 +1793,8 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (selectedRows.size === 0) return;
     if (!confirm(t('dataTable.deleteRowsConfirm', { n: selectedRows.size }))) return;
     try {
+      // 批量删除前自动快照（不可逆操作）
+      await gw.createTableSnapshot(tableId, `批量删除 ${selectedRows.size} 行前自动保存`).catch(() => {});
       for (const rowId of selectedRows) {
         await br.deleteRow(tableId, rowId);
       }
@@ -2800,60 +2865,25 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       {previewSnapshot && (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {/* Preview banner */}
-          <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 shrink-0">
-            <div className="flex items-center gap-2 text-sm">
-              <Clock size={14} className="text-amber-600 dark:text-amber-400" />
-              <span className="font-medium text-amber-800 dark:text-amber-200">
-                {t('dataTableHistory.previewingVersion')}
-              </span>
-              <span className="text-amber-600 dark:text-amber-400">
-                — {(() => {
-                  const d = new Date(previewSnapshot.createdAt);
-                  const now = new Date();
-                  const diff = now.getTime() - d.getTime();
-                  const mins = Math.floor(diff / 60000);
-                  const hours = Math.floor(diff / 3600000);
-                  const days = Math.floor(diff / 86400000);
-                  if (mins < 1) return t('time.justNow');
-                  if (mins < 60) return t('time.minutesAgo', { n: mins });
-                  if (hours < 24) return t('time.hoursAgo', { n: hours });
-                  if (days < 7) return t('time.daysAgo', { n: days });
-                  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                })()}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  if (!confirm(t('dataTableHistory.restoreConfirm'))) return;
-                  try {
-                    const result = await gw.restoreTableSnapshot(tableId, previewSnapshot.snapshotId);
-                    console.log('[TableEditor] Restore success:', result);
-                    setPreviewSnapshot(null);
-                    setShowHistory(false);
-                    setPage(1);
-                    // Force refetch all data so restored content is visible immediately
-                    queryClient.removeQueries({ queryKey: ['nc-rows', tableId] });
-                    queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
-                  } catch (e: unknown) {
-                    console.error('[TableEditor] Restore error:', e);
-                    alert(e instanceof Error ? e.message : t('errors.restoreFailed'));
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-              >
-                <RotateCcw size={12} />
-                {t('dataTableHistory.restoreVersion')}
-              </button>
-              <button
-                onClick={() => { setPreviewSnapshot(null); setShowHistory(false); }}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
-              >
-                <X size={12} />
-                {t('dataTableHistory.exitPreview')}
-              </button>
-            </div>
-          </div>
+          <RevisionPreviewBanner
+            createdAt={previewSnapshot.createdAt}
+            onExit={() => { setPreviewSnapshot(null); setShowHistory(false); }}
+            onRestore={async () => {
+              if (!confirm(t('dataTableHistory.restoreConfirm'))) return;
+              try {
+                const result = await gw.restoreTableSnapshot(tableId, previewSnapshot.snapshotId);
+                console.log('[TableEditor] Restore success:', result);
+                setPreviewSnapshot(null);
+                setShowHistory(false);
+                setPage(1);
+                queryClient.removeQueries({ queryKey: ['nc-rows', tableId] });
+                queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] });
+              } catch (e: unknown) {
+                console.error('[TableEditor] Restore error:', e);
+                alert(e instanceof Error ? e.message : t('errors.restoreFailed'));
+              }
+            }}
+          />
           {/* Read-only snapshot table — horizontal scroll like link picker */}
           <div className="flex-1 overflow-auto bg-amber-50/30 dark:bg-amber-950/10">
             {previewSnapshot.rows.length === 0 ? (
@@ -4345,25 +4375,37 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
       {showHistory && (
         <>
-          <div className="w-72 border-l border-border bg-card hidden md:flex flex-col shrink-0 overflow-hidden h-full">
-            <TableHistory
-              tableId={tableId}
+          <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
+            <RevisionHistory
+              contentType="table"
+              contentId={tableId}
+              fetchRevisions={fetchTableRevisions}
+              restoreRevision={restoreTableRevision}
+              onCreateManualVersion={handleTableCreateManualVersion}
+              onSelectRevision={handleTableSelectRevision}
+              selectedRevisionId={previewSnapshot?.snapshotId ?? null}
               onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
-              onRestored={() => { setPreviewSnapshot(null); refresh(); }}
-              onSelectVersion={(preview) => setPreviewSnapshot(preview)}
-              selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
+              onRestore={() => { setPreviewSnapshot(null); refresh(); }}
+              renderRevisionMeta={(rev) => rev.row_count != null ? (
+                <span className="text-[10px] text-muted-foreground">{rev.row_count} {t('dataTable.rows')}</span>
+              ) : null}
             />
           </div>
           {isMobile && (
-            <BottomSheet open={showHistory} onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }} title={t('dataTableHistory.title')} initialHeight="full">
-              <TableHistory
-                tableId={tableId}
-                onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
-                onRestored={() => { setPreviewSnapshot(null); refresh(); }}
-                onSelectVersion={(preview) => setPreviewSnapshot(preview)}
-                selectedSnapshotId={previewSnapshot?.snapshotId ?? null}
-              />
-            </BottomSheet>
+            <RevisionHistory
+              contentType="table"
+              contentId={tableId}
+              fetchRevisions={fetchTableRevisions}
+              restoreRevision={restoreTableRevision}
+              onCreateManualVersion={handleTableCreateManualVersion}
+              onSelectRevision={handleTableSelectRevision}
+              selectedRevisionId={previewSnapshot?.snapshotId ?? null}
+              onClose={() => { setShowHistory(false); setPreviewSnapshot(null); }}
+              onRestore={() => { setPreviewSnapshot(null); refresh(); }}
+              renderRevisionMeta={(rev) => rev.row_count != null ? (
+                <span className="text-[10px] text-muted-foreground">{rev.row_count} {t('dataTable.rows')}</span>
+              ) : null}
+            />
           )}
         </>
       )}

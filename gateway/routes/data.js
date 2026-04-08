@@ -35,7 +35,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
   }
 
   // ─── Auto-snapshot helper ─────────────────────────
-  async function createTableSnapshot(tableId, triggerType, agent) {
+  async function createTableSnapshot(tableId, triggerType, agent, description) {
     const fields = await getTableFields(tableId);
     const columns = fields.map(f => {
       const col = { id: String(f.id), title: f.name, uidt: BR_TO_UIDT[f.type] || f.type, pk: !!f.primary, rqd: false };
@@ -66,19 +66,8 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const snapId = genId('snap');
     const now = new Date().toISOString();
     db.prepare(
-      "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?)"
-    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, allRows.length, agent || null, now);
-
-    // Retention cleanup
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-    const countAll = db.prepare("SELECT COUNT(*) as cnt FROM content_snapshots WHERE content_type = 'table' AND content_id = ?").get(tableId);
-    if (countAll.cnt > 20) {
-      const fiftieth = db.prepare("SELECT id, created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC LIMIT 1 OFFSET 19").get(tableId);
-      if (fiftieth) {
-        db.prepare("DELETE FROM content_snapshots WHERE content_type = 'table' AND content_id = ? AND created_at < ? AND created_at < ?")
-          .run(tableId, fiftieth.created_at, thirtyDaysAgo);
-      }
-    }
+      "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, description || null, allRows.length, agent || null, now);
 
     return {
       id: snapId,
@@ -91,18 +80,6 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     };
   }
 
-  async function maybeAutoSnapshot(tableId, agent) {
-    try {
-      const last = db.prepare("SELECT created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC LIMIT 1").get(tableId);
-      if (last) {
-        const lastTime = new Date(last.created_at).getTime();
-        if (Date.now() - lastTime < 30 * 60 * 1000) return;
-      }
-      await createTableSnapshot(tableId, 'auto', agent);
-    } catch (e) {
-      console.error(`[gateway] Auto-snapshot failed for ${tableId}: ${e.message}`);
-    }
-  }
 
   // ─── Tables ──────────────────────────────────────
   // List tables in the ASuite base
@@ -292,6 +269,11 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (colMeta.status >= 400) return res.status(colMeta.status).json({ error: 'UPSTREAM_ERROR', detail: colMeta.data });
     const currentField = colMeta.data;
 
+    // 人类改列类型前自动快照（不可逆操作，改名不触发）
+    if (!isAgentRequest(req) && req.body.uidt) {
+      await createTableSnapshot(tableId, 'manual', actorName(req), `修改列 "${currentField.name}" 类型前自动保存`).catch(() => {});
+    }
+
     const body = {};
     if (req.body.title) body.name = req.body.title;
     if (req.body.uidt) {
@@ -327,9 +309,18 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
   // Delete a column
   app.delete('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
     if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+    const tableId = req.params.table_id;
+
+    // 人类删除列前自动快照（不可逆操作）
+    if (!isAgentRequest(req)) {
+      const colMeta = await br('GET', `/api/database/fields/${req.params.column_id}/`).catch(() => null);
+      const colName = colMeta?.data?.name || req.params.column_id;
+      await createTableSnapshot(tableId, 'manual', actorName(req), `删除列 "${colName}" 前自动保存`).catch(() => {});
+    }
+
     const result = await br('DELETE', `/api/database/fields/${req.params.column_id}/`);
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    invalidateFieldCache(req.params.table_id);
+    invalidateFieldCache(tableId);
     res.json({ deleted: true });
   });
 
@@ -620,13 +611,20 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
       }
     }
 
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+    }
+
     const normalizedRow = normalizeRowForBaserow(rowData, fields);
     const result = await br('POST', `/api/database/rows/table/${tableId}/?user_field_names=true`, normalizedRow, { useToken: true });
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
 
     const normalized = normalizeRowForGateway(result.data, fields);
     res.status(201).json(normalized);
-    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // Update row
@@ -635,6 +633,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
     let updateData = req.body;
+
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+    }
 
     const fields = await getTableFields(tableId);
 
@@ -690,16 +692,27 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
       }
     } catch (e) { console.error(`[gateway] User assignment notification error: ${e.message}`); }
-    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // Delete row
   app.delete('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
     if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(req.params.table_id, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+    }
+
     const result = await br('DELETE', `/api/database/rows/table/${req.params.table_id}/${req.params.row_id}/`, null, { useToken: true });
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
     res.json({ deleted: true });
-    maybeAutoSnapshot(req.params.table_id, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(req.params.table_id, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // ─── Batch row operations ────────────────────────────────────────────
@@ -712,7 +725,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
     }
 
     const fields = await getTableFields(tableId);
@@ -734,7 +747,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
 
     const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
     res.status(201).json({ items });
-    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // Batch update rows
@@ -745,7 +761,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
     }
 
     const fields = await getTableFields(tableId);
@@ -767,7 +783,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
 
     const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
     res.json({ items });
-    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // Batch delete rows
@@ -778,14 +797,17 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
     }
 
     const result = await br('POST', `/api/database/rows/table/${tableId}/batch-delete/`, { items: ids }, { useToken: true });
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
 
     res.json({ deleted: ids.length });
-    maybeAutoSnapshot(tableId, actorName(req)).catch(() => {});
+
+    if (isAgentRequest(req)) {
+      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+    }
   });
 
   // Duplicate a table
@@ -1138,7 +1160,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
 
   app.get('/api/data/:table_id/snapshots', authenticateAgent, (req, res) => {
     const rows = db.prepare(
-      "SELECT id, version, trigger_type, actor_id as agent, row_count, created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC"
+      "SELECT id, version, trigger_type, description, actor_id as agent, row_count, created_at FROM content_snapshots WHERE content_type = 'table' AND content_id = ? ORDER BY version DESC"
     ).all(req.params.table_id);
     res.json({ snapshots: rows });
   });
@@ -1153,8 +1175,8 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
 
   app.post('/api/data/:table_id/snapshots', authenticateAgent, async (req, res) => {
     try {
-      const { agent: agentName } = req.body || {};
-      const snap = await createTableSnapshot(req.params.table_id, 'manual', agentName || actorName(req));
+      const { agent: agentName, description } = req.body || {};
+      const snap = await createTableSnapshot(req.params.table_id, 'manual', agentName || actorName(req), description);
       res.status(201).json(snap);
     } catch (e) {
       console.error(`[gateway] Manual snapshot failed: ${e.message}`);
@@ -1168,7 +1190,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (!snap) return res.status(404).json({ error: 'NOT_FOUND' });
 
     try {
-      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req));
+      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req), '恢复版本前自动保存');
 
       const snapshotRows = JSON.parse(snap.data_json);
 
