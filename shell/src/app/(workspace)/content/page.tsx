@@ -692,10 +692,27 @@ export default function ContentPage() {
   const handleTogglePin = async (nodeId: string) => {
     const node = effectiveNodes.get(nodeId);
     if (!node) return;
+    const newPinned = !node.pinned;
+    // Optimistic update
+    queryClient.setQueryData(['content-items'], (old: { items: gw.ContentItem[] } | undefined) => {
+      if (!old) return old;
+      return {
+        ...old,
+        items: old.items.map(item =>
+          item.id === nodeId ? { ...item, pinned: newPinned ? 1 : 0 } : item
+        ),
+      };
+    });
     try {
-      await gw.updateContentItem(nodeId, { pinned: !node.pinned });
+      if (newPinned) {
+        await gw.pinContentItem(nodeId);
+      } else {
+        await gw.unpinContentItem(nodeId);
+      }
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
     } catch (e) {
+      // Revert optimistic update on error
+      queryClient.invalidateQueries({ queryKey: ['content-items'] });
       showError(t('errors.togglePinFailed'), e);
     }
   };
@@ -1111,16 +1128,14 @@ export default function ContentPage() {
                     ))}
                   </>
                 )}
-                {/* Library section */}
-                {pinnedIds.length > 0 && unpinnedIds.length > 0 && (
-                  <button
-                    onClick={() => setLibraryCollapsed(v => !v)}
-                    className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
-                  >
-                    {t('content.library')}
-                    <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', libraryCollapsed && '-rotate-90')} />
-                  </button>
-                )}
+                {/* Library section - always visible */}
+                <button
+                  onClick={() => setLibraryCollapsed(v => !v)}
+                  className="group/section flex items-center gap-1 w-full pl-2 pr-2 pt-3 pb-1 text-xs font-medium text-black/50 dark:text-white/50 hover:text-black/70 dark:hover:text-white/70 transition-colors"
+                >
+                  {t('content.library')}
+                  <ChevronDown className={cn('h-3 w-3 text-black/20 dark:text-white/20 opacity-0 group-hover/section:opacity-100 transition-all', libraryCollapsed && '-rotate-90')} />
+                </button>
                 {!libraryCollapsed && unpinnedIds.map(nodeId => (
                   <TreeNodeRecursive
                     key={nodeId}
@@ -1268,11 +1283,9 @@ export default function ContentPage() {
                       <div className="hidden md:block border-t border-border/50 my-1.5 mx-2" />
                     </>
                   )}
-                  {pinnedIds.length > 0 && unpinnedIds.length > 0 && (
-                    <button onClick={() => setLibraryCollapsed(v => !v)} className="px-2 pt-1 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
-                      {t('content.library')} <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', libraryCollapsed && '-rotate-90')} />
-                    </button>
-                  )}
+                  <button onClick={() => setLibraryCollapsed(v => !v)} className="px-2 pt-1 pb-1 flex items-center gap-1.5 text-base md:text-sm font-medium text-black/50 dark:text-white/50 active:opacity-60">
+                    {t('content.library')} <ChevronDown className={cn('h-4 w-4 md:h-3.5 md:w-3.5 transition-transform', libraryCollapsed && '-rotate-90')} />
+                  </button>
                   {!libraryCollapsed && unpinnedIds.map(nodeId => (
                     <TreeNodeRecursive key={nodeId} nodeId={nodeId} nodes={effectiveNodes} childrenMap={childrenMap} selection={selection} expandedIds={expandedIds} onSelect={handleSelect} onToggle={toggleExpand} onCreateDoc={handleCreateDoc} onCreateTable={handleCreateTable} onCreatePresentation={handleCreatePresentation} onCreateDiagram={handleCreateDiagram} onRequestDelete={requestDelete} onTogglePin={handleTogglePin} depth={0} creating={creating} dropIntent={dropIntent} dragActiveId={dragActiveId} />
                   ))}
