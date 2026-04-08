@@ -280,9 +280,11 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
       const rows = db.prepare('SELECT * FROM content_items WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC').all();
       return res.json({ items: rows });
     }
+    const actorId = req.actor?.id || req.agent?.id || null;
     const rows = db.prepare(`
       SELECT ci.*,
-        COALESCE(cc.unresolved_count, 0) AS unresolved_comment_count
+        COALESCE(cc.unresolved_count, 0) AS unresolved_comment_count,
+        CASE WHEN cp.content_id IS NOT NULL THEN 1 ELSE 0 END AS pinned_relation
       FROM content_items ci
       LEFT JOIN (
         SELECT target_id, COUNT(*) AS unresolved_count
@@ -290,10 +292,12 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
         WHERE resolved_at IS NULL AND parent_id IS NULL
         GROUP BY target_id
       ) cc ON cc.target_id = ci.id
+      LEFT JOIN content_pins cp ON cp.content_id = ci.id AND cp.actor_id = ?
       WHERE ci.deleted_at IS NULL
-      ORDER BY ci.pinned DESC, ci.sort_order ASC, ci.created_at ASC
-    `).all();
-    res.json({ items: rows });
+      ORDER BY ci.sort_order ASC, ci.created_at ASC
+    `).all(actorId);
+    const mappedRows = rows.map(r => ({ ...r, pinned: r.pinned_relation === 1 }));
+    res.json({ items: mappedRows });
   });
 
   app.get('/api/content-items/:id', authenticateAgent, (req, res) => {
@@ -606,6 +610,36 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     await syncContentItems();
     const rows = db.prepare('SELECT * FROM content_items WHERE deleted_at IS NULL ORDER BY sort_order ASC, created_at ASC').all();
     res.json({ items: rows, synced_at: Date.now() });
+  });
+
+  // ── Pin relation endpoints ──────────────────────────────
+  app.get('/api/content-pins', authenticateAny, (req, res) => {
+    const actorId = req.actor?.id || req.agent?.id;
+    if (!actorId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+    const rows = db.prepare('SELECT content_id FROM content_pins WHERE actor_id = ?').all(actorId);
+    res.json({ pinned_ids: rows.map(r => r.content_id) });
+  });
+
+  app.post('/api/content-pins/:contentId', authenticateAny, (req, res) => {
+    const actorId = req.actor?.id || req.agent?.id;
+    if (!actorId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+    const contentId = decodeURIComponent(req.params.contentId);
+    const exists = db.prepare('SELECT id FROM content_items WHERE id = ?').get(contentId);
+    if (!exists) return res.status(404).json({ error: 'NOT_FOUND' });
+    const pinId = genId('pin');
+    try {
+      db.prepare('INSERT OR IGNORE INTO content_pins (id, actor_id, content_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(pinId, actorId, contentId, Date.now());
+    } catch { /* ignore dup */ }
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/content-pins/:contentId', authenticateAny, (req, res) => {
+    const actorId = req.actor?.id || req.agent?.id;
+    if (!actorId) return res.status(401).json({ error: 'UNAUTHENTICATED' });
+    const contentId = decodeURIComponent(req.params.contentId);
+    db.prepare('DELETE FROM content_pins WHERE actor_id = ? AND content_id = ?').run(actorId, contentId);
+    res.json({ ok: true });
   });
 
   // Update content item metadata
