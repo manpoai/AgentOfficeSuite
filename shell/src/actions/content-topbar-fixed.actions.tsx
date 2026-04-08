@@ -18,9 +18,9 @@ export interface FixedTopBarActionCtx extends ContentTopBarCommonCtx {
   present?: () => void;
 }
 
-function buildCommonFixedAction(id: 'search' | 'share' | 'history' | 'comments', t: TFunc, ctx: FixedTopBarActionCtx): FixedActionRenderItem {
-  const source = id === 'share'
-    ? contentItemActions.find(action => action.id === 'share')!
+function buildCommonFixedAction(id: 'search' | 'copy-link' | 'history' | 'comments', t: TFunc, ctx: FixedTopBarActionCtx): FixedActionRenderItem {
+  const source = id === 'copy-link'
+    ? contentItemActions.find(action => action.id === 'copy-link')!
     : contentTopBarCommonActions.find(action => action.id === id)!;
 
   return {
@@ -35,7 +35,7 @@ function buildCommonFixedAction(id: 'search' | 'share' | 'history' | 'comments',
           </button>
         );
       }
-      if (id === 'share') {
+      if (id === 'copy-link') {
         return (
           <button onClick={() => source.execute(ctx)} className="flex items-center gap-1.5 h-8 px-3 ml-1 border border-black/20 dark:border-white/20 rounded-lg text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors">
             <Icon className="h-4 w-4" />
@@ -70,7 +70,7 @@ function buildCommonFixedAction(id: 'search' | 'share' | 'history' | 'comments',
 export function buildFixedTopBarActionItems(t: TFunc, ctx: FixedTopBarActionCtx): FixedActionRenderItem[] {
   return [
     buildCommonFixedAction('search', t, ctx),
-    buildCommonFixedAction('share', t, ctx),
+    buildCommonFixedAction('copy-link', t, ctx),
     buildCommonFixedAction('history', t, ctx),
     buildCommonFixedAction('comments', t, ctx),
   ];

@@ -7,7 +7,6 @@ const UNIFIED_MENU: SurfaceConfig = [
   'copy-link',
   'pin',
   'download',
-  'share',
   '---',
   'delete',
 ];

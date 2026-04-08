@@ -5,7 +5,6 @@ export const contentTopBarSurfaces = {
     'copy-link',
     'pin',
     'download',
-    'share',
     'delete',
     '---',
     'history',
