@@ -4,6 +4,7 @@
  */
 import crypto from 'crypto';
 import { createUnifiedComment } from '../lib/comment-service.js';
+import { isAgentRequest } from '../lib/snapshot-helper.js';
 import multer from 'multer';
 import {
   BR_URL,
@@ -710,6 +711,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const rows = req.body.rows;
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
 
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+    }
+
     const fields = await getTableFields(tableId);
     const normalizedRows = rows.map(row => {
       let r = { ...row };
@@ -739,6 +744,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const rows = req.body.rows;
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
 
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+    }
+
     const fields = await getTableFields(tableId);
     const normalizedRows = rows.map(row => {
       let r = { ...row };
@@ -767,6 +776,10 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const tableId = req.params.table_id;
     const ids = req.body.ids;
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
+
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req)).catch(() => {});
+    }
 
     const result = await br('POST', `/api/database/rows/table/${tableId}/batch-delete/`, { items: ids }, { useToken: true });
     if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });

@@ -2,6 +2,7 @@
  * Document routes: /api/docs/*, /api/documents/*, /api/comments, document comments/revisions
  */
 import { createUnifiedComment } from '../lib/comment-service.js';
+import { createSnapshot, isAgentRequest } from '../lib/snapshot-helper.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
@@ -310,13 +311,18 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     // Save revision snapshot before updating (only if text content changed)
     if (text !== undefined && text !== doc.text) {
-      const revId = genId('snap');
-      db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
-        VALUES (?, 'doc', ?, NULL, ?, ?, NULL, NULL, NULL, ?, ?)`).run(
-        revId, req.params.id, doc.title,
-        JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text }] }] }),
-        doc.updated_by || doc.created_by, doc.updated_at
-      );
+      const triggerType = isAgentRequest(req) ? 'pre_agent_edit' : 'auto';
+      const dataToStore = doc.data_json
+        ? JSON.parse(doc.data_json)
+        : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+      createSnapshot(db, { genId }, {
+        contentType: 'doc',
+        contentId: req.params.id,
+        data: dataToStore,
+        triggerType,
+        actorId: doc.updated_by || doc.created_by,
+        title: doc.title,
+      });
     }
 
     db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
@@ -328,6 +334,22 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     }
 
     const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
+
+    // Post-edit snapshot for agent requests (captures the newly written state)
+    if (isAgentRequest(req) && text !== undefined) {
+      const postData = updated.data_json
+        ? JSON.parse(updated.data_json)
+        : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: updated.text || '' }] }] };
+      createSnapshot(db, { genId }, {
+        contentType: 'doc',
+        contentId: req.params.id,
+        data: postData,
+        triggerType: 'post_agent_edit',
+        actorId: req.actor?.id,
+        title: updated.title,
+      });
+    }
+
     res.json(updated);
   });
 
@@ -397,13 +419,17 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     const agentName = actorName(req);
 
     // Save current state as a new revision (so user can undo the restore)
-    const snapId = genId('snap');
-    db.prepare(`INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, row_count, actor_id, created_at)
-      VALUES (?, 'doc', ?, NULL, ?, ?, NULL, 'pre_restore', NULL, ?, ?)`).run(
-      snapId, req.params.id, doc.title,
-      JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text }] }] }),
-      doc.updated_by || doc.created_by, doc.updated_at
-    );
+    const preRestoreData = doc.data_json
+      ? JSON.parse(doc.data_json)
+      : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+    createSnapshot(db, { genId }, {
+      contentType: 'doc',
+      contentId: req.params.id,
+      data: preRestoreData,
+      triggerType: 'pre_restore',
+      actorId: doc.updated_by || doc.created_by,
+      title: doc.title,
+    });
 
     // Extract text from the revision's ProseMirror JSON
     let revData = null;

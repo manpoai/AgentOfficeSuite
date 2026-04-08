@@ -11,6 +11,7 @@ import {
   deleteUnifiedComment,
   setUnifiedCommentResolved,
 } from '../lib/comment-service.js';
+import { createSnapshot, isAgentRequest } from '../lib/snapshot-helper.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -75,10 +76,32 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     const { data } = req.body;
     if (!data) return res.status(400).json({ error: 'MISSING_DATA' });
 
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'presentation',
+        contentId: 'presentation:' + req.params.id,
+        data: JSON.parse(pres.data_json),
+        triggerType: 'pre_agent_edit',
+        actorId: req.actor?.id,
+        title: pres.title || null,
+      });
+    }
+
     const now = Date.now();
     const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'presentation',
+        contentId: 'presentation:' + req.params.id,
+        data: data,
+        triggerType: 'post_agent_edit',
+        actorId: req.actor?.id,
+        title: null,
+      });
+    }
 
     res.json({ saved: true, updated_at: now });
   });
@@ -217,8 +240,32 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     const now = Date.now();
     const { data } = req.body;
     if (!data) return res.status(400).json({ error: 'data is required' });
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'diagram',
+        contentId: 'diagram:' + req.params.id,
+        data: JSON.parse(row.data_json),
+        triggerType: 'pre_agent_edit',
+        actorId: req.actor?.id,
+        title: null,
+      });
+    }
+
     db.prepare('UPDATE diagrams SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'diagram',
+        contentId: 'diagram:' + req.params.id,
+        data: data,
+        triggerType: 'post_agent_edit',
+        actorId: req.actor?.id,
+        title: null,
+      });
+    }
+
     res.json({ saved: true, updated_at: now });
   });
 
@@ -777,6 +824,7 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
     const revisions = rows.map(r => ({
       id: r.id,
       content_id: r.content_id,
+      trigger_type: r.trigger_type || null,
       data: (() => { try { return JSON.parse(r.data_json); } catch { return null; } })(),
       created_at: r.created_at,
       created_by: r.actor_id,
@@ -809,6 +857,27 @@ export default function contentRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATAB
       'SELECT * FROM content_snapshots WHERE id = ? AND content_id = ?'
     ).get(req.params.revId, contentId);
     if (!revision) return res.status(404).json({ error: 'REVISION_NOT_FOUND' });
+
+    // Save current working copy as pre_restore snapshot before returning revision data
+    const colonIdx = contentId.indexOf(':');
+    const type = colonIdx > 0 ? contentId.substring(0, colonIdx) : '';
+    const rawId = colonIdx > 0 ? contentId.substring(colonIdx + 1) : contentId;
+    const tableName = type === 'presentation' ? 'presentations' : type === 'diagram' ? 'diagrams' : null;
+    if (tableName) {
+      const current = db.prepare(`SELECT data_json, title FROM ${tableName} WHERE id = ?`).get(rawId);
+      if (current?.data_json) {
+        try {
+          createSnapshot(db, { genId }, {
+            contentType: type,
+            contentId: contentId,
+            data: JSON.parse(current.data_json),
+            triggerType: 'pre_restore',
+            actorId: req.actor?.id,
+            title: current.title || null,
+          });
+        } catch { /* non-fatal */ }
+      }
+    }
 
     let data;
     try { data = JSON.parse(revision.data_json); } catch { return res.status(500).json({ error: 'INVALID_REVISION_DATA' }); }
