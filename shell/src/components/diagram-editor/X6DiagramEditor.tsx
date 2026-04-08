@@ -584,6 +584,7 @@ function X6DiagramEditorInner({
   const { data: diagram } = useQuery({
     queryKey: ['diagram', diagramId],
     queryFn: () => gw.getDiagram(diagramId),
+    staleTime: 0,
   });
 
   // Load data into graph

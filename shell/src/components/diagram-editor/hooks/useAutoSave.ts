@@ -139,8 +139,25 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      if (dirtyRef.current) {
+      if (dirtyRef.current && graph) {
+        // Normal save (may not complete before unmount destroys graph)
         saveRef.current();
+        // Backup: keepalive fetch survives unmount (same as beforeunload)
+        try {
+          const json = graph.toJSON();
+          if (json.cells) json.cells = json.cells.filter((c: any) => !c.data?._isPreview);
+          const { sx } = graph.scale();
+          const { tx, ty } = graph.translate();
+          const payload = JSON.stringify({
+            data: { ...json, viewport: { x: tx, y: ty, zoom: sx } },
+          });
+          fetch(`/api/gateway/diagrams/${diagramId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
       }
     };
   }, [graph, scheduleSave, diagramId]);
