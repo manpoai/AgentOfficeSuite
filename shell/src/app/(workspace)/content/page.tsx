@@ -1830,7 +1830,7 @@ function DraggableTreeNode({
 
   // Right-click context menu
   const getContextMenuItems = useCallback((): ContextMenuItem[] => {
-    return toContextMenuItems(contentItemSurfaces.contextMenu, contentActionMap, buildContentItemCtx(), t, isMobile);
+    return toContextMenuItems(contentItemSurfaces.contextMenu, contentActionMap, buildContentItemCtx(), t, isMobile, false);
   }, [buildContentItemCtx, isMobile, t]);
 
   const { onContextMenu: handleContextMenu, onTouchStart: handleLongPressStart, onTouchEnd: handleLongPressEnd, onTouchMove: handleLongPressMove } = useContextMenu(getContextMenuItems);
@@ -2057,6 +2057,7 @@ function DraggableTreeNode({
                       setShowMoreMenu(false);
                       item.onClick();
                     }}
+                    showShortcut={false}
                   />
                 </div>
               </>

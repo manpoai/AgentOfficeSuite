@@ -31,6 +31,7 @@ export function toContextMenuItems<TCtx>(
   ctx: TCtx,
   t: TFunc,
   isMobile = false,
+  showShortcut = true,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   let pendingSeparator = false;
@@ -55,7 +56,7 @@ export function toContextMenuItems<TCtx>(
       id: action.id,
       label: resolveLabel(action, t, ctx),
       icon: resolveIcon(action, ctx),
-      shortcut: action.shortcut,
+      shortcut: showShortcut ? action.shortcut : undefined,
       danger: action.danger,
       separator: pendingSeparator,
       onClick: () => action.execute(ctx),

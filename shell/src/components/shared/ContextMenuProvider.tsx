@@ -100,7 +100,7 @@ function FloatingMenu({
               )}
             >
               {item.icon && <span className="shrink-0 w-4 h-4 flex items-center justify-center">{item.icon}</span>}
-              <span className="flex-1 text-left">{item.label}</span>
+              <span className="flex-1 min-w-0 text-left whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>
               {item.shortcut && (
                 <span className="text-xs text-muted-foreground ml-4 shrink-0">{item.shortcut}</span>
               )}

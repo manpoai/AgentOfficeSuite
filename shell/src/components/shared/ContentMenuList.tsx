@@ -7,10 +7,12 @@ export function ContentMenuList({
   items,
   onItemClick,
   itemClassName,
+  showShortcut = true,
 }: {
   items: ContentMenuItem[];
   onItemClick: (item: ContentMenuItem) => void;
   itemClassName?: string;
+  showShortcut?: boolean;
 }) {
   return (
     <>
@@ -28,8 +30,8 @@ export function ContentMenuList({
             )}
           >
             {item.icon && <item.icon className="h-4 w-4 shrink-0" />}
-            <span className="flex-1 text-left">{item.label}</span>
-            {item.shortcut && <span className="text-xs text-muted-foreground ml-4 shrink-0">{item.shortcut}</span>}
+            <span className="flex-1 min-w-0 text-left whitespace-nowrap overflow-hidden text-ellipsis">{item.label}</span>
+            {showShortcut && item.shortcut && <span className="text-xs text-muted-foreground ml-4 shrink-0">{item.shortcut}</span>}
           </button>
         </div>
       ))}
