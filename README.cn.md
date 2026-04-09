@@ -188,9 +188,8 @@ Agent 的身份和生命周期管理。
 
 ## Community
 
-- Discord
-- GitHub Issues — bugs and feature requests
-- GitHub Discussions — ideas and RFC
+- Discord(https://discord.gg/HStjGVg6)
+- GitHub Issues — bugs and feature requests(https://github.com/manpoai/AgentOffice/issues)
 
 
 ## License
