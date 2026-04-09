@@ -1,4 +1,4 @@
-pic（我补充）
+<img width="1512" height="928" alt="header" src="https://github.com/user-attachments/assets/1e66593e-bc73-48a6-b7bf-34250db19ffc" />
 
 [English](./README.md) | <u>中文</u> | [X 账号链接](https://x.com/manpoai)
 
