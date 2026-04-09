@@ -32,28 +32,39 @@ function loadOrCreateConfig() {
   const config = {
     jwt_secret: crypto.randomBytes(32).toString('hex'),
     admin_password: crypto.randomBytes(16).toString('hex'),
-    shell_port: SHELL_PORT,
-    gateway_port: GATEWAY_PORT,
+    shell_port: REQUESTED_SHELL_PORT,
+    gateway_port: REQUESTED_GATEWAY_PORT,
   };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   return config;
 }
 
-function isPortFree(port) {
+function isPortFree(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.on('error', () => resolve(false));
-    server.listen({ port }, () => {
+    server.listen({ port, host, exclusive: true }, () => {
       server.close(() => resolve(true));
     });
   });
 }
 
-async function findAvailablePort(startPort, maxAttempts = 50) {
+async function isShellPortFree(port) {
+  return isPortFree(port, '127.0.0.1');
+}
+
+async function isGatewayPortFree(port) {
+  const ipv4 = await isPortFree(port, '0.0.0.0');
+  if (!ipv4) return false;
+  const ipv6 = await isPortFree(port, '::').catch(() => true);
+  return ipv6;
+}
+
+async function findAvailablePort(startPort, maxAttempts = 50, checker = isPortFree) {
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
-    if (await isPortFree(port)) return port;
+    if (await checker(port)) return port;
   }
   throw new Error(`No available port found starting from ${startPort}`);
 }
@@ -86,8 +97,8 @@ function prefixLogs(child, name) {
 
 async function main() {
   const config = loadOrCreateConfig();
-  const shellPort = await findAvailablePort(config.shell_port || REQUESTED_SHELL_PORT);
-  const gatewayPort = await findAvailablePort(config.gateway_port || REQUESTED_GATEWAY_PORT);
+  const shellPort = await findAvailablePort(REQUESTED_SHELL_PORT, 50, isShellPortFree);
+  const gatewayPort = await findAvailablePort(REQUESTED_GATEWAY_PORT, 50, isGatewayPortFree);
   config.shell_port = shellPort;
   config.gateway_port = gatewayPort;
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));

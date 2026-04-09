@@ -14,7 +14,8 @@ cd "$ROOT_DIR"
 
 # Copy gateway runtime
 mkdir -p "$DIST_DIR/gateway"
-cp -R gateway/server.js gateway/routes gateway/middleware gateway/lib gateway/init-db.sql gateway/package.json "$DIST_DIR/gateway/"
+cp -R gateway/server.js gateway/baserow.js gateway/routes gateway/middleware gateway/lib gateway/init-db.sql gateway/package.json gateway/package-lock.json "$DIST_DIR/gateway/"
+cp -R gateway/node_modules "$DIST_DIR/gateway/"
 
 # Copy shell runtime
 mkdir -p "$DIST_DIR/shell/.next"
@@ -24,7 +25,7 @@ mkdir -p "$DIST_DIR/shell/public"
 cp -R shell/public/favicon.png shell/public/favicon.svg shell/public/logo.png shell/public/icons "$DIST_DIR/shell/public/"
 
 # Root runtime metadata
-cp LICENSE README.md "$DIST_DIR/"
+cp LICENSE README.md cli.js "$DIST_DIR/"
 
 tar -czf "$ROOT_DIR/dist/agentoffice-runtime.tar.gz" -C "$ROOT_DIR/dist" agentoffice-runtime
 

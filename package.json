@@ -1,6 +1,6 @@
 {
   "name": "agentoffice-main",
-  "version": "1.0.1",
+  "version": "1.0.6",
   "description": "AgentOffice bootstrap package — one-command install for the runtime artifact.",
   "type": "module",
   "bin": {
@@ -9,8 +9,14 @@
   "files": [
     "bootstrap-cli.js",
     "README.md",
+    "README.cn.md",
     "LICENSE",
-    "docs/"
+    "docs/install.md",
+    "docs/self-hosting.md",
+    "docs/configuration.md",
+    "docs/agent-integration.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md"
   ],
   "keywords": [
     "agentoffice",

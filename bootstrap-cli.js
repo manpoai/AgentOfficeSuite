@@ -11,23 +11,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const HOME_DIR = process.env.AGENTOFFICE_HOME || path.join(os.homedir(), '.agentoffice');
 const RUNTIME_DIR = path.join(HOME_DIR, 'runtime');
-const ARTIFACT_URL = process.env.AGENTOFFICE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOffice/releases/download/v1.0.0/agentoffice-runtime.tar.gz';
+const ARTIFACT_URL = process.env.AGENTOFFICE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOffice/releases/download/v1.0.2/agentoffice-runtime.tar.gz';
 
 function exists(p) { return fs.existsSync(p); }
 function ensureDir(p) { fs.mkdirSync(p, { recursive: true }); }
 
-function download(url, dest) {
+function download(url, dest, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https:') ? https : http;
-    const file = fs.createWriteStream(dest);
-    mod.get(url, (res) => {
-      if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`Download failed: ${res.statusCode}`));
+    const req = mod.get(url, (res) => {
+      const status = res.statusCode || 0;
+      if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
+        if (redirectCount > 5) {
+          reject(new Error('Too many redirects while downloading runtime artifact.'));
+          return;
+        }
+        const nextUrl = new URL(res.headers.location, url).toString();
+        res.resume();
+        resolve(download(nextUrl, dest, redirectCount + 1));
         return;
       }
+      if (status >= 400) {
+        reject(new Error(`Download failed: ${status}`));
+        return;
+      }
+      const file = fs.createWriteStream(dest);
       res.pipe(file);
       file.on('finish', () => file.close(resolve));
-    }).on('error', reject);
+      file.on('error', reject);
+    });
+    req.on('error', reject);
   });
 }
 
@@ -46,8 +59,7 @@ async function ensureRuntime() {
     p.on('exit', (code) => code === 0 ? resolve() : reject(new Error(`tar exited with ${code}`)));
   });
   const extracted = path.join(HOME_DIR, 'agentoffice-runtime');
-  if (exists(extracted) && !exists(RUNTIME_DIR)) fs.renameSync(extracted, RUNTIME_DIR);
-  if (exists(extracted) && extracted !== RUNTIME_DIR) {
+  if (exists(extracted)) {
     fs.rmSync(RUNTIME_DIR, { recursive: true, force: true });
     fs.renameSync(extracted, RUNTIME_DIR);
   }
