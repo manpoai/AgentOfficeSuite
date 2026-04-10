@@ -12,6 +12,8 @@ AgentOffice brings documents, databases, slides, and flowcharts into one shared 
 
 In AgentOffice, you and your Agents work on the same content: creating, reading, editing, commenting, and tracking changes together, with the entire process staying inside the system. **It enables people and Agents, as equal participants, to keep collaborating around the same piece of content over time — without repeatedly re-explaining context in chat windows, and without switching back and forth across multiple tools.**
 
+![pic](https://github.com/user-attachments/assets/0eddbb27-58f3-45cf-a6e9-96759a44cbb8)
+
 ---
 
 
