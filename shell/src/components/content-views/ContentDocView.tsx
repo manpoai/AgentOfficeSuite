@@ -363,14 +363,15 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
       const savingTitle = latestTitleRef.current;
       const savingText = latestTextRef.current;
       const savingEmoji = latestEmojiRef.current;
+      const savingDocJson = sanitizeDocJson(latestDocJsonRef.current);
       const docEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
       const titleToSave = savingTitle ?? '';
-      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, sanitizeDocJson(latestDocJsonRef.current) || undefined);
+      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, savingDocJson || undefined);
       if (titleVersionRef.current !== titleVersion || textVersionRef.current !== textVersion) return;
       const confirmedTitle = savedDoc.title;
       const confirmedEmoji = savingEmoji;
       queryClient.setQueryData<DocType>(['document', saveDocId], (old) =>
-        old ? { ...old, title: confirmedTitle, text: savingText, icon: confirmedEmoji } : old
+        old ? { ...old, title: confirmedTitle, text: savingText, icon: confirmedEmoji, data_json: savingDocJson || old.data_json } : old
       );
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
       if (saveDocId === docIdRef.current) {
@@ -402,6 +403,15 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
       const docEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
       const titleToSave = savingTitle ?? '';
       await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, sanitizeDocJson(docJson) || undefined);
+      queryClient.setQueryData<DocType>(['document', saveDocId], (old) =>
+        old ? {
+          ...old,
+          title: titleToSave,
+          text: savingText,
+          icon: savingEmoji,
+          data_json: sanitizeDocJson(docJson) || old.data_json,
+        } : old
+      );
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
       if (saveDocId === docIdRef.current) {
         setReliabilityStatus('clean');

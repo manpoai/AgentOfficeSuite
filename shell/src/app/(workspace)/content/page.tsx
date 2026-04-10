@@ -1414,6 +1414,7 @@ export default function ContentPage() {
           />
         ) : selectedPresentationId ? (
           <PresentationEditor
+            key={selectedPresentationId}
             presentationId={selectedPresentationId}
             breadcrumb={(() => {
               const path: { id: string; title: string }[] = [];
