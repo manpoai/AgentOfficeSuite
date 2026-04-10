@@ -1035,7 +1035,20 @@
     "insertColumnLeft": "左に列を挿入",
     "insertColumnRight": "右に列を挿入",
     "removeGroupBy": "グループ解除",
-    "unfreezeAll": "固定をすべて解除"
+    "unfreezeAll": "固定をすべて解除",
+    "bringToFront": "最前面へ",
+    "bringForward": "前面へ",
+    "sendBackward": "背面へ",
+    "sendToBack": "最背面へ",
+    "insertAbove": "上に行を挿入",
+    "insertBelow": "下に行を挿入",
+    "insertBefore": "左に列を挿入",
+    "insertAfter": "右に列を挿入",
+    "mergeCells": "セルを結合",
+    "splitCell": "セルを分割",
+    "deleteRow": "行を削除",
+    "flipHorizontal": "水平反転",
+    "flipVertical": "垂直反転"
   },
   "notification": {
     "noNotifications": "通知はありません",

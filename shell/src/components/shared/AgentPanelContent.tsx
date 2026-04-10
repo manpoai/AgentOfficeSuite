@@ -9,6 +9,25 @@ import { useT } from '@/lib/i18n';
 import * as gw from '@/lib/api/gateway';
 import { resolveAvatarUrl } from '@/lib/api/gateway';
 
+function PlatformIcon({ name }: { name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-sidebar-primary/10 flex items-center justify-center">
+        <Bot className="h-5 w-5 text-sidebar-primary" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`/icons/platform-${name.toLowerCase()}.jpg`}
+      alt={name}
+      className="w-10 h-10 rounded-lg object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export interface AgentPanelContentProps {
   variant: 'popover' | 'bottomsheet';
 }
@@ -40,7 +59,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
     queryFn: gw.listPlatforms,
     staleTime: 60_000,
   });
-  const platforms = platformsData?.platforms || ['zylos', 'openclaw'];
+  const platforms = platformsData?.platforms || ['openclaw', 'zylos'];
 
   const isCompact = variant === 'bottomsheet';
   const styles = {
@@ -155,9 +174,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
                 }}
                 className="flex flex-col items-center gap-2 p-3 rounded-lg border border-black/10 dark:border-border hover:border-sidebar-primary hover:bg-sidebar-primary/5 transition-colors"
               >
-                <div className="w-10 h-10 rounded-lg bg-sidebar-primary/10 flex items-center justify-center">
-                  <Bot className="h-5 w-5 text-sidebar-primary" />
-                </div>
+                <PlatformIcon name={p} />
                 <span className="text-xs font-medium">{p}</span>
               </button>
             ))}
@@ -254,8 +271,8 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
                 {deleteConfirmId === agentId ? (
                   <div className="flex items-center gap-1 ml-1">
                     <span className="text-[10px] text-foreground/60">{t('actions.confirmDelete')}</span>
-                    <button onClick={async () => { try { await gw.deleteAgent(agentId); queryClient.invalidateQueries({ queryKey: ['admin-agents'] }); } catch {} setDeleteConfirmId(null); }} className="px-1.5 py-0.5 text-[10px] font-medium text-white bg-red-500 rounded hover:bg-red-600 transition-colors shrink-0">删除</button>
-                    <button onClick={() => setDeleteConfirmId(null)} className="px-1.5 py-0.5 text-[10px] font-medium text-foreground/60 bg-black/[0.05] rounded hover:bg-black/[0.1] transition-colors shrink-0">取消</button>
+                    <button onClick={async () => { try { await gw.deleteAgent(agentId); queryClient.invalidateQueries({ queryKey: ['admin-agents'] }); } catch {} setDeleteConfirmId(null); }} className="px-1.5 py-0.5 text-[10px] font-medium text-white bg-red-500 rounded hover:bg-red-600 transition-colors shrink-0">{t('actions.delete')}</button>
+                    <button onClick={() => setDeleteConfirmId(null)} className="px-1.5 py-0.5 text-[10px] font-medium text-foreground/60 bg-black/[0.05] rounded hover:bg-black/[0.1] transition-colors shrink-0">{t('common.cancel')}</button>
                   </div>
                 ) : (
                   <button onClick={() => setDeleteConfirmId(agentId)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-black/[0.05] opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-3.5 w-3.5 text-foreground/40" /></button>

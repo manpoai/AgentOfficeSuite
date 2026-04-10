@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Table2, Presentation, GitBranch, Search, ArrowRight, Loader2, X } from 'lucide-react';
+import { FileText, Table2, Presentation, Workflow, Search, ArrowRight, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime, formatDate } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
@@ -22,14 +22,14 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   doc: <FileText className="h-4 w-4" />,
   table: <Table2 className="h-4 w-4" />,
   presentation: <Presentation className="h-4 w-4" />,
-  diagram: <GitBranch className="h-4 w-4" />,
+  diagram: <Workflow className="h-4 w-4" />,
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  doc: 'Documents',
-  table: 'Tables',
-  presentation: 'Presentations',
-  diagram: 'Diagrams',
+const TYPE_LABEL_KEY: Record<string, string> = {
+  doc: 'entities.doc',
+  table: 'entities.table',
+  presentation: 'entities.slides',
+  diagram: 'entities.flowchart',
 };
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -143,9 +143,9 @@ export function CommandPalette() {
         : formatTime(r.updated_at),
       icon: <span className="text-muted-foreground">{TYPE_ICON[r.type] || <FileText className="h-4 w-4" />}</span>,
       action: () => navigate(`/content?id=${r.id}`),
-      category: TYPE_LABEL[r.type] || r.type,
+      category: TYPE_LABEL_KEY[r.type] ? t(TYPE_LABEL_KEY[r.type]) : r.type,
     }));
-  }, [isSearchMode, searchData, navigate]);
+  }, [isSearchMode, searchData, navigate, t]);
 
   // Build fallback command items (when no search query) — recent files only
   const commandItems = useMemo<CommandItem[]>(() => {
@@ -155,7 +155,7 @@ export function CommandPalette() {
       sublabel: item.updated_at ? formatDate(item.updated_at) : '',
       icon: <span className="text-muted-foreground">{TYPE_ICON[item.type] || <FileText className="h-4 w-4" />}</span>,
       action: () => navigate(`/content?id=${item.id}`),
-      category: t('command.catRecent') || '最近文件',
+      category: t('command.catRecent'),
     }));
   }, [recentItems, navigate, t]);
 

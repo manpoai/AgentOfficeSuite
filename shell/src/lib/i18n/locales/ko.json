@@ -1035,7 +1035,20 @@
     "insertColumnLeft": "왼쪽에 열 삽입",
     "insertColumnRight": "오른쪽에 열 삽입",
     "removeGroupBy": "그룹 해제",
-    "unfreezeAll": "고정 모두 해제"
+    "unfreezeAll": "고정 모두 해제",
+    "bringToFront": "맨 앞으로",
+    "bringForward": "앞으로",
+    "sendBackward": "뒤로",
+    "sendToBack": "맨 뒤로",
+    "insertAbove": "위에 행 삽입",
+    "insertBelow": "아래에 행 삽입",
+    "insertBefore": "왼쪽에 열 삽입",
+    "insertAfter": "오른쪽에 열 삽입",
+    "mergeCells": "셀 병합",
+    "splitCell": "셀 분할",
+    "deleteRow": "행 삭제",
+    "flipHorizontal": "좌우 반전",
+    "flipVertical": "상하 반전"
   },
   "notification": {
     "noNotifications": "알림이 없습니다",

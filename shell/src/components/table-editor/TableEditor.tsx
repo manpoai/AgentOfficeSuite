@@ -1796,7 +1796,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     if (!confirm(t('dataTable.deleteRowsConfirm', { n: selectedRows.size }))) return;
     try {
       // 批量删除前自动快照（不可逆操作）
-      await gw.createTableSnapshot(tableId, `批量删除 ${selectedRows.size} 行前自动保存`).catch(() => {});
+      await gw.createTableSnapshot(tableId, `Auto-save before bulk delete ${selectedRows.size} rows`).catch(() => {});
       for (const rowId of selectedRows) {
         await br.deleteRow(tableId, rowId);
       }
@@ -4614,7 +4614,7 @@ function DatePickerDropdown({ value, showTime, onChange, onClose }: {
     <div data-date-picker className="absolute left-0 top-full mt-1 z-20 bg-card border border-border rounded-lg shadow-xl w-64 select-none">
       {/* Month navigation — month name left, Today + arrows right */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-xs font-medium text-foreground">{t('dataTable.monthNames', { returnObjects: true })?.[viewMonth] || `${viewMonth + 1}月`} {viewYear}</span>
+        <span className="text-xs font-medium text-foreground">{t('dataTable.monthNames', { returnObjects: true })?.[viewMonth] || new Date(viewYear, viewMonth).toLocaleString('en', { month: 'long' })} {viewYear}</span>
         <div className="flex items-center gap-1">
           <button onClick={() => { const now = new Date(); setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); setSelectedDay(now.getDate()); setSelectedMonth(now.getMonth()); setSelectedYear(now.getFullYear()); onChange(buildDateStr(now.getFullYear(), now.getMonth(), now.getDate())); }} className="text-[10px] text-muted-foreground hover:text-foreground mr-1">{t('dataTable.today')}</button>
           <button onClick={prevMonth} className="p-0.5 text-muted-foreground hover:text-foreground"><ChevronLeft className="h-3.5 w-3.5" /></button>

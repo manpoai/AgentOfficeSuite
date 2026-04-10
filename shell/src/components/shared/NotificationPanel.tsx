@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, Check, MessageSquare, FileText, Table2, Bot, X, Layout, GitBranch } from 'lucide-react';
+import { Bell, Check, MessageSquare, FileText, Table2, Bot, X, Layout, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import * as gw from '@/lib/api/gateway';
@@ -16,7 +16,7 @@ const CONTENT_TYPE_ICONS: Record<string, React.ReactNode> = {
   doc: <FileText className="h-4 w-4" />,
   table: <Table2 className="h-4 w-4" />,
   presentation: <Layout className="h-4 w-4" />,
-  diagram: <GitBranch className="h-4 w-4" />,
+  diagram: <Workflow className="h-4 w-4" />,
 };
 
 const NOTIF_ICON: Record<string, React.ReactNode> = {
@@ -172,7 +172,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
       title={t('toolbar.markAllRead')}
     >
       <Check className="h-3.5 w-3.5 inline mr-1" />
-      Mark all
+      {t('notification.markAllRead')}
     </button>
   ) : null;
 
@@ -182,7 +182,7 @@ export function NotificationPanel({ open, onClose, anchorRect }: NotificationPan
       <BottomSheet
         open={open}
         onClose={onClose}
-        title={`Notifications${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
+        title={`${t('toolbar.notifications')}${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
         initialHeight="full"
       >
         {headerActions && (
