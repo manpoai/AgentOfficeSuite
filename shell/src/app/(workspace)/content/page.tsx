@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as docApi from '@/lib/api/documents';
 import type { Document as DocType } from '@/lib/api/documents';
-import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, GitBranch, Pencil } from 'lucide-react';
+import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, Workflow, Pencil } from 'lucide-react';
 import { CREATE_CONTENT_ITEMS } from '@/actions/create-content.actions';
 import { ENTITY_NAMES, CREATABLE_TYPES } from '@/actions/entity-names';
 import { SwipeBack } from '@/components/shared/SwipeBack';
@@ -1168,7 +1168,7 @@ export default function ContentPage() {
                         : dragActiveNode.type === 'presentation'
                         ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
                         : dragActiveNode.type === 'diagram'
-                        ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
+                        ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" />
                         : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       }
                       <span className="truncate">{dragActiveNode.title}</span>
@@ -1181,7 +1181,7 @@ export default function ContentPage() {
       </ContentSidebar>
 
       {/* Trash overlay — Desktop Dialog */}
-      {showTrash && !isMobile && (
+      {showTrash && !isMobilePage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowTrash(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
@@ -1259,7 +1259,7 @@ export default function ContentPage() {
       )}
 
       {/* Trash overlay — Mobile BottomSheet */}
-      {showTrash && isMobile && (
+      {showTrash && isMobilePage && (
         <BottomSheet open={showTrash} onClose={() => setShowTrash(false)} title={t('settings.trash')}>
           <div className="px-2 py-2">
             {deletedLoading && (
@@ -1294,6 +1294,10 @@ export default function ContentPage() {
                   title={entry.title}
                   icon={entry.type === 'table'
                     ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : entry.type === 'presentation'
+                    ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : entry.type === 'diagram'
+                    ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" />
                     : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                   }
                   deletedAt={entry.deletedAt}
@@ -1377,7 +1381,7 @@ export default function ContentPage() {
                   <DragOverlay dropAnimation={null}>
                     {dragActiveNode && (
                       <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
-                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
                         <span className="truncate">{dragActiveNode.title}</span>
                       </div>
                     )}
@@ -1388,7 +1392,7 @@ export default function ContentPage() {
           </ScrollArea>
           {/* @suite watermark — Figma: bottom-left logo image */}
           <div className="px-6 py-4 mt-auto">
-            <img src="/icons/asuite-watermark.png" alt="@suite" className="h-6 opacity-30 dark:invert dark:opacity-20 select-none pointer-events-none" draggable={false} />
+            <img src="/logo.png" alt="AgentOffice" className="h-6 opacity-30 dark:invert dark:opacity-20 select-none pointer-events-none" draggable={false} />
           </div>
         </div>
       )}
@@ -1413,7 +1417,7 @@ export default function ContentPage() {
           {/* FAB menu — BottomSheet */}
           <BottomSheet open={showMobileFabMenu} onClose={() => setShowMobileFabMenu(false)} title={t('common.new')}>
             <div className="py-2">
-              {CREATE_CONTENT_ITEMS.map((item) => {
+              {CREATE_CONTENT_ITEMS.filter(item => item.type !== 'presentation' && item.type !== 'diagram').map((item) => {
                 const Icon = item.icon;
                 const onClick = () => {
                   setShowMobileFabMenu(false);
@@ -1569,7 +1573,7 @@ export default function ContentPage() {
               <FileText className="h-8 w-8 opacity-20" />
               <Table2 className="h-8 w-8 opacity-20" />
               <Presentation className="h-8 w-8 opacity-20" />
-              <GitBranch className="h-8 w-8 opacity-20" />
+              <Workflow className="h-8 w-8 opacity-20" />
             </div>
             <p className="text-sm">{t('content.selectHint')}</p>
             <p className="text-xs text-muted-foreground/50">{t('content.createHint')}</p>
@@ -1748,7 +1752,7 @@ export default function ContentPage() {
 
             {/* Theme toggle */}
             <div className="px-4 pt-3 pb-4 flex gap-1">
-              {(['light', 'dark', 'system'] as const).map((th) => (
+              {(['light', 'dark'] as const).map((th) => (
                 <button
                   key={th}
                   onClick={() => setTheme(th)}
@@ -2044,6 +2048,8 @@ function DraggableTreeNode({
               ? <Table2 className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : node.type === 'presentation'
               ? <Presentation className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+              : node.type === 'diagram'
+              ? <Workflow className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : <FileText className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
             }
           </button>
@@ -2198,7 +2204,7 @@ function TreeNodeItem({
         : (node.type as string) === 'presentation'
         ? <Presentation className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
         : (node.type as string) === 'diagram'
-        ? <GitBranch className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        ? <Workflow className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
         : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
       }
       <span className="truncate">{node.title}</span>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, GitBranch, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut } from 'lucide-react';
+import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, Workflow, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -413,7 +413,7 @@ export function ContentSidebar({
 
                   {/* Theme toggle — NO icons, text only. pb-6 = 24px bottom padding */}
                   <div className="px-4 pt-3 pb-6 flex gap-1">
-                    {mounted && (['light', 'dark', 'system'] as const).map((th) => (
+                    {mounted && (['light', 'dark'] as const).map((th) => (
                       <button
                         key={th}
                         onClick={() => setTheme(th)}
@@ -692,7 +692,7 @@ export function ContentSidebar({
         {!collapsed ? (
           <div className="flex items-center">
             {/* @suite logo — Figma: 56×24 image, 24px from left/top/bottom */}
-            <img src="/logo.png" alt="@suite" className="h-6 object-contain object-left" style={{ maxWidth: '56px' }} />
+            <img src="/logo.png" alt="AgentOffice" className="h-6 object-contain object-left" />
             {/* Help + Collapse pushed to right, 12px from right edge */}
             <div className="ml-auto flex items-center">
               <button
