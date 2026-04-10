@@ -557,6 +557,7 @@ export default function ContentPage() {
 
   // Mobile back: clear selection + URL + sessionStorage + switch to list view
   const handleMobileBack = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('flush-doc-save'));
     setSelection(null);
     syncSelectionToURL(null);
     try { sessionStorage.removeItem('asuite-content-selection'); } catch {}
@@ -594,6 +595,7 @@ export default function ContentPage() {
   };
 
   const handleSelect = (nodeId: string) => {
+    window.dispatchEvent(new CustomEvent('flush-doc-save'));
     const node = effectiveNodes.get(nodeId);
     if (!node) return;
     const sel = { type: node.type, id: node.rawId };

@@ -154,6 +154,7 @@ export const schema = new Schema({
         title: { default: null },
         width: { default: null },
         align: { default: null }, // 'left' | 'center' | 'right'
+        uploading: { default: undefined }, // UUID string while uploading, undefined when done
       },
       group: 'inline',
       draggable: true,

@@ -11,6 +11,8 @@ import { ContentLinkView } from './content-link-node';
 import { DiagramEmbedView } from './diagram-embed-node';
 import { pickFile } from '@/lib/utils/pick-file';
 import { getT } from '@/lib/i18n';
+import * as docApi from '@/lib/api/documents';
+import { showError } from '@/lib/utils/error';
 
 /** Lazy-load mermaid via CDN <script> tag (avoids webpack bundling issues). */
 let mermaidPromise: Promise<any> | null = null;
@@ -90,7 +92,7 @@ class ImageNodeView implements NodeView {
   private captionContainer: HTMLElement | null = null;
   private resizing = false;
 
-  constructor(private node: PMNode, private view: EditorView, private getPos: () => number | undefined) {
+  constructor(private node: PMNode, private view: EditorView, private getPos: () => number | undefined, private getDocId?: () => string | undefined) {
     // Wrapper
     this.dom = document.createElement('div');
     this.dom.className = 'image-node-wrapper';
@@ -340,21 +342,58 @@ class ImageNodeView implements NodeView {
   }
 
   private replaceImage() {
-    pickFile({ accept: 'image/*' }).then((files) => {
+    pickFile({ accept: 'image/*' }).then(async (files) => {
       const file = files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const pos = this.getPos();
-        if (pos != null && typeof reader.result === 'string') {
-          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
-            ...this.node.attrs,
-            src: reader.result,
-          });
-          this.view.dispatch(tr);
-        }
-      };
-      reader.readAsDataURL(file);
+      const imageType = this.view.state.schema.nodes.image;
+      const uploadId = crypto.randomUUID();
+
+      // Mark the current node as uploading (keep original src for display)
+      const initPos = this.getPos();
+      if (initPos != null) {
+        const tr = this.view.state.tr.setNodeMarkup(initPos, undefined, {
+          ...this.node.attrs,
+          uploading: uploadId,
+        });
+        this.view.dispatch(tr);
+      }
+
+      try {
+        const result = await docApi.uploadFile(file, this.getDocId?.());
+        // Locate node by uploadId (pos may have shifted during await)
+        let found = false;
+        this.view.state.doc.descendants((node, nodePos) => {
+          if (found) return false;
+          if (node.type === imageType && node.attrs.uploading === uploadId) {
+            const tr = this.view.state.tr.setNodeMarkup(nodePos, undefined, {
+              ...node.attrs,
+              src: result.url,
+              uploading: undefined,
+            });
+            this.view.dispatch(tr);
+            found = true;
+            return false;
+          }
+          return true;
+        });
+      } catch (e) {
+        showError(getT()('errors.imageUploadFailed'), e);
+        // Remove uploading marker, restore original display
+        let found = false;
+        this.view.state.doc.descendants((node, nodePos) => {
+          if (found) return false;
+          if (node.type === imageType && node.attrs.uploading === uploadId) {
+            const tr = this.view.state.tr.setNodeMarkup(nodePos, undefined, {
+              ...node.attrs,
+              uploading: undefined,
+            });
+            this.view.dispatch(tr);
+            found = true;
+            return false;
+          }
+          return true;
+        });
+      }
     });
   }
 
@@ -767,12 +806,12 @@ class MermaidBlockView implements NodeView {
 /**
  * Factory function to create nodeViews map for ProseMirror EditorView.
  */
-export function createNodeViews() {
+export function createNodeViews(getDocId?: () => string | undefined) {
   return {
     math_block: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
       new MathBlockView(node, view, getPos),
     image: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
-      new ImageNodeView(node, view, getPos),
+      new ImageNodeView(node, view, getPos, getDocId),
     checkbox_item: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>
       new CheckboxItemView(node, view, getPos),
     content_link: (node: PMNode, view: EditorView, getPos: () => number | undefined) =>

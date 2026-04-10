@@ -3,6 +3,9 @@ import { pickFile } from '@/lib/utils/pick-file';
 import { liftListItem, wrapInList } from 'prosemirror-schema-list';
 import type { EditorView } from 'prosemirror-view';
 import type { NodeType } from 'prosemirror-model';
+import * as docApi from '@/lib/api/documents';
+import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 import {
   CellSelection, mergeCells, splitCell, toggleHeaderRow, toggleHeaderColumn,
   deleteRow, deleteColumn,
@@ -414,7 +417,7 @@ export function createDocsTableHandler(view: EditorView): ToolbarHandler {
 
 // ── Docs Image Toolbar Handler ──
 
-export function createDocsImageHandler(view: EditorView, nodePos: number): ToolbarHandler {
+export function createDocsImageHandler(view: EditorView, nodePos: number, getDocId?: () => string | undefined): ToolbarHandler {
   return {
     getState(): ToolbarState {
       const node = view.state.doc.nodeAt(nodePos);
@@ -446,13 +449,38 @@ export function createDocsImageHandler(view: EditorView, nodePos: number): Toolb
           const files = await pickFile({ accept: 'image/*' });
           const file = files[0];
           if (!file) break;
-          const reader = new FileReader();
-          reader.onload = () => {
-            const src = reader.result as string;
-            const tr = view.state.tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, src });
-            view.dispatch(tr);
-          };
-          reader.readAsDataURL(file);
+          const imageType = view.state.schema.nodes.image;
+          const uploadId = crypto.randomUUID();
+          // Mark as uploading
+          const currentNode = view.state.doc.nodeAt(nodePos);
+          if (currentNode) {
+            view.dispatch(view.state.tr.setNodeMarkup(nodePos, undefined, { ...currentNode.attrs, uploading: uploadId }));
+          }
+          try {
+            const result = await docApi.uploadFile(file, getDocId?.());
+            let found = false;
+            view.state.doc.descendants((n, nPos) => {
+              if (found) return false;
+              if (n.type === imageType && n.attrs.uploading === uploadId) {
+                view.dispatch(view.state.tr.setNodeMarkup(nPos, undefined, { ...n.attrs, src: result.url, uploading: undefined }));
+                found = true;
+                return false;
+              }
+              return true;
+            });
+          } catch (e) {
+            showError(getT()('errors.imageUploadFailed'), e);
+            let found = false;
+            view.state.doc.descendants((n, nPos) => {
+              if (found) return false;
+              if (n.type === imageType && n.attrs.uploading === uploadId) {
+                view.dispatch(view.state.tr.setNodeMarkup(nPos, undefined, { ...n.attrs, uploading: undefined }));
+                found = true;
+                return false;
+              }
+              return true;
+            });
+          }
           break;
         }
         case 'download': {

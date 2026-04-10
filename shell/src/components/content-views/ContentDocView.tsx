@@ -69,6 +69,21 @@ function DocMenuToggle({ icon: Icon, label, checked, onChange }: {
   );
 }
 
+/** Remove base64 src from any uploading image nodes before persisting to backend. */
+function sanitizeDocJson(json: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!json) return null;
+  const cleaned = JSON.parse(JSON.stringify(json));
+  function walk(node: any) {
+    if (node.type === 'image' && node.attrs?.uploading) {
+      node.attrs.src = '';
+      delete node.attrs.uploading;
+    }
+    if (node.content) node.content.forEach(walk);
+  }
+  if (cleaned.content) cleaned.content.forEach(walk);
+  return cleaned;
+}
+
 export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, onDeleted, onNavigate, docListVisible, onToggleDocList, focusCommentId: initialFocusCommentId, showComments, onShowComments, onCloseComments, onToggleComments, isPinned, onTogglePin }: {
   doc: DocType;
   customIcon?: string;
@@ -303,8 +318,13 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
     return () => window.removeEventListener('save-current', handler);
   }, [doc?.id]);
 
+  // Ref so that the doc.id useEffect can call flushDocSave without stale closure
+  const flushDocSaveRef = useRef<() => void>(() => {});
+
   // Reset local state and cancel pending saves when switching to a different document
   useEffect(() => {
+    // Flush pending save for the *previous* document before switching
+    flushDocSaveRef.current();
     if (titleSaveTimerRef.current) { clearTimeout(titleSaveTimerRef.current); titleSaveTimerRef.current = null; }
     if (textSaveTimerRef.current) { clearTimeout(textSaveTimerRef.current); textSaveTimerRef.current = null; }
     docIdRef.current = doc.id;
@@ -345,7 +365,7 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
       const savingEmoji = latestEmojiRef.current;
       const docEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
       const titleToSave = savingTitle ?? '';
-      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, latestDocJsonRef.current || undefined);
+      const savedDoc = await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, sanitizeDocJson(latestDocJsonRef.current) || undefined);
       if (titleVersionRef.current !== titleVersion || textVersionRef.current !== textVersion) return;
       const confirmedTitle = savedDoc.title;
       const confirmedEmoji = savingEmoji;
@@ -361,6 +381,36 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
       if (attempt < 2) {
         setFlushRetryCount(attempt + 1);
         setTimeout(() => executeSave(saveDocId, titleVersion, textVersion, attempt + 1), 400 * (attempt + 1));
+        return;
+      }
+      showError(t('errors.autoSaveFailed'), e);
+      if (saveDocId === docIdRef.current) {
+        setReliabilityStatus('flush_failed');
+        setFlushRetryCount(attempt + 1);
+      }
+    }
+  }, [queryClient, t]);
+
+  // Snapshot-based save — used by flushDocSave so ref changes after flush don't affect this save
+  const executeSaveWithSnapshot = useCallback(async (
+    snapshot: { docId: string; title: string | null; text: string; emoji: string | null; docJson: Record<string, unknown> | null },
+    attempt = 0,
+  ) => {
+    const { docId: saveDocId, title: savingTitle, text: savingText, emoji: savingEmoji, docJson } = snapshot;
+    setReliabilityStatus('flushing');
+    try {
+      const docEmoji = savingEmoji && (savingEmoji.startsWith('/api/') || savingEmoji.startsWith('http')) ? null : savingEmoji;
+      const titleToSave = savingTitle ?? '';
+      await docApi.updateDocument(saveDocId, titleToSave, savingText, docEmoji, undefined, sanitizeDocJson(docJson) || undefined);
+      queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      if (saveDocId === docIdRef.current) {
+        setReliabilityStatus('clean');
+        setFlushRetryCount(0);
+      }
+    } catch (e) {
+      if (attempt < 2) {
+        setFlushRetryCount(attempt + 1);
+        setTimeout(() => executeSaveWithSnapshot(snapshot, attempt + 1), 400 * (attempt + 1));
         return;
       }
       showError(t('errors.autoSaveFailed'), e);
@@ -398,9 +448,28 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
     if (titleSaveTimerRef.current || textSaveTimerRef.current) {
       if (titleSaveTimerRef.current) { clearTimeout(titleSaveTimerRef.current); titleSaveTimerRef.current = null; }
       if (textSaveTimerRef.current) { clearTimeout(textSaveTimerRef.current); textSaveTimerRef.current = null; }
-      executeSave(docIdRef.current, titleVersionRef.current, textVersionRef.current);
+      // Snapshot current values immediately — ref changes after this point don't affect this save
+      executeSaveWithSnapshot({
+        docId: docIdRef.current,
+        title: latestTitleRef.current,
+        text: latestTextRef.current,
+        emoji: latestEmojiRef.current,
+        docJson: latestDocJsonRef.current,
+      });
     }
-  }, [executeSave]);
+  }, [executeSaveWithSnapshot]);
+
+  // Keep ref current so doc.id useEffect can always call latest flushDocSave
+  useEffect(() => {
+    flushDocSaveRef.current = flushDocSave;
+  });
+
+  // Listen for flush requests from page.tsx (handleSelect / handleMobileBack)
+  useEffect(() => {
+    const handler = () => flushDocSave();
+    window.addEventListener('flush-doc-save', handler);
+    return () => window.removeEventListener('flush-doc-save', handler);
+  }, [flushDocSave]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -502,8 +571,9 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
   }, []);
 
   const handleMobileSave = useCallback(() => {
+    flushDocSave();
     setMobileEditMode(false);
-  }, []);
+  }, [flushDocSave]);
 
   return (
     <div className="flex-1 min-w-0 flex flex-row h-full overflow-hidden">
@@ -738,11 +808,11 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
               />
             ) : (
               <Editor
-                key={`${doc.id}-${editorKey}${mobileReadOnly ? '-ro' : ''}`}
+                key={`${doc.id}-${editorKey}`}
                 defaultValue={doc.text}
                 defaultDocJson={doc.data_json}
                 onChange={handleTextChange}
-                onDocJson={(json) => { latestDocJsonRef.current = json; }}
+                onDocJson={(json) => { latestDocJsonRef.current = json; scheduleTextSave(latestTextRef.current); }}
                 readOnly={mobileReadOnly}
                 placeholder={t('content.editorPlaceholder')}
                 documentId={doc.id}

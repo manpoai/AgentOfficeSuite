@@ -57,7 +57,10 @@ export async function uploadAndInsert(view: EditorView, file: File, rawPos: numb
     ? new File([file], safeName, { type: contentType })
     : file;
 
-  // Create a placeholder with a data URL while uploading
+  // Generate unique ID for this upload — used to locate the placeholder node
+  const uploadId = crypto.randomUUID();
+
+  // Create a placeholder with a data URL for local preview while uploading
   const reader = new FileReader();
   reader.onload = async () => {
     const dataUrl = reader.result as string;
@@ -65,26 +68,24 @@ export async function uploadAndInsert(view: EditorView, file: File, rawPos: numb
     // Use current state (may have changed since drop event)
     const insertPos = findInsertPos(view, Math.min(rawPos, view.state.doc.content.size));
 
-    // Insert placeholder image (wrapped in a paragraph since image is inline)
-    const placeholderNode = imageType.create({ src: dataUrl, alt: '' });
+    // Insert placeholder image with uploading=uploadId (base64 is only for preview)
+    const placeholderNode = imageType.create({ src: dataUrl, alt: '', uploading: uploadId });
     const para = schema.nodes.paragraph.create(null, placeholderNode);
-    const tr = view.state.tr.insert(insertPos, para);
-    view.dispatch(tr);
+    view.dispatch(view.state.tr.insert(insertPos, para));
 
     try {
       const result = await docApi.uploadFile(uploadFile, docId);
-      const url = result.url;
 
-      // Find and replace the placeholder image
+      // Locate placeholder by uploadId (pos may have shifted during await)
       let found = false;
       view.state.doc.descendants((node, nodePos) => {
         if (found) return false;
-        if (node.type === imageType && node.attrs.src === dataUrl) {
-          const tr = view.state.tr.setNodeMarkup(nodePos, undefined, {
+        if (node.type === imageType && node.attrs.uploading === uploadId) {
+          view.dispatch(view.state.tr.setNodeMarkup(nodePos, undefined, {
             ...node.attrs,
-            src: url,
-          });
-          view.dispatch(tr);
+            src: result.url,
+            uploading: undefined,
+          }));
           found = true;
           return false;
         }
@@ -96,9 +97,8 @@ export async function uploadAndInsert(view: EditorView, file: File, rawPos: numb
       let found = false;
       view.state.doc.descendants((node, nodePos) => {
         if (found) return false;
-        if (node.type === imageType && node.attrs.src === dataUrl) {
-          const tr = view.state.tr.delete(nodePos, nodePos + node.nodeSize);
-          view.dispatch(tr);
+        if (node.type === imageType && node.attrs.uploading === uploadId) {
+          view.dispatch(view.state.tr.delete(nodePos, nodePos + node.nodeSize));
           found = true;
           return false;
         }
