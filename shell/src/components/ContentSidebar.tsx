@@ -17,6 +17,7 @@ import { showError } from '@/lib/utils/error';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { CREATE_CONTENT_ITEMS } from '@/actions/create-content.actions';
 import type { CreatableType } from '@/actions/entity-names';
+import { useIsMobile } from '@/lib/hooks/use-mobile';
 
 interface ContentSidebarProps {
   /** Whether the sidebar is collapsed (56px) or expanded (232px) */
@@ -57,6 +58,7 @@ export function ContentSidebar({
   onSearchChange,
 }: ContentSidebarProps) {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const { actor, logout, refreshActor } = useAuth();
   const { t, locale, setLocale } = useT();
   const { setTheme, theme } = useTheme();
@@ -640,7 +642,7 @@ export function ContentSidebar({
           <div className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-[168px]"
             style={{ top: `${menuPos.plus?.top ?? 52}px`, left: `${menuPos.plus?.left ?? 170}px` }}
           >
-            {CREATE_CONTENT_ITEMS.map((item) => {
+            {CREATE_CONTENT_ITEMS.filter(item => !isMobile || (item.type !== 'presentation' && item.type !== 'diagram')).map((item) => {
               const Icon = item.icon;
               const onClick = () => {
                 onShowNewMenuChange(false);
@@ -660,7 +662,7 @@ export function ContentSidebar({
             })}
             <div className="border-t border-black/10 dark:border-border my-1" />
             <button
-              onClick={() => { onShowNewMenuChange(false); router.push('/contacts'); }}
+              onClick={() => { onShowNewMenuChange(false); setShowAgentsMenu(true); }}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
             >
               <Users className="h-4 w-4 text-[#939493] dark:text-[#818181]" />

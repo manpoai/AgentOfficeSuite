@@ -85,7 +85,7 @@ export function FloatingToolbar({ items, handler, anchor, visible, onHover, clas
             icon={item.icon}
             label={item.label}
             colors={item.colors || []}
-            active={!!state[item.key]}
+            active={false}
             currentColor={typeof state[item.key] === 'string' ? state[item.key] as string : undefined}
             clearable={item.colorClearable}
             onSelect={(color) => handleExecute(item.key, color)}

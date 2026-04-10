@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef } from 'react';
 import type { Graph } from '@antv/x6';
 import {
-  Type, Brain, ImageIcon, Table2,
+  Type, ImageIcon, Table2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -122,15 +122,6 @@ export function LeftToolbar({ activeTool, onToolChange, activeConnector, onConne
           </div>
         )}
       </div>
-
-      {/* Mindmap */}
-      <ToolButton
-        active={activeTool === 'mindmap'}
-        onClick={() => { onToolChange('mindmap'); setShowShapes(false); }}
-        title={t('diagram.tools.mindmap')}
-      >
-        <Brain size={18} />
-      </ToolButton>
 
       {/* Image */}
       <ToolButton

@@ -1087,7 +1087,22 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
 
     cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
 
-    // ── Group 7: Comment ──
+    // ── Group 7: Delete (only for full row/column selection) ──
+    if (isCellSel && (isRow || isCol)) {
+      // When both row and column are selected, delete row takes priority (avoid duplicate trash icons)
+      if (isRow) {
+        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteRow'), () => {
+          deleteRow(view.state, view.dispatch);
+        }));
+      } else {
+        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteColumn'), () => {
+          deleteColumn(view.state, view.dispatch);
+        }));
+      }
+      cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
+    }
+
+    // ── Group 8: Comment (always last) ──
     cellToolbar.appendChild(iconBtn(
       svgIcon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
       t('editor.comment'),
@@ -1106,21 +1121,6 @@ export function tableMenuPlugin(onCellToolbar?: (info: TableToolbarInfo | null) 
         window.dispatchEvent(new CustomEvent('editor-comment', { detail: { text } }));
       }
     ));
-
-    // ── Group 8: Delete (only for full row/column selection) ──
-    if (isCellSel && (isRow || isCol)) {
-      cellToolbar.appendChild(el('div', `${P}-toolbar-sep`));
-      if (isRow) {
-        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteRow'), () => {
-          deleteRow(view.state, view.dispatch);
-        }));
-      }
-      if (isCol) {
-        cellToolbar.appendChild(iconBtn(icons.trash, t('table.deleteColumn'), () => {
-          deleteColumn(view.state, view.dispatch);
-        }));
-      }
-    }
 
     // ── Position: above the selection ──
     const parentRect = mount.getBoundingClientRect();

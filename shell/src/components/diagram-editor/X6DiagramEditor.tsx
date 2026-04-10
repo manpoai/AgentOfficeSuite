@@ -1110,6 +1110,9 @@ function X6DiagramEditorInner({
     };
 
     const handleDblClick = (e: MouseEvent) => {
+      // On mobile, only allow editing when mobileEditing mode is active
+      if (isMobile && !mobileEditing) return;
+
       const target = e.target as HTMLElement;
 
       // If dblclick lands on an active editor element (INPUT, TEXTAREA, or
