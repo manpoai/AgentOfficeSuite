@@ -17,7 +17,15 @@
     "trash": "回收站",
     "logout": "退出登录",
     "avatarUploadFailed": "头像上传失败",
-    "nameUpdateFailed": "姓名更新失败"
+    "nameUpdateFailed": "姓名更新失败",
+    "changePassword": "修改密码",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "confirmPassword": "确认密码",
+    "passwordChanged": "密码已修改",
+    "passwordMismatch": "两次密码不一致",
+    "passwordTooShort": "至少6个字符",
+    "wrongPassword": "当前密码错误"
   },
   "shortcuts": {
     "title": "键盘快捷键",

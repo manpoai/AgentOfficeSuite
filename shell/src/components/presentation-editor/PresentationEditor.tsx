@@ -1278,7 +1278,13 @@ export function PresentationEditor({
   // ─── Slide Operations ─────────────────────────────
   const addSlide = useCallback(() => {
     saveCurrentSlideToState();
-    setSlides(prev => [...prev, { ...DEFAULT_SLIDE, id: generateSlideId() }]);
+    const currentBg = slidesRef.current[currentSlideIndexRef.current];
+    setSlides(prev => [...prev, {
+      ...DEFAULT_SLIDE,
+      id: generateSlideId(),
+      background: currentBg?.background || '#ffffff',
+      backgroundImage: currentBg?.backgroundImage,
+    }]);
     setCurrentSlideIndex(slides.length);
     dirtyRef.current = true;
     setReliabilityStatus(prev => prev === 'flush_failed' ? prev : 'dirty');

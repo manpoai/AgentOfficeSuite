@@ -17,7 +17,15 @@
     "trash": "ゴミ箱",
     "logout": "ログアウト",
     "avatarUploadFailed": "アバターのアップロードに失敗しました",
-    "nameUpdateFailed": "名前の更新に失敗しました"
+    "nameUpdateFailed": "名前の更新に失敗しました",
+    "changePassword": "パスワード変更",
+    "currentPassword": "現在のパスワード",
+    "newPassword": "新しいパスワード",
+    "confirmPassword": "パスワード確認",
+    "passwordChanged": "パスワードを変更しました",
+    "passwordMismatch": "パスワードが一致しません",
+    "passwordTooShort": "6文字以上",
+    "wrongPassword": "現在のパスワードが正しくありません"
   },
   "shortcuts": {
     "title": "キーボードショートカット",

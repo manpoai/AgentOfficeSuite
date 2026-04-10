@@ -21,6 +21,7 @@ import { EditorSkeleton, TableSkeleton } from '@/components/shared/Skeleton';
 import { MobileNav } from '@/components/shared/MobileNav';
 import { NotificationPanel } from '@/components/shared/NotificationPanel';
 import { BottomSheet } from '@/components/shared/BottomSheet';
+import { ChangePasswordDialog } from '@/components/shared/ChangePasswordDialog';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from 'next-themes';
@@ -219,7 +220,8 @@ export default function ContentPage() {
   const [treeState, setTreeState] = useState<TreeState>({ children: {}, parents: {} });
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
   const [dropIntent, setDropIntent] = useState<DropIntent>(null);
-  const [sidebarView, setSidebarView] = useState<'library' | 'trash'>('library');
+  const [showTrash, setShowTrash] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ nodeId: string; hasChildren: boolean } | null>(null);
@@ -368,7 +370,7 @@ export default function ContentPage() {
   const { data: deletedItems, isLoading: deletedLoading } = useQuery({
     queryKey: ['content-items-deleted'],
     queryFn: gw.listDeletedContentItems,
-    enabled: sidebarView === 'trash',
+    enabled: showTrash,
     staleTime: 30 * 1000,
   });
 
@@ -1046,8 +1048,8 @@ export default function ContentPage() {
         width={sidebarWidth}
         onWidthChange={handleSidebarWidthChange}
         visible={docListVisible && mobileView === 'list' || docListVisible}
-        sidebarView={sidebarView}
-        onSidebarViewChange={setSidebarView}
+        onToggleTrash={() => setShowTrash(v => !v)}
+        onOpenChangePassword={() => setShowChangePassword(true)}
         showNewMenu={showNewMenu}
         onShowNewMenuChange={setShowNewMenu}
         creating={creating}
@@ -1055,8 +1057,7 @@ export default function ContentPage() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       >
-        {sidebarView === 'library' ? (
-          <>
+        <>
             {isLoading && (
               <div className="space-y-1 px-1 py-2">
                 {[...Array(6)].map((_, i) => (
@@ -1177,9 +1178,90 @@ export default function ContentPage() {
               </DndContext>
             )}
           </>
-        ) : (
-          /* Trash view */
-          <>
+      </ContentSidebar>
+
+      {/* Trash overlay — Desktop Dialog */}
+      {showTrash && !isMobile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowTrash(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative z-10 bg-background rounded-xl shadow-xl w-full max-w-md max-h-[70vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+              <h2 className="text-sm font-semibold">{t('settings.trash')}</h2>
+              <button
+                onClick={() => setShowTrash(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="px-2 py-2">
+                {deletedLoading && (
+                  <div className="space-y-1 px-1 py-2">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex items-center gap-2 py-1.5 animate-pulse">
+                        <div className="w-4 h-4 rounded bg-muted shrink-0" />
+                        <div className="h-3.5 rounded bg-muted" style={{ width: `${60 + Math.random() * 80}px` }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!deletedLoading && (() => {
+                  const entries = (deletedItems || []).map(item => ({
+                    key: item.id,
+                    type: item.type as 'doc' | 'table',
+                    nodeId: item.id,
+                    title: item.title,
+                    deletedAt: item.deleted_at || '',
+                  }));
+                  entries.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+                  if (entries.length === 0) {
+                    return (
+                      <p className="p-3 text-xs text-muted-foreground text-center">
+                        {t('content.trashEmpty')}
+                      </p>
+                    );
+                  }
+                  return entries.map(entry => (
+                    <TrashItem
+                      key={entry.key}
+                      title={entry.title}
+                      icon={entry.type === 'table'
+                        ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      }
+                      deletedAt={entry.deletedAt}
+                      onRestore={async () => {
+                        try {
+                          await gw.restoreContentItem(entry.nodeId);
+                          queryClient.invalidateQueries({ queryKey: ['content-items'] });
+                          queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
+                        } catch (err) { showError(t('errors.restoreFailed'), err); }
+                      }}
+                      onPermanentDelete={async () => {
+                        const msg = t('content.permanentDeleteConfirm');
+                        if (!confirm(msg)) return;
+                        try {
+                          await gw.permanentlyDeleteContentItem(entry.nodeId);
+                          queryClient.invalidateQueries({ queryKey: ['content-items-deleted'] });
+                        } catch (err) { showError(t('errors.permanentDeleteFailed'), err); }
+                      }}
+                    />
+                  ));
+                })()}
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+      )}
+
+      {/* Trash overlay — Mobile BottomSheet */}
+      {showTrash && isMobile && (
+        <BottomSheet open={showTrash} onClose={() => setShowTrash(false)} title={t('settings.trash')}>
+          <div className="px-2 py-2">
             {deletedLoading && (
               <div className="space-y-1 px-1 py-2">
                 {[...Array(4)].map((_, i) => (
@@ -1190,8 +1272,7 @@ export default function ContentPage() {
                 ))}
               </div>
             )}
-            {(() => {
-              if (deletedLoading) return null;
+            {!deletedLoading && (() => {
               const entries = (deletedItems || []).map(item => ({
                 key: item.id,
                 type: item.type as 'doc' | 'table',
@@ -1200,7 +1281,6 @@ export default function ContentPage() {
                 deletedAt: item.deleted_at || '',
               }));
               entries.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
-
               if (entries.length === 0) {
                 return (
                   <p className="p-3 text-xs text-muted-foreground text-center">
@@ -1208,7 +1288,6 @@ export default function ContentPage() {
                   </p>
                 );
               }
-
               return entries.map(entry => (
                 <TrashItem
                   key={entry.key}
@@ -1236,9 +1315,12 @@ export default function ContentPage() {
                 />
               ));
             })()}
-          </>
-        )}
-      </ContentSidebar>
+          </div>
+        </BottomSheet>
+      )}
+
+      {/* Change Password Dialog */}
+      <ChangePasswordDialog open={showChangePassword} onClose={() => setShowChangePassword(false)} />
 
       {/* Mobile sidebar (only visible on mobile when in list view) */}
       {mobileView === 'list' && (
@@ -1266,7 +1348,7 @@ export default function ContentPage() {
                   ))}
                 </div>
               )}
-              {!isLoading && sidebarView === 'library' && (
+              {!isLoading && (
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
@@ -1635,7 +1717,7 @@ export default function ContentPage() {
 
             {/* Menu items */}
             <button
-              onClick={() => { setShowMobileProfile(false); }}
+              onClick={() => { setShowMobileProfile(false); setShowChangePassword(true); }}
               className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
             >
               <Key className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
@@ -1650,7 +1732,7 @@ export default function ContentPage() {
               <ChevronRight className="h-4 w-4 ml-auto opacity-40" />
             </button>
             <button
-              onClick={() => { setShowMobileProfile(false); setSidebarView(sidebarView === 'trash' ? 'library' : 'trash'); }}
+              onClick={() => { setShowMobileProfile(false); setShowTrash(true); }}
               className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
             >
               <Trash2 className="h-5 w-5 text-[#939493] dark:text-[#818181]" />

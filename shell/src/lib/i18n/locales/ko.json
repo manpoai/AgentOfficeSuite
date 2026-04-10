@@ -17,7 +17,15 @@
     "trash": "휴지통",
     "logout": "로그아웃",
     "avatarUploadFailed": "아바타 업로드에 실패했습니다",
-    "nameUpdateFailed": "이름 업데이트에 실패했습니다"
+    "nameUpdateFailed": "이름 업데이트에 실패했습니다",
+    "changePassword": "비밀번호 변경",
+    "currentPassword": "현재 비밀번호",
+    "newPassword": "새 비밀번호",
+    "confirmPassword": "비밀번호 확인",
+    "passwordChanged": "비밀번호가 변경되었습니다",
+    "passwordMismatch": "비밀번호가 일치하지 않습니다",
+    "passwordTooShort": "6자 이상",
+    "wrongPassword": "현재 비밀번호가 올바르지 않습니다"
   },
   "shortcuts": {
     "title": "키보드 단축키",

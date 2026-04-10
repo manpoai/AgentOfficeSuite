@@ -17,7 +17,15 @@
     "trash": "Trash",
     "logout": "Log out",
     "avatarUploadFailed": "Avatar upload failed",
-    "nameUpdateFailed": "Name update failed"
+    "nameUpdateFailed": "Name update failed",
+    "changePassword": "Change Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm Password",
+    "passwordChanged": "Password changed",
+    "passwordMismatch": "Passwords do not match",
+    "passwordTooShort": "At least 6 characters",
+    "wrongPassword": "Current password is incorrect"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

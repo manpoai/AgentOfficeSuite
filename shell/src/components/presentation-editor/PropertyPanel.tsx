@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X, Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
@@ -76,13 +76,27 @@ function PropInput({
   min?: number;
   max?: number;
 }) {
+  const [localValue, setLocalValue] = useState(String(value));
+
+  // Sync from external when not focused
+  useEffect(() => {
+    setLocalValue(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const num = Number(localValue);
+    if (!isNaN(num) && num !== value) onChange(num);
+  };
+
   return (
     <div className="flex items-center gap-1">
       <label className="text-muted-foreground w-10 shrink-0 text-xs">{label}</label>
       <input
         type="number"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={localValue}
+        onChange={(e) => setLocalValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
         step={step}
         min={min}
         max={max}
@@ -232,10 +246,10 @@ function CommonPropertiesSection({
       </div>
 
       <SectionLabel label={t(PPT_PROPERTY_T_KEYS.transform)} />
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex flex-col gap-2">
         <PropInput label="Angle" value={Math.round(obj.angle || 0)} onChange={(v) => updateAndSave('angle', v)} />
         <div className="flex items-center gap-1">
-          <label className="text-muted-foreground w-10 shrink-0">Alpha</label>
+          <label className="text-muted-foreground w-10 shrink-0 text-xs">Alpha</label>
           <input
             type="range"
             min={0}
@@ -244,7 +258,7 @@ function CommonPropertiesSection({
             onChange={(e) => updateAndSave('opacity', Number(e.target.value) / 100)}
             className="flex-1 h-1 accent-primary"
           />
-          <span className="text-muted-foreground w-7 text-right">{Math.round((obj.opacity ?? 1) * 100)}</span>
+          <span className="text-muted-foreground w-7 text-right text-xs">{Math.round((obj.opacity ?? 1) * 100)}</span>
         </div>
       </div>
 

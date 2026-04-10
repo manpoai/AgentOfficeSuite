@@ -613,3 +613,19 @@ export async function createContentManualSnapshot(contentId: string, description
     body: JSON.stringify({ description }),
   });
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const res = await fetch(`${BASE}/auth/password`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to change password');
+  }
+}
