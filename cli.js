@@ -249,7 +249,7 @@ async function ensurePostgresContainer(postgresPort, config) {
     '-e', `POSTGRES_PASSWORD=${config.postgres.password}`,
     '-e', `POSTGRES_DB=${config.postgres.db}`,
     POSTGRES_IMAGE,
-  ], { recreate: true });
+  ]);
 }
 
 async function ensureBaserowContainer(baserowPort, config) {
@@ -279,17 +279,24 @@ async function ensureBaserowContainer(baserowPort, config) {
     '-e', `BASEROW_DEFAULT_ADMIN_EMAIL=${config.baserow.email}`,
     '-e', `BASEROW_DEFAULT_ADMIN_PASSWORD=${config.baserow.password}`,
     BASEROW_IMAGE,
-  ], { recreate: true });
+  ]);
 }
 
 async function waitForHttpOk(url, timeoutMs = 120000) {
   const start = Date.now();
+  let lastLog = 0;
   while (Date.now() - start < timeoutMs) {
     try {
       const res = await fetch(url);
+      await res.text().catch(() => {});
       if (res.ok) return;
     } catch {}
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    if (elapsed - lastLog >= 10) {
+      console.log(`Waiting for service... (${elapsed}s) / 等待服务启动... (${elapsed}s)`);
+      lastLog = elapsed;
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
   throw new Error(`Timed out waiting for ${url}`);
 }
@@ -630,16 +637,16 @@ async function main() {
   prefixLogs(shell, 'shell');
 
   gateway.on('exit', (code) => {
-    if (!shuttingDown && code !== 0) {
-      console.error(`Gateway exited with code ${code}`);
+    if (!shuttingDown) {
+      console.error(`Gateway exited unexpectedly (code ${code})`);
       stopChildren();
       process.exit(code || 1);
     }
   });
 
   shell.on('exit', (code) => {
-    if (!shuttingDown && code !== 0) {
-      console.error(`Shell exited with code ${code}`);
+    if (!shuttingDown) {
+      console.error(`Shell exited unexpectedly (code ${code})`);
       stopChildren();
       process.exit(code || 1);
     }
@@ -688,6 +695,10 @@ async function main() {
   console.log(`  password: ${config.admin_password}`);
   console.log('');
   console.log('Press Ctrl+C to stop.');
+
+  // Keep the event loop alive — child pipes normally do this, but
+  // ensure the process never silently exits while children run.
+  process.stdin.resume();
 }
 
 main().catch((err) => {

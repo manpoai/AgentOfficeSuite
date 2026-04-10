@@ -26,6 +26,9 @@ cp -R shell/public/favicon.png shell/public/favicon.svg shell/public/logo.png sh
 
 # Root runtime metadata
 cp LICENSE README.md cli.js "$DIST_DIR/"
+cat > "$DIST_DIR/package.json" <<PKGJSON
+{"type":"module"}
+PKGJSON
 
 tar -czf "$ROOT_DIR/dist/agentoffice-runtime.tar.gz" -C "$ROOT_DIR/dist" agentoffice-runtime
 

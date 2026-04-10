@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 const HOME_DIR = process.env.AGENTOFFICE_HOME || path.join(os.homedir(), '.agentoffice');
 const RUNTIME_DIR = path.join(HOME_DIR, 'runtime');
-const ARTIFACT_URL = process.env.AGENTOFFICE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOffice/releases/download/v1.0.25/agentoffice-runtime.tar.gz';
+const ARTIFACT_URL = process.env.AGENTOFFICE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOffice/releases/download/v1.0.26/agentoffice-runtime.tar.gz';
 
 function exists(p) { return fs.existsSync(p); }
 function ensureDir(p) { fs.mkdirSync(p, { recursive: true }); }
