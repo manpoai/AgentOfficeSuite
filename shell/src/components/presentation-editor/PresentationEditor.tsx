@@ -193,6 +193,7 @@ export function PresentationEditor({
   const UNDO_LIMIT = 50;
   const isLoadingSlideRef = useRef(false);
   const loadGenerationRef = useRef(0);
+  const initializedFromServerRef = useRef(false);
   const isUndoingRef = useRef(false); // prevent pushSnapshot during undo/redo load
   const saveCurrentSlideToStateRef = useRef<() => void>(() => {});
   const modifiedDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -293,9 +294,10 @@ export function PresentationEditor({
     refetchOnWindowFocus: false,
   });
 
-  // Initialize slides from fetched data
+  // Initialize slides from fetched data — only on first fetch, not on queryClient cache updates
   useEffect(() => {
-    if (presentation?.data?.slides) {
+    if (presentation?.data?.slides && !initializedFromServerRef.current) {
+      initializedFromServerRef.current = true;
       const raw = presentation.data.slides.length > 0 ? presentation.data.slides : [{ ...DEFAULT_SLIDE }];
       const s = raw.map((slide: SlideData) => slide.id ? slide : { ...slide, id: generateSlideId() });
       setSlides(s);
@@ -740,7 +742,7 @@ export function PresentationEditor({
 
   const handleSlideDragEnd = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
-    saveCurrentSlideToState();
+    saveCurrentSlideToStateRef.current();
     setSlides(prev => {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
@@ -753,7 +755,7 @@ export function PresentationEditor({
     dirtyRef.current = true;
     setReliabilityStatus(prev => prev === 'flush_failed' ? prev : 'dirty');
     scheduleSave();
-  }, [saveCurrentSlideToState, scheduleSave]);
+  }, [scheduleSave]);
 
   const handleSlideBackground = useCallback((_i: number) => {
     // Slide background editing is handled via the property panel
@@ -2472,7 +2474,7 @@ function TextPropertiesSection({
             className="flex-1 h-7 bg-transparent border border-border rounded px-1.5 text-foreground text-xs"
           >
             {FONT_FAMILIES.map(f => (
-              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{t((f as any).labelKey || f.label)}</option>
+              <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>{f.label}</option>
             ))}
           </select>
         </div>

@@ -42,18 +42,19 @@ export const DEFAULT_SLIDE: SlideData = {
 };
 
 export const FONT_FAMILIES = [
-  { labelKey: 'toolbar.fonts.inter', label: 'Inter', value: 'Inter, system-ui, sans-serif' },
-  { labelKey: 'toolbar.fonts.arial', label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
-  { labelKey: 'toolbar.fonts.georgia', label: 'Georgia', value: 'Georgia, serif' },
-  { labelKey: 'toolbar.fonts.timesNewRoman', label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
-  { labelKey: 'toolbar.fonts.courierNew', label: 'Courier New', value: '"Courier New", Courier, monospace' },
-  { labelKey: 'toolbar.fonts.verdana', label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
-  { labelKey: 'toolbar.fonts.trebuchetMs', label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
-  { labelKey: 'toolbar.fonts.comicSansMs', label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
-  { labelKey: 'toolbar.fonts.notoSansSC', label: '思源黑体', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
-  { labelKey: 'toolbar.fonts.notoSerifSC', label: '思源宋体', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
-  { labelKey: 'toolbar.fonts.microsoftYaHei', label: '微软雅黑', value: '"Microsoft YaHei", sans-serif' },
-  { labelKey: 'toolbar.fonts.pingFangSC', label: '苹果苹方', value: '"PingFang SC", sans-serif' },
+  { label: 'Inter', value: 'Inter, system-ui, sans-serif' },
+  { label: 'Instrument Serif', value: '"Instrument Serif", Georgia, serif' },
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Georgia', value: 'Georgia, serif' },
+  { label: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif' },
+  { label: 'Comic Sans MS', value: '"Comic Sans MS", cursive' },
+  { label: '思源黑体', value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
+  { label: '思源宋体', value: '"Noto Serif SC", "Source Han Serif SC", serif' },
+  { label: '微软雅黑', value: '"Microsoft YaHei", sans-serif' },
+  { label: '苹方', value: '"PingFang SC", sans-serif' },
 ];
 
 export const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72, 96];
