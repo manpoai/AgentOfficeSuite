@@ -268,13 +268,10 @@ export function PresentationEditor({
 
   // ─── Pinch-to-zoom & touch pan for mobile ──────────
   usePinchZoom(canvasContainerRef, {
-    onZoom: (newScale, center) => {
+    onZoom: (newScale) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      // Fabric.js zoom: setZoom sets an absolute zoom level.
-      // We need to clamp and apply relative to SLIDE_WIDTH fitting.
-      canvas.setZoom(newScale);
-      canvas.renderAll();
+      fitCanvasToContainer(canvas, canvasContainerRef.current!, newScale);
     },
     getCurrentScale: () => canvasRef.current?.getZoom() ?? 1,
     minScale: 0.2,

@@ -888,6 +888,7 @@
     "message": "Message",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
+    "resetZoom": "Reset zoom",
     "openFullEditor": "Open in full editor",
     "pageIcon": "Page icon"
   },

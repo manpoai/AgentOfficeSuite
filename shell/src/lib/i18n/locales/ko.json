@@ -889,6 +889,7 @@
     "message": "메시지",
     "zoomIn": "확대",
     "zoomOut": "축소",
+    "resetZoom": "확대/축소 초기화",
     "openFullEditor": "전체 편집기에서 열기",
     "pageIcon": "페이지 아이콘"
   },

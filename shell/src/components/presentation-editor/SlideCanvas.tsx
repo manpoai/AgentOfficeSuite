@@ -1,6 +1,7 @@
 'use client';
 
-import { getObjType } from './types';
+import { useState, useEffect } from 'react';
+import { getObjType, fitCanvasToContainer } from './types';
 import { SlideToolbar } from './SlideToolbar';
 import { ZoomBar } from './SlideToolbar';
 import { PPTTableOverlay } from './PPTTableOverlay';
@@ -41,6 +42,27 @@ export function SlideCanvas({
   onAddTable,
   onInsertDiagram,
 }: SlideCanvasProps) {
+  const [zoomVersion, setZoomVersion] = useState(0);
+  const bumpZoom = () => setZoomVersion(v => v + 1);
+
+  // Ctrl+wheel zoom
+  useEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const delta = -e.deltaY * 0.001;
+      const newZoom = Math.max(0.2, Math.min(3, canvas.getZoom() + delta));
+      fitCanvasToContainer(canvas, container, newZoom);
+      bumpZoom();
+    };
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [canvasRef, canvasContainerRef]);
+
   return (
     <div ref={canvasContainerRef} className="flex-1 min-w-0 overflow-hidden bg-[#F5F7F5] dark:bg-zinc-900 relative">
       {/* Floating Toolbar */}
@@ -116,7 +138,12 @@ export function SlideCanvas({
       ))}
 
       {/* Zoom Bar */}
-      <ZoomBar canvasRef={canvasRef} canvasContainerRef={canvasContainerRef} />
+      <ZoomBar
+        canvasRef={canvasRef}
+        canvasContainerRef={canvasContainerRef}
+        zoomVersion={zoomVersion}
+        onZoomChange={bumpZoom}
+      />
     </div>
   );
 }

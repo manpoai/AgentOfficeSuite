@@ -91,9 +91,11 @@ export function SlideToolbar({
 export interface ZoomBarProps {
   canvasRef: React.RefObject<any>;
   canvasContainerRef: React.RefObject<HTMLDivElement | null>;
+  zoomVersion: number;
+  onZoomChange: () => void;
 }
 
-export function ZoomBar({ canvasRef, canvasContainerRef }: ZoomBarProps) {
+export function ZoomBar({ canvasRef, canvasContainerRef, zoomVersion: _, onZoomChange }: ZoomBarProps) {
   const { t } = useT();
   return (
     <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 bg-card/50 backdrop-blur-sm rounded border border-black/10 dark:border-white/10 px-3 h-10">
@@ -102,25 +104,34 @@ export function ZoomBar({ canvasRef, canvasContainerRef }: ZoomBarProps) {
         onClick={() => {
           const canvas = canvasRef.current;
           if (!canvas) return;
-          const newZoom = Math.max(0.1, canvas.getZoom() - 0.1);
-          canvas.setZoom(newZoom);
-          fitCanvasToContainer(canvas, canvasContainerRef.current!);
+          const newZoom = Math.max(0.2, canvas.getZoom() - 0.1);
+          fitCanvasToContainer(canvas, canvasContainerRef.current!, newZoom);
+          onZoomChange();
         }}
         title={t('toolbar.zoomOut')}
       >
         <Minus className="h-3.5 w-3.5" />
       </button>
-      <span className="text-sm font-medium text-black/70 dark:text-white/70 w-10 text-center tabular-nums">
+      <button
+        className="text-sm font-medium text-black/70 dark:text-white/70 w-10 text-center tabular-nums hover:text-black dark:hover:text-white transition-colors"
+        onClick={() => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          fitCanvasToContainer(canvas, canvasContainerRef.current!);
+          onZoomChange();
+        }}
+        title={t('toolbar.resetZoom')}
+      >
         {canvasRef.current ? Math.round(canvasRef.current.getZoom() * 100) : 100}%
-      </span>
+      </button>
       <button
         className="w-7 h-7 flex items-center justify-center rounded hover:bg-black/[0.04] text-black/70 dark:text-white/70"
         onClick={() => {
           const canvas = canvasRef.current;
           if (!canvas) return;
           const newZoom = Math.min(3, canvas.getZoom() + 0.1);
-          canvas.setZoom(newZoom);
-          fitCanvasToContainer(canvas, canvasContainerRef.current!);
+          fitCanvasToContainer(canvas, canvasContainerRef.current!, newZoom);
+          onZoomChange();
         }}
         title={t('toolbar.zoomIn')}
       >

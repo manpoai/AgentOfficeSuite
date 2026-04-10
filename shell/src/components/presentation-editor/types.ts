@@ -68,20 +68,21 @@ export const STROKE_DASH_STYLES: { labelKey: string; label: string; value: numbe
 
 export { formatRelativeTime } from '@/lib/utils/time';
 
-export function fitCanvasToContainer(canvas: any, container: HTMLElement | null) {
+export function fitCanvasToContainer(canvas: any, container: HTMLElement | null, userZoom?: number) {
   if (!canvas || !container) return;
   const rect = container.getBoundingClientRect();
   const { width, height } = rect;
   if (width < 50 || height < 50) return;
   const padding = 40;
-  const scale = Math.min((width - padding) / SLIDE_WIDTH, (height - padding) / SLIDE_HEIGHT);
-  if (scale <= 0 || !isFinite(scale)) return;
+  const fitScale = Math.min((width - padding) / SLIDE_WIDTH, (height - padding) / SLIDE_HEIGHT);
+  if (fitScale <= 0 || !isFinite(fitScale)) return;
 
-  const canvasW = Math.round(SLIDE_WIDTH * scale);
-  const canvasH = Math.round(SLIDE_HEIGHT * scale);
+  const zoom = userZoom ?? fitScale;
+  const canvasW = Math.round(SLIDE_WIDTH * zoom);
+  const canvasH = Math.round(SLIDE_HEIGHT * zoom);
 
   canvas.setDimensions({ width: canvasW, height: canvasH });
-  canvas.setZoom(scale);
+  canvas.setZoom(zoom);
   canvas.renderAll();
 
   const wrapper = container.querySelector('.canvas-wrapper') as HTMLElement;

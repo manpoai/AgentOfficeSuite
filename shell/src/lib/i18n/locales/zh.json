@@ -889,6 +889,7 @@
     "message": "消息",
     "zoomIn": "放大",
     "zoomOut": "缩小",
+    "resetZoom": "重置缩放",
     "openFullEditor": "在完整编辑器中打开",
     "pageIcon": "页面图标"
   },

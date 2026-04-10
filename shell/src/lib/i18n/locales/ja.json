@@ -889,6 +889,7 @@
     "message": "メッセージ",
     "zoomIn": "ズームイン",
     "zoomOut": "ズームアウト",
+    "resetZoom": "ズームリセット",
     "openFullEditor": "フルエディタで開く",
     "pageIcon": "ページアイコン"
   },
