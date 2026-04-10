@@ -67,9 +67,9 @@ export function getDocsTableItems(): ToolbarItem[] {
         { value: 'ordered', label: t('toolbar.docs.orderedList'), icon: icon(ListOrdered) },
         { value: 'bullet', label: t('toolbar.docs.bulletList'), icon: icon(List) },
       ]},
-    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: t('toolbar.docs.comment'), group: 'insert' },
     { key: 'deleteRow', type: 'action', icon: icon(Trash2), label: t('toolbar.docs.deleteRow'), group: 'delete' },
     { key: 'deleteCol', type: 'action', icon: icon(Trash2), label: t('toolbar.docs.deleteCol'), group: 'delete' },
+    { key: 'comment', type: 'action', icon: icon(MessageSquare), label: t('toolbar.docs.comment'), group: 'comment' },
   ];
 }
 
@@ -116,20 +116,21 @@ export function getDocsImageItems(): ToolbarItem[] {
 
 // ── PPT Text Toolbar ──
 
-function getFontFamilies(t: ReturnType<typeof getT>) {
+function getFontFamilies(_t: ReturnType<typeof getT>) {
   return [
-    { value: 'Inter, system-ui, sans-serif', label: t('toolbar.fonts.inter') },
-    { value: 'Arial, Helvetica, sans-serif', label: t('toolbar.fonts.arial') },
-    { value: 'Georgia, serif', label: t('toolbar.fonts.georgia') },
-    { value: '"Times New Roman", Times, serif', label: t('toolbar.fonts.timesNewRoman') },
-    { value: '"Courier New", Courier, monospace', label: t('toolbar.fonts.courierNew') },
-    { value: 'Verdana, Geneva, sans-serif', label: t('toolbar.fonts.verdana') },
-    { value: '"Trebuchet MS", sans-serif', label: t('toolbar.fonts.trebuchetMs') },
-    { value: '"Comic Sans MS", cursive', label: t('toolbar.fonts.comicSansMs') },
-    { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: t('toolbar.fonts.notoSansSC') },
-    { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: t('toolbar.fonts.notoSerifSC') },
-    { value: '"Microsoft YaHei", sans-serif', label: t('toolbar.fonts.microsoftYaHei') },
-    { value: '"PingFang SC", sans-serif', label: t('toolbar.fonts.pingFangSC') },
+    { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
+    { value: '"Instrument Serif", Georgia, serif', label: 'Instrument Serif' },
+    { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: '"Times New Roman", Times, serif', label: 'Times New Roman' },
+    { value: '"Courier New", Courier, monospace', label: 'Courier New' },
+    { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+    { value: '"Trebuchet MS", sans-serif', label: 'Trebuchet MS' },
+    { value: '"Comic Sans MS", cursive', label: 'Comic Sans MS' },
+    { value: '"Noto Sans SC", "Source Han Sans SC", sans-serif', label: '思源黑体' },
+    { value: '"Noto Serif SC", "Source Han Serif SC", serif', label: '思源宋体' },
+    { value: '"Microsoft YaHei", sans-serif', label: '微软雅黑' },
+    { value: '"PingFang SC", sans-serif', label: '苹方' },
   ];
 }
 
