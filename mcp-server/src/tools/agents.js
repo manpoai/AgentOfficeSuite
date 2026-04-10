@@ -6,7 +6,7 @@ export function registerAgentTools(server, gw) {
     'List all registered agents in the ASuite workspace. Shows names, capabilities, and online status.',
     {},
     async () => {
-      const result = await gw.get('/api/agents');
+      const result = await gw.get('/agents');
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -18,7 +18,7 @@ export function registerAgentTools(server, gw) {
       name: z.string().describe('Agent name (e.g. "zylos-thinker")'),
     },
     async ({ name }) => {
-      const result = await gw.get(`/api/agents/${encodeURIComponent(name)}`);
+      const result = await gw.get(`/agents/${encodeURIComponent(name)}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

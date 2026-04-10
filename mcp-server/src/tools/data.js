@@ -6,7 +6,7 @@ export function registerDataTools(server, gw) {
     'List all Baserow tables in the ASuite workspace. Returns table IDs and titles.',
     {},
     async () => {
-      const result = await gw.get('/api/data/tables');
+      const result = await gw.get('/data/tables');
       // Simplify output: just id and title
       const tables = (result.list || []).map(t => ({ table_id: t.id, title: t.title }));
       return { content: [{ type: 'text', text: JSON.stringify({ tables }) }] };
@@ -20,7 +20,7 @@ export function registerDataTools(server, gw) {
       table_id: z.string().describe('Table ID (from list_tables)'),
     },
     async ({ table_id }) => {
-      const result = await gw.get(`/api/data/tables/${table_id}`);
+      const result = await gw.get(`/data/tables/${table_id}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -39,7 +39,7 @@ export function registerDataTools(server, gw) {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
       if (where) params.set('where', where);
       if (sort) params.set('sort', sort);
-      const result = await gw.get(`/api/data/${table_id}/rows?${params}`);
+      const result = await gw.get(`/data/${table_id}/rows?${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -52,7 +52,7 @@ export function registerDataTools(server, gw) {
       data: z.record(z.any()).describe('Row data as {column_title: value} object'),
     },
     async ({ table_id, data }) => {
-      const result = await gw.post(`/api/data/${table_id}/rows`, data);
+      const result = await gw.post(`/data/${table_id}/rows`, data);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -66,7 +66,7 @@ export function registerDataTools(server, gw) {
       data: z.record(z.any()).describe('Updated fields as {column_title: value} object'),
     },
     async ({ table_id, row_id, data }) => {
-      const result = await gw.patch(`/api/data/${table_id}/rows/${row_id}`, data);
+      const result = await gw.patch(`/data/${table_id}/rows/${row_id}`, data);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -79,7 +79,7 @@ export function registerDataTools(server, gw) {
       row_id: z.string().describe('Row ID to delete'),
     },
     async ({ table_id, row_id }) => {
-      const result = await gw.del(`/api/data/${table_id}/rows/${row_id}`);
+      const result = await gw.del(`/data/${table_id}/rows/${row_id}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

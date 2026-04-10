@@ -1,6 +1,6 @@
 {
   "name": "agentoffice-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP Server for AgentOffice — connect AI agents to your workspace",
   "type": "module",
   "bin": {

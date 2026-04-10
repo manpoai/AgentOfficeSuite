@@ -9,7 +9,7 @@ export function registerContentTools(server, gw) {
     },
     async ({ type }) => {
       const params = type ? `?type=${type}` : '';
-      const result = await gw.get(`/api/content${params}`);
+      const result = await gw.get(`/content${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

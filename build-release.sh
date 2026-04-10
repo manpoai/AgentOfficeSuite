@@ -14,7 +14,7 @@ cd "$ROOT_DIR"
 
 # Copy gateway runtime
 mkdir -p "$DIST_DIR/gateway"
-cp -R gateway/server.js gateway/baserow.js gateway/routes gateway/middleware gateway/lib gateway/init-db.sql gateway/package.json gateway/package-lock.json gateway/seed-data.json "$DIST_DIR/gateway/"
+cp -R gateway/server.js gateway/baserow.js gateway/routes gateway/middleware gateway/lib gateway/init-db.sql gateway/package.json gateway/package-lock.json gateway/seed-data.json gateway/seed-assets "$DIST_DIR/gateway/"
 
 # Copy shell runtime
 mkdir -p "$DIST_DIR/shell/.next"

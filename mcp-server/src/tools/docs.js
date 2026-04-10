@@ -12,7 +12,7 @@ export function registerDocTools(server, gw) {
     async ({ title, content_markdown, collection_id }) => {
       const body = { title, content_markdown };
       if (collection_id) body.collection_id = collection_id;
-      const result = await gw.post('/api/docs', body);
+      const result = await gw.post('/docs', body);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -29,7 +29,7 @@ export function registerDocTools(server, gw) {
       const body = {};
       if (title) body.title = title;
       if (content_markdown) body.content_markdown = content_markdown;
-      const result = await gw.patch(`/api/docs/${doc_id}`, body);
+      const result = await gw.patch(`/docs/${doc_id}`, body);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -41,7 +41,7 @@ export function registerDocTools(server, gw) {
       doc_id: z.string().describe('Document ID to read'),
     },
     async ({ doc_id }) => {
-      const result = await gw.get(`/api/docs/${doc_id}`);
+      const result = await gw.get(`/docs/${doc_id}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -58,7 +58,7 @@ export function registerDocTools(server, gw) {
       const params = new URLSearchParams({ limit: String(limit) });
       if (query) params.set('query', query);
       if (collection_id) params.set('collection_id', collection_id);
-      const result = await gw.get(`/api/docs?${params}`);
+      const result = await gw.get(`/docs?${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -72,7 +72,7 @@ export function registerDocTools(server, gw) {
       parent_comment_id: z.string().optional().describe('Reply to this comment (thread)'),
     },
     async ({ doc_id, text, parent_comment_id }) => {
-      const result = await gw.post('/api/comments', { doc_id, text, parent_comment_id });
+      const result = await gw.post('/comments', { doc_id, text, parent_comment_id });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

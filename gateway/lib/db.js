@@ -495,6 +495,18 @@ function seedExampleContent(db, gatewayDir) {
   if (!fs.existsSync(seedPath)) return;
 
   try {
+    // Copy seed images to uploads directory so they're accessible via /api/gateway/uploads/files/*
+    const seedAssetsDir = path.join(gatewayDir, 'seed-assets');
+    const uploadsDir = path.join(gatewayDir, 'uploads', 'files');
+    if (fs.existsSync(seedAssetsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      for (const file of fs.readdirSync(seedAssetsDir)) {
+        const src = path.join(seedAssetsDir, file);
+        const dest = path.join(uploadsDir, `seed-${file}`);
+        if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+      }
+    }
+
     const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
     const now = new Date().toISOString();
     const nowMs = Date.now();

@@ -73,7 +73,7 @@ function loadOrCreateConfig() {
   }
   const config = {
     jwt_secret: crypto.randomBytes(32).toString('hex'),
-    admin_password: crypto.randomBytes(16).toString('hex'),
+    admin_password: process.env.ADMIN_PASSWORD || '123456',
     shell_port: REQUESTED_SHELL_PORT,
     gateway_port: REQUESTED_GATEWAY_PORT,
     remoteAccess: {

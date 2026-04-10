@@ -8,7 +8,7 @@ export function registerEventTools(server, gw) {
       since: z.number().optional().default(0).describe('Only count events after this timestamp (default: all unread)'),
     },
     async ({ since }) => {
-      const result = await gw.get(`/api/me/events/count?since=${since}`);
+      const result = await gw.get(`/me/events/count?since=${since}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -24,7 +24,7 @@ export function registerEventTools(server, gw) {
     async ({ since, cursor, limit }) => {
       const params = new URLSearchParams({ since: String(since), limit: String(limit) });
       if (cursor) params.set('cursor', cursor);
-      const result = await gw.get(`/api/me/catchup?${params}`);
+      const result = await gw.get(`/me/catchup?${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -36,7 +36,7 @@ export function registerEventTools(server, gw) {
       cursor: z.string().describe('Timestamp cursor — all events up to this time will be marked delivered'),
     },
     async ({ cursor }) => {
-      const result = await gw.post('/api/me/events/ack', { cursor });
+      const result = await gw.post('/me/events/ack', { cursor });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

@@ -367,7 +367,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
         .run(notifId, agentId, admin.id,
           `New agent "${display_name}" requests access`,
           `Agent "${name}" has registered and is pending approval.`,
-          '/agents',
+          null,
           now);
     }
 

@@ -8,7 +8,7 @@ export function registerCommentTools(server, gw) {
       content_id: z.string().describe('Content item ID (e.g. doc_xxx, tbl_xxx)'),
     },
     async ({ content_id }) => {
-      const result = await gw.get(`/api/content-items/${content_id}/comments`);
+      const result = await gw.get(`/content-items/${content_id}/comments`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -22,7 +22,7 @@ export function registerCommentTools(server, gw) {
       text: z.string().describe('Reply text (supports markdown)'),
     },
     async ({ content_id, parent_comment_id, text }) => {
-      const result = await gw.post(`/api/content-items/${content_id}/comments`, { text, parent_comment_id });
+      const result = await gw.post(`/content-items/${content_id}/comments`, { text, parent_comment_id });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -34,7 +34,7 @@ export function registerCommentTools(server, gw) {
       comment_id: z.string().describe('Comment ID to resolve'),
     },
     async ({ comment_id }) => {
-      const result = await gw.post(`/api/content-comments/${comment_id}/resolve`, {});
+      const result = await gw.post(`/content-comments/${comment_id}/resolve`, {});
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -46,7 +46,7 @@ export function registerCommentTools(server, gw) {
       comment_id: z.string().describe('Comment ID to unresolve'),
     },
     async ({ comment_id }) => {
-      const result = await gw.post(`/api/content-comments/${comment_id}/unresolve`, {});
+      const result = await gw.post(`/content-comments/${comment_id}/unresolve`, {});
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
