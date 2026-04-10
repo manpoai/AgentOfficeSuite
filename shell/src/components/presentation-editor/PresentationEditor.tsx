@@ -1171,17 +1171,12 @@ export function PresentationEditor({
   }, [currentSlideIndex, slides]);
 
   // ─── Thumbnail generation ──────────────────────
-  const thumbnailInFlightRef = useRef<number | null>(null);
+  const thumbnailInFlightRef = useRef(false);
 
   const generateAndUploadThumbnail = useCallback(async (slideIndex: number) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    // Cancel any in-flight thumbnail for this slide
-    if (thumbnailInFlightRef.current !== null) {
-      thumbnailInFlightRef.current = slideIndex;
-      return;
-    }
-    thumbnailInFlightRef.current = slideIndex;
+    if (!canvas || thumbnailInFlightRef.current) return;
+    thumbnailInFlightRef.current = true;
     try {
       const dataUrl: string = canvas.toDataURL({ format: 'png', multiplier: 0.5 });
       const fetchRes = await fetch(dataUrl);
@@ -1203,7 +1198,7 @@ export function PresentationEditor({
     } catch (e) {
       console.warn('[slides] Thumbnail upload failed:', e);
     } finally {
-      thumbnailInFlightRef.current = null;
+      thumbnailInFlightRef.current = false;
     }
   }, [scheduleSave]);
 
