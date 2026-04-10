@@ -1381,6 +1381,7 @@ export default function ContentPage() {
           />
         ) : selectedTableId ? (
           <TableEditor
+            key={selectedTableId}
             tableId={selectedTableId}
             breadcrumb={(() => {
               const path: { id: string; title: string }[] = [];
@@ -1448,6 +1449,7 @@ export default function ContentPage() {
           />
         ) : selectedDiagramId ? (
           <ContentDiagramView
+            key={selectedDiagramId}
             diagramId={selectedDiagramId}
             breadcrumb={(() => {
               const path: { id: string; title: string }[] = [];

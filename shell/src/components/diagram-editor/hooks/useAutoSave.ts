@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Graph } from '@antv/x6';
+import { useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
 import { getT } from '@/lib/i18n';
@@ -9,6 +10,7 @@ import { getT } from '@/lib/i18n';
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
 export function useAutoSave(graph: Graph | null, diagramId: string) {
+  const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reliabilityStatus, setReliabilityStatus] = useState<'clean' | 'dirty' | 'flushing' | 'flush_failed'>('clean');
   const [flushRetryCount, setFlushRetryCount] = useState(0);
@@ -36,6 +38,7 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
         viewport: { x: tx, y: ty, zoom: sx },
       } as any;
       await gw.saveDiagram(diagramId, diagramData);
+      queryClient.invalidateQueries({ queryKey: ['diagram', diagramId] });
       dirtyRef.current = false;
       setLastSaved(Date.now());
       setReliabilityStatus('clean');
@@ -142,6 +145,8 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
       if (dirtyRef.current && graph) {
         // Normal save (may not complete before unmount destroys graph)
         saveRef.current();
+        // Invalidate cache so next mount refetches fresh data
+        queryClient.invalidateQueries({ queryKey: ['diagram', diagramId] });
         // Backup: keepalive fetch survives unmount (same as beforeunload)
         try {
           const json = graph.toJSON();

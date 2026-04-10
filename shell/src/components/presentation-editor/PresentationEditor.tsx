@@ -344,6 +344,9 @@ export function PresentationEditor({
     try {
       const latestSlides = getLatestSlidesRef.current();
       await gw.savePresentation(presentationId, { slides: latestSlides });
+      queryClient.setQueryData(['presentation', presentationId], (old: any) =>
+        old ? { ...old, data: { ...old.data, slides: latestSlides } } : old
+      );
       dirtyRef.current = false;
       setLastSaved(Date.now());
       setReliabilityStatus('clean');
@@ -1182,6 +1185,7 @@ export function PresentationEditor({
         try {
           const latestSlides = getLatestSlidesRef.current();
           gw.savePresentation(presentationId, { slides: latestSlides }).catch(() => {});
+          queryClient.invalidateQueries({ queryKey: ['presentation', presentationId] });
         } catch {}
       }
     };
