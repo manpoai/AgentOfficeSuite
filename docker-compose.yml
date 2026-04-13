@@ -1,8 +1,9 @@
 version: "3.9"
 
 # ────────────────────────────────────────────
-#  ASuite — Human-Agent 协作套件
-#  Shell (Next.js) + Gateway (Node.js) + Baserow (数据库编辑器)
+#  ASuite — Human-Agent collaboration suite
+#  Gateway (Node.js + SQLite) + Shell (Next.js)
+#  No external database — everything is in gateway-data volume.
 # ────────────────────────────────────────────
 
 networks:
@@ -10,55 +11,19 @@ networks:
     driver: bridge
 
 volumes:
-  postgres-br:
-  baserow-data:
   gateway-data:
 
 services:
-
-  # ─── Baserow ─────────────────────────────
-  postgres-br:
-    image: postgres:15-alpine
-    restart: unless-stopped
-    networks: [asuite]
-    environment:
-      POSTGRES_USER: baserow
-      POSTGRES_PASSWORD: ${POSTGRES_BR_PASS:-baserow2026}
-      POSTGRES_DB: baserow
-    volumes:
-      - postgres-br:/var/lib/postgresql/data
-
-  baserow:
-    image: baserow/baserow:1.30.1
-    restart: unless-stopped
-    networks: [asuite]
-    depends_on: [postgres-br]
-    ports:
-      - "${BASEROW_PORT:-8280}:80"
-    environment:
-      BASEROW_PUBLIC_URL: "http://localhost:${BASEROW_PORT:-8280}"
-      DATABASE_HOST: postgres-br
-      DATABASE_PORT: "5432"
-      DATABASE_NAME: baserow
-      DATABASE_USER: baserow
-      DATABASE_PASSWORD: ${POSTGRES_BR_PASS:-baserow2026}
-      BASEROW_EXTRA_ALLOWED_HOSTS: "*"
-      DISABLE_ANONYMOUS_PUBLIC_VIEW_WS_CONNECTIONS: "true"
-    volumes:
-      - baserow-data:/baserow/data
 
   # ─── ASuite Gateway ─────────────────────
   gateway:
     build: ./gateway
     restart: unless-stopped
     networks: [asuite]
-    depends_on:
-      baserow:
-        condition: service_started
     ports:
       - "${GATEWAY_PORT:-4000}:4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -66,10 +31,6 @@ services:
     environment:
       GATEWAY_PORT: "4000"
       GATEWAY_DB_PATH: /app/data/gateway.db
-      BASEROW_URL: "http://baserow:80"
-      BASEROW_EMAIL: ${ADMIN_EMAIL:-admin@asuite.local}
-      BASEROW_PASSWORD: ${ADMIN_PASSWORD:-Asuite2026!}
-      BASEROW_DATABASE_ID: ${BASEROW_DATABASE_ID:-}
       ADMIN_TOKEN: ${GATEWAY_ADMIN_TOKEN}
     volumes:
       - gateway-data:/app/data
@@ -88,4 +49,4 @@ services:
       NODE_ENV: production
       NEXTAUTH_URL: ${SHELL_URL:-http://localhost:3101}
       NEXTAUTH_SECRET: ${SHELL_SECRET}
-      NEXT_PUBLIC_BASEROW_URL: ${PUBLIC_BASEROW_URL:-http://localhost:8280}
+      GATEWAY_URL: http://gateway:4000

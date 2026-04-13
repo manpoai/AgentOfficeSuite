@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 
@@ -18,12 +18,6 @@ const DB_PATH = path.join(DATA_SUBDIR, 'gateway.db');
 
 const REQUESTED_SHELL_PORT = Number(process.env.PORT || 3000);
 const REQUESTED_GATEWAY_PORT = Number(process.env.GATEWAY_PORT || (REQUESTED_SHELL_PORT + 1000));
-const REQUESTED_BASEROW_PORT = Number(process.env.BASEROW_PORT || 8280);
-const REQUESTED_POSTGRES_PORT = Number(process.env.POSTGRES_PORT || 5433);
-const BASEROW_CONTAINER_NAME = process.env.AGENTOFFICE_BASEROW_CONTAINER || 'agentoffice-baserow';
-const BASEROW_IMAGE = process.env.AGENTOFFICE_BASEROW_IMAGE || 'baserow/baserow:1.29.2';
-const POSTGRES_CONTAINER_NAME = process.env.AGENTOFFICE_POSTGRES_CONTAINER || 'agentoffice-postgres';
-const POSTGRES_IMAGE = process.env.AGENTOFFICE_POSTGRES_IMAGE || 'postgres:16-alpine';
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -105,268 +99,15 @@ function prefixLogs(child, name) {
   child.stderr?.on('data', (buf) => process.stderr.write(`[${name}] ${buf}`));
 }
 
-function runChecked(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', ...options });
-  if (result.error && result.error.code === 'ENOENT') {
-    throw new Error(`COMMAND_NOT_FOUND:${command}`);
-  }
-  if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || `${command} failed`).trim());
-  }
-  return result.stdout?.trim() || '';
-}
-
-async function ensureDockerAvailable() {
-  const installMessage = [
-    'Docker Desktop is required for the full AgentOffice product.',
-    'Please install Docker Desktop first:',
-    'https://www.docker.com/products/docker-desktop/',
-    '',
-    '完整版本的 AgentOffice 需要 Docker Desktop。',
-    '请先安装 Docker Desktop：',
-    'https://www.docker.com/products/docker-desktop/',
-  ].join('\n');
-
-  const version = spawnSync('docker', ['--version'], { encoding: 'utf8' });
-  if (version.error && version.error.code === 'ENOENT') {
-    throw new Error(installMessage);
-  }
-  if (version.status !== 0) {
-    throw new Error((version.stderr || version.stdout || 'Failed to run docker --version').trim());
-  }
-
-  const info = spawnSync('docker', ['info'], { encoding: 'utf8' });
-  if (info.status === 0) return;
-
-  if (process.platform !== 'darwin') {
-    throw new Error(installMessage);
-  }
-
-  const appCheck = spawnSync('open', ['-Ra', 'Docker'], { encoding: 'utf8' });
-  if (appCheck.status !== 0) {
-    throw new Error(installMessage);
-  }
-
-  console.log('Docker is installed but not running. Trying to start Docker Desktop...');
-  console.log('检测到 Docker 已安装但未启动，正在尝试启动 Docker Desktop...');
-  spawnSync('open', ['-a', 'Docker'], { stdio: 'ignore' });
-
-  const start = Date.now();
-  let lastLogAt = 0;
-  while (Date.now() - start < 60000) {
-    const retry = spawnSync('docker', ['info'], { encoding: 'utf8' });
-    if (retry.status === 0) return;
-    if (Date.now() - lastLogAt >= 5000) {
-      const seconds = Math.floor((Date.now() - start) / 1000);
-      console.log(`Waiting for Docker daemon... ${seconds}s`);
-      console.log(`正在等待 Docker 启动完成... ${seconds}s`);
-      lastLogAt = Date.now();
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-  }
-
-  throw new Error([
-    'Docker Desktop did not become ready within 60 seconds.',
-    'Please open Docker Desktop manually, wait until it fully starts, then run npx agentoffice-main again.',
-    '',
-    'Docker Desktop 未能在 60 秒内完成启动。',
-    '请手动打开 Docker Desktop，等其完全启动后，再重新执行 npx agentoffice-main。',
-  ].join('\n'));
-}
-
-function ensureDockerContainer(name, runArgs, { recreate = false } = {}) {
-  const existing = spawnSync('docker', ['ps', '-a', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'], { encoding: 'utf8' });
-  const hasContainer = (existing.stdout || '').split('\n').includes(name);
-  if (hasContainer && recreate) {
-    runChecked('docker', ['rm', '-f', name]);
-  }
-  const stillExists = hasContainer && !recreate;
-  if (!stillExists) {
-    runChecked('docker', ['run', '-d', '--name', name, ...runArgs]);
-    return;
-  }
-  const running = spawnSync('docker', ['ps', '--filter', `name=^/${name}$`, '--format', '{{.Names}}'], { encoding: 'utf8' });
-  const isRunning = (running.stdout || '').split('\n').includes(name);
-  if (!isRunning) {
-    runChecked('docker', ['start', name]);
-  }
-}
-
-async function ensurePostgresContainer(postgresPort, config) {
-  await ensureDockerAvailable();
-  const dataDir = path.join(DATA_DIR, 'postgres-data');
-  ensureDir(dataDir);
-  if (!config.postgres) {
-    config.postgres = {};
-  }
-  config.postgres.port = postgresPort;
-  config.postgres.user = config.postgres.user || 'agentoffice';
-  config.postgres.password = config.postgres.password || crypto.randomBytes(16).toString('hex');
-  config.postgres.db = config.postgres.db || 'agentoffice';
-  config.postgres.url = `postgresql://${config.postgres.user}:${config.postgres.password}@127.0.0.1:${postgresPort}/${config.postgres.db}`;
-
-  ensureDockerContainer(POSTGRES_CONTAINER_NAME, [
-    '-p', `${postgresPort}:5432`,
-    '-v', `${dataDir}:/var/lib/postgresql/data`,
-    '-e', `POSTGRES_USER=${config.postgres.user}`,
-    '-e', `POSTGRES_PASSWORD=${config.postgres.password}`,
-    '-e', `POSTGRES_DB=${config.postgres.db}`,
-    POSTGRES_IMAGE,
-  ]);
-}
-
-async function ensureBaserowContainer(baserowPort, config) {
-  await ensureDockerAvailable();
-  const dataDir = path.join(DATA_DIR, 'baserow-data');
-  ensureDir(dataDir);
-  ensureDir(path.join(dataDir, 'redis'));
-  if (!config.baserow) {
-    config.baserow = {};
-  }
-  config.baserow.port = baserowPort;
-  config.baserow.url = `http://127.0.0.1:${baserowPort}`;
-  config.baserow.email = config.baserow.email || 'admin@agentoffice.local';
-  config.baserow.password = config.baserow.password || crypto.randomBytes(16).toString('hex');
-
-  ensureDockerContainer(BASEROW_CONTAINER_NAME, [
-    '-p', `${baserowPort}:80`,
-    '--add-host', 'host.docker.internal:host-gateway',
-    '-v', `${dataDir}:/baserow/data`,
-    '-e', `BASEROW_PUBLIC_URL=http://127.0.0.1:${baserowPort}`,
-    '-e', `BASEROW_CADDY_ADDRESSES=:80`,
-    '-e', `POSTGRESQL_HOST=host.docker.internal`,
-    '-e', `POSTGRESQL_PORT=${config.postgres.port}`,
-    '-e', `POSTGRESQL_USER=${config.postgres.user}`,
-    '-e', `POSTGRESQL_PASSWORD=${config.postgres.password}`,
-    '-e', `POSTGRESQL_DB=${config.postgres.db}`,
-    '-e', `BASEROW_DEFAULT_ADMIN_EMAIL=${config.baserow.email}`,
-    '-e', `BASEROW_DEFAULT_ADMIN_PASSWORD=${config.baserow.password}`,
-    BASEROW_IMAGE,
-  ]);
-}
-
-async function waitForHttpOk(url, timeoutMs = 120000) {
-  const start = Date.now();
-  let lastLog = 0;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      await res.text().catch(() => {});
-      if (res.ok) return;
-    } catch {}
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    if (elapsed - lastLog >= 10) {
-      console.log(`Waiting for service... (${elapsed}s) / 等待服务启动... (${elapsed}s)`);
-      lastLog = elapsed;
-    }
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function baserowRequest(config, method, pathName, body) {
-  const res = await fetch(`${config.baserow.url}${pathName}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  return { status: res.status, data };
-}
-
-async function ensureBaserowDatabase(config) {
-  if (!config.baserow) throw new Error('Missing baserow config');
-  let auth = await baserowRequest(config, 'POST', '/api/user/token-auth/', {
-    email: config.baserow.email,
-    password: config.baserow.password,
-  });
-  if (auth.status >= 400 || !auth.data?.access_token) {
-    const signup = await baserowRequest(config, 'POST', '/api/user/', {
-      name: 'AgentOffice Admin',
-      email: config.baserow.email,
-      password: config.baserow.password,
-    });
-    if (signup.status >= 400 && signup.data?.error !== 'ERROR_EMAIL_ALREADY_EXISTS') {
-      throw new Error(`Failed to initialize Baserow admin user: ${JSON.stringify(signup.data)}`);
-    }
-    auth = await baserowRequest(config, 'POST', '/api/user/token-auth/', {
-      email: config.baserow.email,
-      password: config.baserow.password,
-    });
-  }
-  if (auth.status >= 400 || !auth.data?.access_token) {
-    throw new Error(`Failed to authenticate to Baserow: ${JSON.stringify(auth.data)}`);
-  }
-  const token = auth.data.access_token;
-  const authedFetch = async (method, pathName, body) => {
-    const res = await fetch(`${config.baserow.url}${pathName}`, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `JWT ${token}`,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    return { status: res.status, data };
-  };
-
-  const workspaces = await authedFetch('GET', '/api/workspaces/');
-  if (workspaces.status >= 400) {
-    throw new Error(`Failed to list Baserow workspaces: ${JSON.stringify(workspaces.data)}`);
-  }
-  const workspace = Array.isArray(workspaces.data) && workspaces.data.length > 0
-    ? workspaces.data[0]
-    : (await authedFetch('POST', '/api/workspaces/', { name: 'AgentOffice' })).data;
-  if (!workspace?.id) {
-    throw new Error('Failed to ensure Baserow workspace');
-  }
-
-  const applications = await authedFetch('GET', `/api/applications/workspace/${workspace.id}/`);
-  if (applications.status >= 400) {
-    throw new Error(`Failed to list Baserow applications: ${JSON.stringify(applications.data)}`);
-  }
-  const existingDatabase = Array.isArray(applications.data)
-    ? applications.data.find(app => app.type === 'database')
-    : null;
-  if (existingDatabase?.id) {
-    config.baserow.database_id = existingDatabase.id;
-    return;
-  }
-
-  const created = await authedFetch('POST', `/api/applications/workspace/${workspace.id}/`, {
-    name: 'AgentOffice',
-    type: 'database',
-  });
-  if (created.status >= 400 || !created.data?.id) {
-    throw new Error(`Failed to create Baserow database: ${JSON.stringify(created.data)}`);
-  }
-  config.baserow.database_id = created.data.id;
-}
-
 async function main() {
   const config = loadOrCreateConfig();
   const shellPort = await findAvailablePort(REQUESTED_SHELL_PORT, 50, isShellPortFree);
   const gatewayPort = await findAvailablePort(REQUESTED_GATEWAY_PORT, 50, isGatewayPortFree);
-  const baserowPort = await findAvailablePort(REQUESTED_BASEROW_PORT, 50, isGatewayPortFree);
-  const postgresPort = await findAvailablePort(REQUESTED_POSTGRES_PORT, 50, isGatewayPortFree);
   config.shell_port = shellPort;
   config.gateway_port = gatewayPort;
-  config.baserow_port = baserowPort;
-  config.postgres_port = postgresPort;
-  await ensurePostgresContainer(postgresPort, config);
-  await ensureBaserowContainer(baserowPort, config);
   saveConfig(config);
 
   console.log('Starting AgentOffice... / 正在启动 AgentOffice...');
-  await waitForPort(postgresPort);
-  await waitForHttpOk(`${config.baserow?.url || `http://127.0.0.1:${baserowPort}`}/api/_health/`);
-  await ensureBaserowDatabase(config);
-  saveConfig(config);
 
   let shuttingDown = false;
   const stopChildren = () => {
@@ -387,10 +128,6 @@ async function main() {
       ADMIN_PASSWORD: config.admin_password,
       UPLOADS_DIR,
       CORS_ORIGIN: `http://127.0.0.1:${shellPort}`,
-      BASEROW_URL: config.baserow.url,
-      BASEROW_EMAIL: config.baserow.email,
-      BASEROW_PASSWORD: config.baserow.password,
-      BASEROW_DATABASE_ID: String(config.baserow.database_id || ''),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -435,7 +172,6 @@ async function main() {
   await waitForPort(gatewayPort);
   await waitForPort(shellPort);
 
-  // ── Final output ──
   console.log('');
   console.log('AgentOffice is ready. / AgentOffice 已就绪。');
   console.log(`Local URL / 本地地址: http://127.0.0.1:${shellPort}`);
@@ -449,8 +185,6 @@ async function main() {
   console.log('');
   console.log('Press Ctrl+C to stop.');
 
-  // Keep the event loop alive — child pipes normally do this, but
-  // ensure the process never silently exits while children run.
   process.stdin.resume();
 }
 
