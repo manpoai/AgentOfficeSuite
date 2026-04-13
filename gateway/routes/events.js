@@ -2,6 +2,7 @@
  * Event routes: catchup, SSE stream, notifications, thread context, event ack
  */
 import crypto from 'crypto';
+import { insertNotification } from '../lib/notifications.js';
 
 export default function eventsRoutes(app, { db, authenticateAny, authenticateAgent, genId, pushEvent, deliverWebhook, sseClients, humanClients, pollNcComments }) {
 
@@ -183,14 +184,42 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     if (req.actor.type !== 'agent' && req.actor.role !== 'admin') {
       return res.status(403).json({ error: 'FORBIDDEN', message: 'Only agents or admins can create notifications' });
     }
-    const { target_actor_id, type, title, body, link } = req.body;
-    if (!target_actor_id || !type || !title) {
-      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'target_actor_id, type, and title are required' });
+    const {
+      target_actor_id, type, link,
+      title, body,
+      title_key, title_params, body_key, body_params,
+    } = req.body;
+    if (!target_actor_id || !type) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'target_actor_id and type are required' });
     }
-    const id = genId('notif');
-    const now = Math.floor(Date.now() / 1000);
-    db.prepare('INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, req.actor.id, target_actor_id, type, title, body || null, link || null, now);
-    res.status(201).json({ id, created_at: now });
+    if (!title && !title_key) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Either title or title_key is required' });
+    }
+    try {
+      // If caller provided keys, route through insertNotification so the
+      // recipient's preferred_language drives rendering. Otherwise preserve
+      // the legacy raw title/body path (keys stay NULL).
+      if (title_key) {
+        const { id, created_at } = insertNotification(db, { genId }, {
+          actorId: req.actor.id,
+          targetActorId: target_actor_id,
+          type,
+          titleKey: title_key,
+          titleParams: title_params || undefined,
+          bodyKey: body_key || undefined,
+          bodyParams: body_params || undefined,
+          bodyRaw: body_key ? undefined : (body || undefined),
+          link,
+        });
+        return res.status(201).json({ id, created_at });
+      }
+      const id = genId('notif');
+      const now = Math.floor(Date.now() / 1000);
+      db.prepare('INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, req.actor.id, target_actor_id, type, title, body || null, link || null, now);
+      return res.status(201).json({ id, created_at: now });
+    } catch (e) {
+      return res.status(500).json({ error: 'INSERT_FAILED', message: e.message });
+    }
   });
 }
