@@ -14,7 +14,6 @@ import { fileURLToPath } from 'url';
 import { BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID } from './baserow.js';
 import { initDatabase } from './lib/db.js';
 import { genId, hashToken, hashPassword, verifyPassword } from './lib/utils.js';
-import { stopTunnel } from './lib/tunnel.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { sseClients, humanClients, pushEvent, pushHumanEvent, deliverWebhook, pollComments } from './lib/sse.js';
 import { createContentSync } from './lib/content-sync.js';
@@ -91,11 +90,5 @@ app.listen(PORT, () => {
 });
 
 // ─── Cleanup ────────────────────────────────────
-process.on('SIGTERM', () => {
-  stopTunnel();
-  process.exit(0);
-});
-process.on('SIGINT', () => {
-  stopTunnel();
-  process.exit(0);
-});
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));

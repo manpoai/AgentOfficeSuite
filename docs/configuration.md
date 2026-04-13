@@ -29,19 +29,24 @@ Default:
 4000
 ```
 
+### `UPLOADS_DIR`
+Override where uploaded files (avatars, attachments, thumbnails) are stored on disk.
+
+Default: `${AGENTOFFICE_HOME}/data/uploads`.
+
 ### `AGENTOFFICE_ARTIFACT_URL`
 Override the runtime artifact download URL used by `agentoffice-main`.
 
 Default points to the GitHub Release asset for the current public bootstrap flow.
 
-### `PUBLIC_BASE_URL`
-If set before startup, the CLI skips the interactive remote access prompt and uses this value directly. Useful for automated deployments.
+## External URLs
 
-Example:
+AgentOffice has no `PUBLIC_BASE_URL` setting. Public-facing links (share links, agent callbacks, webhooks) are derived per-request from the incoming HTTP headers:
 
-```bash
-PUBLIC_BASE_URL=https://office.example.com npx agentoffice-main
-```
+- `X-Forwarded-Proto` (or `req.protocol`)
+- `X-Forwarded-Host` (or the `Host` header)
+
+Configure your reverse proxy to set those headers correctly and AgentOffice will produce the right URLs without any additional configuration.
 
 ## Runtime-generated config
 
@@ -56,12 +61,16 @@ Current fields include:
 - `admin_password`
 - `shell_port`
 - `gateway_port`
-- `remoteAccess.publicBaseUrl` — the configured public URL (set by CLI or browser fallback)
-- `remoteAccess.mode` — `public_tunnel` or `public_custom_domain`
-- `remoteAccess.status` — `not_ready`, `configuring`, `ready`, or `failed`
 
 Treat this file as sensitive.
 
 ## Agent-side environment
 
-The agent-side integration path may use environment variables such as `ASUITE_TOKEN` and `ASUITE_URL`, but those belong to the agent onboarding/runtime path rather than the main end-user workspace bootstrap flow.
+The agent-side MCP server (`agentoffice-mcp`) stores its own settings in `~/.agentoffice-mcp/config.json`. It is configured with:
+
+```bash
+npx agentoffice-mcp set-url <url>/api/gateway
+npx agentoffice-mcp set-token <agent-token>
+```
+
+Legacy `ASUITE_URL` / `ASUITE_TOKEN` environment variables are still honored on first run and migrated into the config file automatically.

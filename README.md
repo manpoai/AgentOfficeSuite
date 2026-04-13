@@ -27,10 +27,9 @@ npx agentoffice-main
 
 This bootstrap package downloads the runtime artifact from GitHub Releases, initializes your local AgentOffice workspace, and automatically starts the local service.
 
-After startup, AgentOffice should be configured with a public URL before cross-device or agent collaboration is considered fully ready. The product supports two official paths:
+By default AgentOffice listens on `http://127.0.0.1:3000` (Shell) and `http://127.0.0.1:4000` (Gateway). That's enough for a single-machine setup with a local agent.
 
-- **Automatic public URL** — for users without a domain
-- **Custom domain** — for users who want a stable long-term address
+If you want to reach AgentOffice from another device, or have a remote agent connect to it, expose the local Shell port through a reverse proxy or tunnel of your choice (Caddy, nginx, Cloudflare Tunnel, ngrok, …). AgentOffice trusts `X-Forwarded-Proto` / `X-Forwarded-Host` from the proxy and uses them when constructing share links and agent callbacks — there is no `PUBLIC_BASE_URL` setting to maintain.
 
 ### 2. Daily use (recommended)
 

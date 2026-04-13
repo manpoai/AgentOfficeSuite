@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import readline from 'node:readline';
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -25,32 +24,9 @@ const BASEROW_CONTAINER_NAME = process.env.AGENTOFFICE_BASEROW_CONTAINER || 'age
 const BASEROW_IMAGE = process.env.AGENTOFFICE_BASEROW_IMAGE || 'baserow/baserow:1.29.2';
 const POSTGRES_CONTAINER_NAME = process.env.AGENTOFFICE_POSTGRES_CONTAINER || 'agentoffice-postgres';
 const POSTGRES_IMAGE = process.env.AGENTOFFICE_POSTGRES_IMAGE || 'postgres:16-alpine';
-const REMOTE_ACCESS_STATUS = {
-  NOT_READY: 'not_ready',
-  CONFIGURING: 'configuring',
-  READY: 'ready',
-  FAILED: 'failed',
-};
-const REMOTE_ACCESS_MODE = {
-  PUBLIC_TUNNEL: 'public_tunnel',
-  PUBLIC_CUSTOM_DOMAIN: 'public_custom_domain',
-};
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
-}
-
-function ensureRemoteAccessConfig(config) {
-  if (!config.remoteAccess) config.remoteAccess = {};
-  if (!config.remoteAccess.status) config.remoteAccess.status = REMOTE_ACCESS_STATUS.NOT_READY;
-  if (!('mode' in config.remoteAccess)) config.remoteAccess.mode = REMOTE_ACCESS_MODE.PUBLIC_TUNNEL;
-  if (!('publicBaseUrl' in config.remoteAccess)) config.remoteAccess.publicBaseUrl = null;
-  return config.remoteAccess;
-}
-
-function setRemoteAccessState(config, patch) {
-  const remoteAccess = ensureRemoteAccessConfig(config);
-  Object.assign(remoteAccess, patch);
 }
 
 function saveConfig(config) {
@@ -61,26 +37,13 @@ function loadOrCreateConfig() {
   ensureDir(DATA_SUBDIR);
   ensureDir(UPLOADS_DIR);
   if (fs.existsSync(CONFIG_PATH)) {
-    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    ensureRemoteAccessConfig(config);
-    if (process.env.PUBLIC_BASE_URL && !config.remoteAccess.publicBaseUrl) {
-      config.remoteAccess.publicBaseUrl = process.env.PUBLIC_BASE_URL;
-      config.remoteAccess.mode = REMOTE_ACCESS_MODE.PUBLIC_CUSTOM_DOMAIN;
-      config.remoteAccess.status = REMOTE_ACCESS_STATUS.READY;
-      saveConfig(config);
-    }
-    return config;
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   }
   const config = {
     jwt_secret: crypto.randomBytes(32).toString('hex'),
     admin_password: process.env.ADMIN_PASSWORD || '123456',
     shell_port: REQUESTED_SHELL_PORT,
     gateway_port: REQUESTED_GATEWAY_PORT,
-    remoteAccess: {
-      status: process.env.PUBLIC_BASE_URL ? REMOTE_ACCESS_STATUS.READY : REMOTE_ACCESS_STATUS.NOT_READY,
-      mode: process.env.PUBLIC_BASE_URL ? REMOTE_ACCESS_MODE.PUBLIC_CUSTOM_DOMAIN : REMOTE_ACCESS_MODE.PUBLIC_TUNNEL,
-      publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
-    },
   };
   saveConfig(config);
   return config;
@@ -385,195 +348,8 @@ async function ensureBaserowDatabase(config) {
   config.baserow.database_id = created.data.id;
 }
 
-function ask(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
-}
-
-function detectCloudflared() {
-  const result = spawnSync('cloudflared', ['--version'], { encoding: 'utf8' });
-  if (result.status === 0) {
-    const version = (result.stdout || result.stderr || '').trim();
-    return { installed: true, version };
-  }
-  return { installed: false, version: null };
-}
-
-async function installCloudflared() {
-  if (process.platform === 'darwin') {
-    console.log('Installing cloudflared via Homebrew...');
-    console.log('正在通过 Homebrew 安装 cloudflared...');
-    const child = spawnSync('brew', ['install', 'cloudflared'], {
-      stdio: 'inherit',
-      encoding: 'utf8',
-    });
-    if (child.status !== 0) {
-      throw new Error('Failed to install cloudflared / cloudflared 安装失败');
-    }
-    console.log('cloudflared installed successfully. / cloudflared 安装成功。');
-  } else {
-    console.log('Please install cloudflared manually:');
-    console.log('请手动安装 cloudflared：');
-    console.log('  https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/');
-    throw new Error('cloudflared not installed / cloudflared 未安装');
-  }
-}
-
-async function startCloudflaredTunnel(shellPort) {
-  const child = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${shellPort}`], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error('Tunnel startup timed out (30s) / 隧道启动超时'));
-    }, 30000);
-
-    let output = '';
-    const onData = (chunk) => {
-      const text = chunk.toString();
-      process.stderr.write(`[tunnel] ${text}`);
-      output += text;
-      const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      if (match) {
-        clearTimeout(timeout);
-        resolve({ child, publicUrl: match[0] });
-      }
-    };
-    child.stderr.on('data', onData);
-    child.stdout.on('data', onData);
-
-    child.on('exit', (code) => {
-      clearTimeout(timeout);
-      reject(new Error(`cloudflared exited with code ${code}`));
-    });
-  });
-}
-
-async function healthCheckPublicUrl(publicUrl) {
-  const url = `${publicUrl}/api/gateway/auth/me`;
-  for (let i = 0; i < 5; i++) {
-    try {
-      const res = await fetch(url);
-      if (res.status !== 404) return true;
-    } catch {}
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  return false;
-}
-
-async function configureRemoteAccess(config, shellPort) {
-  // Skip if already configured (from env var or previous run)
-  if (config.remoteAccess.publicBaseUrl && config.remoteAccess.status === REMOTE_ACCESS_STATUS.READY) {
-    console.log(`Public URL already configured: ${config.remoteAccess.publicBaseUrl}`);
-    console.log(`公网地址已配置：${config.remoteAccess.publicBaseUrl}`);
-    return { tunnelChild: null };
-  }
-
-  console.log('');
-  console.log('Choose remote access mode / 请选择远程访问方式：');
-  console.log('1. Automatic public URL / 自动公网地址');
-  console.log('2. Custom domain / 使用自定义域名');
-  console.log('');
-  const choice = await ask('> ');
-
-  if (choice === '1') {
-    // ── Automatic public URL ──
-    const cf = detectCloudflared();
-    if (cf.installed) {
-      console.log(`Checking cloudflared... ✓ installed (${cf.version})`);
-    } else {
-      console.log('cloudflared is not installed. / cloudflared 未安装。');
-      const install = await ask('Install cloudflared now? / 是否立即安装？ (Y/n) ');
-      if (install.toLowerCase() === 'n') {
-        console.log('Skipping remote access setup. / 跳过远程访问配置。');
-        setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.NOT_READY, mode: REMOTE_ACCESS_MODE.PUBLIC_TUNNEL });
-        saveConfig(config);
-        return { tunnelChild: null };
-      }
-      try {
-        await installCloudflared();
-      } catch (e) {
-        console.error(e.message);
-        setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.FAILED, mode: REMOTE_ACCESS_MODE.PUBLIC_TUNNEL });
-        saveConfig(config);
-        return { tunnelChild: null };
-      }
-    }
-
-    console.log('Starting tunnel... / 正在启动隧道...');
-    try {
-      const { child, publicUrl } = await startCloudflaredTunnel(shellPort);
-      console.log(`Public URL obtained: ${publicUrl}`);
-      console.log(`已获取公网地址：${publicUrl}`);
-
-      console.log('Running health check... / 正在检查可达性...');
-      const healthy = await healthCheckPublicUrl(publicUrl);
-      if (healthy) {
-        console.log('Health check passed. ✓');
-      } else {
-        console.log('Health check failed, but tunnel URL is saved. You can retry later.');
-        console.log('健康检查未通过，但隧道地址已保存。稍后可重试。');
-      }
-
-      setRemoteAccessState(config, {
-        status: REMOTE_ACCESS_STATUS.READY,
-        mode: REMOTE_ACCESS_MODE.PUBLIC_TUNNEL,
-        publicBaseUrl: publicUrl,
-      });
-      saveConfig(config);
-      return { tunnelChild: child };
-    } catch (e) {
-      console.error(`Tunnel failed: ${e.message}`);
-      console.error(`隧道启动失败：${e.message}`);
-      setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.FAILED, mode: REMOTE_ACCESS_MODE.PUBLIC_TUNNEL });
-      saveConfig(config);
-      return { tunnelChild: null };
-    }
-  } else if (choice === '2') {
-    // ── Custom domain ──
-    console.log('Setup guide / 配置教程: https://agentofficesuite.com/customdomain');
-    console.log('');
-    const urlInput = await ask('Enter your public URL / 输入公网地址 (https://...): ');
-    if (!urlInput || !/^https:\/\//.test(urlInput)) {
-      console.log('Invalid URL. Must start with https://');
-      console.log('无效地址。必须以 https:// 开头。');
-      setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.FAILED, mode: REMOTE_ACCESS_MODE.PUBLIC_CUSTOM_DOMAIN });
-      saveConfig(config);
-      return { tunnelChild: null };
-    }
-    const normalized = urlInput.replace(/\/$/, '');
-
-    console.log('Running health check... / 正在检查可达性...');
-    const healthy = await healthCheckPublicUrl(normalized);
-    if (healthy) {
-      console.log('Health check passed. ✓');
-    } else {
-      console.log('Health check failed. The URL is saved — configure your reverse proxy and retry.');
-      console.log('健康检查未通过。地址已保存，请配置反向代理后重试。');
-      console.log('Setup guide / 配置教程: https://agentofficesuite.com/customdomain');
-    }
-
-    setRemoteAccessState(config, {
-      status: healthy ? REMOTE_ACCESS_STATUS.READY : REMOTE_ACCESS_STATUS.FAILED,
-      mode: REMOTE_ACCESS_MODE.PUBLIC_CUSTOM_DOMAIN,
-      publicBaseUrl: normalized,
-    });
-    saveConfig(config);
-    return { tunnelChild: null };
-  } else {
-    console.log('Invalid choice. Skipping remote access setup.');
-    console.log('无效选择。跳过远程访问配置。');
-    setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.NOT_READY });
-    saveConfig(config);
-    return { tunnelChild: null };
-  }
-}
-
 async function main() {
   const config = loadOrCreateConfig();
-  ensureRemoteAccessConfig(config);
   const shellPort = await findAvailablePort(REQUESTED_SHELL_PORT, 50, isShellPortFree);
   const gatewayPort = await findAvailablePort(REQUESTED_GATEWAY_PORT, 50, isGatewayPortFree);
   const baserowPort = await findAvailablePort(REQUESTED_BASEROW_PORT, 50, isGatewayPortFree);
@@ -593,11 +369,9 @@ async function main() {
   saveConfig(config);
 
   let shuttingDown = false;
-  let tunnelChild = null;
   const stopChildren = () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    if (tunnelChild) tunnelChild.kill('SIGTERM');
     gateway.kill('SIGTERM');
     shell.kill('SIGTERM');
   };
@@ -613,7 +387,6 @@ async function main() {
       ADMIN_PASSWORD: config.admin_password,
       UPLOADS_DIR,
       CORS_ORIGIN: `http://127.0.0.1:${shellPort}`,
-      PUBLIC_BASE_URL: config.remoteAccess?.publicBaseUrl || '',
       BASEROW_URL: config.baserow.url,
       BASEROW_EMAIL: config.baserow.email,
       BASEROW_PASSWORD: config.baserow.password,
@@ -662,33 +435,13 @@ async function main() {
   await waitForPort(gatewayPort);
   await waitForPort(shellPort);
 
-  // ── Remote access setup (interactive) ──
-  const result = await configureRemoteAccess(config, shellPort);
-  tunnelChild = result.tunnelChild;
-
-  // Monitor tunnel process
-  if (tunnelChild) {
-    tunnelChild.on('exit', (code) => {
-      if (!shuttingDown) {
-        console.error(`Tunnel process exited unexpectedly (code ${code}). Remote access may be interrupted.`);
-        console.error('隧道进程异常退出。远程访问可能中断。');
-        setRemoteAccessState(config, { status: REMOTE_ACCESS_STATUS.FAILED });
-        saveConfig(config);
-      }
-    });
-  }
-
   // ── Final output ──
   console.log('');
-  if (config.remoteAccess.status === REMOTE_ACCESS_STATUS.READY && config.remoteAccess.publicBaseUrl) {
-    console.log('AgentOffice is ready. / AgentOffice 已就绪。');
-    console.log(`Local URL / 本地地址: http://127.0.0.1:${shellPort}`);
-    console.log(`Public URL / 公网地址: ${config.remoteAccess.publicBaseUrl}`);
-  } else {
-    console.log('Remote access is not ready yet. / 远程访问尚未就绪。');
-    console.log('Continue setup in the browser: / 请通过本地地址进入系统继续配置：');
-    console.log(`Local URL / 本地地址: http://127.0.0.1:${shellPort}`);
-  }
+  console.log('AgentOffice is ready. / AgentOffice 已就绪。');
+  console.log(`Local URL / 本地地址: http://127.0.0.1:${shellPort}`);
+  console.log('');
+  console.log(`Agents on the same machine: use http://127.0.0.1:${gatewayPort}/api/gateway as ASUITE_URL`);
+  console.log('Need an external URL? Configure your own reverse proxy / tunnel pointing at the local URL above.');
   console.log(`Data dir: ${DATA_DIR}`);
   console.log('Default admin credentials / 默认管理员账号：');
   console.log('  username: admin');

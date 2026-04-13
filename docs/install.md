@@ -6,7 +6,7 @@
 npx agentoffice-main
 ```
 
-The bootstrap package downloads the runtime artifact from GitHub Release, initializes a local AgentOffice workspace, and starts the local services automatically.
+The bootstrap package downloads the runtime artifact from GitHub Releases, initializes a local AgentOffice workspace, and starts the local services automatically.
 
 ## Requirements
 
@@ -21,46 +21,33 @@ The bootstrap package downloads the runtime artifact from GitHub Release, initia
 2. download the runtime artifact
 3. initialize config and database
 4. start Gateway and Shell
-5. prompt you to configure a public URL (see below)
-6. print the final access URLs
+5. print the local access URLs
 
-## Remote access setup
-
-After local services start, the CLI interactively configures a public URL:
+When the CLI exits the startup phase, you'll see something like:
 
 ```
-? How would you like to expose AgentOffice?
-  1) Automatic public URL (Cloudflare Tunnel)
-  2) Custom domain
+AgentOffice is ready.
+Local URL: http://127.0.0.1:3000
+
+Agents on the same machine: use http://127.0.0.1:4000/api/gateway as ASUITE_URL
+Need an external URL? Configure your own reverse proxy / tunnel pointing at the local URL above.
 ```
 
-### Option 1: Automatic public URL
+## External access
 
-The CLI will:
-1. detect `cloudflared` on your system
-2. offer to install it via Homebrew (macOS) or direct download if not found
-3. start a Cloudflare quick tunnel pointing to the local Shell port
-4. extract the generated `https://*.trycloudflare.com` URL
-5. run a health check against the public URL
-6. write the URL to `~/.agentoffice/config.json`
+AgentOffice no longer manages remote access for you. There is no built-in tunnel and no `PUBLIC_BASE_URL` concept inside the gateway.
 
-No Cloudflare account or DNS configuration required. The tunnel URL changes each time the process restarts.
+If you want to reach AgentOffice from another device:
 
-### Option 2: Custom domain
+- **Same machine** — use `http://127.0.0.1:<shell-port>` directly.
+- **Other devices on your LAN** — bind your reverse proxy to the LAN IP and forward to the local Shell port.
+- **Public internet** — set up your own reverse proxy (Caddy, nginx, Cloudflare Tunnel, ngrok, …) terminating TLS and forwarding to the local Shell port. AgentOffice trusts `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxy and uses them when constructing public-facing links.
 
-You provide your own HTTPS URL (e.g. `https://office.example.com`). The CLI validates the URL format and runs a health check. You are responsible for setting up the reverse proxy or DNS pointing to your local instance.
-
-### Subsequent runs
-
-If a public URL is already configured and the status is `ready`, the CLI skips the prompt and starts immediately.
-
-### Fallback
-
-If the CLI setup fails, AgentOffice still starts locally. A browser-based configuration page appears as a last resort when you open the local Shell URL.
+You decide the hostname; AgentOffice does not store one.
 
 ## Agent onboarding
 
-After the public URL is ready:
+After AgentOffice is running:
 1. copy the onboarding prompt
 2. send it to your agent in the chat/runtime you already use
 3. let the agent submit its registration request
