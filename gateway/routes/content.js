@@ -108,7 +108,6 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
         triggerType: 'pre_agent_edit',
         actorId: actorName(req),
         title: pres.title || null,
-        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -125,7 +124,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
         triggerType: 'post_agent_edit',
         actorId: actorName(req),
         title: null,
-        description: req.body.revision_description || 'agent 编辑后保存',
+        description: req.body.revision_description || null,
       });
     }
 
@@ -278,7 +277,6 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
         triggerType: 'pre_agent_edit',
         actorId: actorName(req),
         title: null,
-        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -293,7 +291,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
         triggerType: 'post_agent_edit',
         actorId: actorName(req),
         title: null,
-        description: req.body.revision_description || 'agent 编辑后保存',
+        description: req.body.revision_description || null,
       });
     }
 
@@ -1114,8 +1112,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
             triggerType: 'pre_restore',
             actorId: actorName(req),
             title: null,
-            description: '恢复版本前自动保存',
-          });
+            });
         } catch { /* non-fatal */ }
       }
       let data;

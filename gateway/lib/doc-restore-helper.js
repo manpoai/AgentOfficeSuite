@@ -44,7 +44,6 @@ export function restoreDocFromSnapshot(db, deps, { docId, revision, actorName })
     triggerType: 'pre_restore',
     actorId: doc.updated_by || doc.created_by,
     title: doc.title,
-    description: '恢复版本前自动保存',
   });
 
   // 2. Parse revision data

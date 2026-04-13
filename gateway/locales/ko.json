@@ -1204,5 +1204,11 @@
         "row": "테이블 행"
       }
     }
+  },
+  "serverSnapshots": {
+    "pre_agent_edit": "에이전트 편집 전 자동 저장",
+    "post_agent_edit": "에이전트 편집 후 저장",
+    "pre_restore": "버전 복원 전 자동 저장",
+    "auto_initial": "초기 버전"
   }
 }

@@ -1204,5 +1204,11 @@
         "row": "数据表行"
       }
     }
+  },
+  "serverSnapshots": {
+    "pre_agent_edit": "agent 编辑前自动保存",
+    "post_agent_edit": "agent 编辑后保存",
+    "pre_restore": "恢复版本前自动保存",
+    "auto_initial": "初始版本"
   }
 }

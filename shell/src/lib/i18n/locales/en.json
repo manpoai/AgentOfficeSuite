@@ -1204,5 +1204,11 @@
         "row": "table row"
       }
     }
+  },
+  "serverSnapshots": {
+    "pre_agent_edit": "Auto-saved before agent edit",
+    "post_agent_edit": "Saved after agent edit",
+    "pre_restore": "Auto-saved before version restore",
+    "auto_initial": "Initial version"
   }
 }

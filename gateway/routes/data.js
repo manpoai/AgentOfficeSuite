@@ -33,9 +33,18 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
 
     const snapId = genId('snap');
     const now = new Date().toISOString();
+    // When no free-text description is provided, store the canonical i18n key
+    // for this trigger_type so readers can render it in their language.
+    const DEFAULT_KEYS = {
+      pre_agent_edit:  'serverSnapshots.pre_agent_edit',
+      post_agent_edit: 'serverSnapshots.post_agent_edit',
+      pre_restore:     'serverSnapshots.pre_restore',
+      auto:            'serverSnapshots.auto_initial',
+    };
+    const descriptionKey = description ? null : (DEFAULT_KEYS[triggerType] || null);
     db.prepare(
-      "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, description || null, snap.rows.length, agent || null, now);
+      "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at, description_key) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, description || null, snap.rows.length, agent || null, now, descriptionKey);
 
     return {
       id: snapId,
@@ -819,7 +828,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
     }
 
     try {
@@ -830,7 +839,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       res.status(201).json({ items });
 
       if (isAgentRequest(req)) {
-        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
     } catch (e) {
       const status = mapEngineErrorStatus(e);
@@ -845,7 +854,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
     }
 
     try {
@@ -859,7 +868,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       res.json({ items });
 
       if (isAgentRequest(req)) {
-        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
     } catch (e) {
       const status = mapEngineErrorStatus(e);
@@ -874,7 +883,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
 
     if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
     }
 
     try {
@@ -882,7 +891,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       res.json({ deleted: ids.length });
 
       if (isAgentRequest(req)) {
-        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
     } catch (e) {
       const status = mapEngineErrorStatus(e);
@@ -1251,7 +1260,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         });
       }
 
-      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req), '恢复版本前自动保存');
+      const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req), null);
 
       const result = tableEngine.restoreTable(req.params.table_id, { schema: schemaSnap, rows: rowsSnap });
 

@@ -127,7 +127,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
         triggerType: 'pre_agent_edit',
         actorId: doc.updated_by || doc.created_by,
         title: doc.title,
-        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -143,7 +142,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
         triggerType: 'post_agent_edit',
         actorId: agentName,
         title: title || doc.title,
-        description: req.body.revision_description || 'agent 编辑后保存',
+        description: req.body.revision_description || null,
       });
     }
 
@@ -419,7 +418,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
         triggerType: 'pre_agent_edit',
         actorId: doc.updated_by || doc.created_by,
         title: doc.title,
-        description: 'agent 编辑前自动保存',
       });
     }
 
@@ -445,7 +443,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
         triggerType: 'post_agent_edit',
         actorId: actorName(req),
         title: updated.title,
-        description: req.body.revision_description || 'agent 编辑后保存',
+        description: req.body.revision_description || null,
       });
     }
 

@@ -1204,5 +1204,11 @@
         "row": "テーブル行"
       }
     }
+  },
+  "serverSnapshots": {
+    "pre_agent_edit": "エージェント編集前に自動保存",
+    "post_agent_edit": "エージェント編集後に保存",
+    "pre_restore": "バージョン復元前に自動保存",
+    "auto_initial": "初期バージョン"
   }
 }
