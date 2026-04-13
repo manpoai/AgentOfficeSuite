@@ -41,6 +41,25 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     if (!sseClients.has(agentId)) sseClients.set(agentId, new Set());
     sseClients.get(agentId).add(res);
 
+    // Replay undelivered events so reconnecting clients don't need a separate catchup round-trip.
+    // Bounded to latest 100 to keep reconnect cheap; older backlog is still available via /api/me/catchup.
+    const since = parseInt(req.query.since || '0');
+    try {
+      const backlog = db.prepare(
+        'SELECT id, payload FROM events WHERE agent_id = ? AND delivered = 0 AND occurred_at > ? ORDER BY occurred_at ASC LIMIT 100'
+      ).all(agentId, since);
+      for (const r of backlog) {
+        res.write(`data: ${r.payload}\n\n`);
+        db.prepare('UPDATE events SET delivered = 1, delivered_at = ?, delivery_method = ? WHERE id = ?')
+          .run(Date.now(), 'sse_replay', r.id);
+      }
+      if (backlog.length > 0) {
+        console.log(`[sse] replayed ${backlog.length} undelivered events agent=${agentId}`);
+      }
+    } catch (e) {
+      console.warn(`[sse] replay failed agent=${agentId}: ${e.message}`);
+    }
+
     // Send heartbeat every 30s
     const heartbeat = setInterval(() => res.write(':heartbeat\n\n'), 30000);
 

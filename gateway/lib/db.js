@@ -412,6 +412,11 @@ function runMigrations(db) {
     }
   } catch (e) { console.warn('[gateway] content_revisions migration skipped:', e.message); }
 
+  // Phase 5: event delivery tracking
+  try { db.exec('ALTER TABLE events ADD COLUMN delivered_at INTEGER'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE events ADD COLUMN delivery_method TEXT'); } catch { /* already exists */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_events_delivered ON events(agent_id, delivered_at)'); } catch { /* already exists */ }
+
   // Phase 4: table engine metadata (replaces Baserow)
   try {
     runTableEngineMigrations(db);

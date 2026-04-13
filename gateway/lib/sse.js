@@ -6,6 +6,9 @@ import crypto from 'crypto';
 export const sseClients = new Map(); // agent_id -> Set<res>
 export const humanClients = new Map(); // actor_id -> Set<res>
 
+let _db = null;
+export function setSseDb(db) { _db = db; }
+
 export function pushHumanEvent(actorId, event) {
   const clients = humanClients.get(actorId);
   if (!clients) return;
@@ -17,9 +20,29 @@ export function pushHumanEvent(actorId, event) {
 
 export function pushEvent(agentId, event) {
   const clients = sseClients.get(agentId);
-  if (clients) {
+  const clientCount = clients ? clients.size : 0;
+
+  if (clientCount > 0) {
+    const data = `data: ${JSON.stringify(event)}\n\n`;
     for (const res of clients) {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      try {
+        res.write(data);
+      } catch (e) {
+        console.warn(`[sse] write failed agent=${agentId} event=${event.event_id || event.id}: ${e.message}`);
+      }
+    }
+  }
+
+  const eventId = event.event_id || event.id;
+  const eventType = event.event || event.type;
+  console.log(`[push] agent=${agentId} event=${eventId} type=${eventType} clients=${clientCount} delivered=${clientCount > 0}`);
+
+  if (_db && clientCount > 0 && eventId) {
+    try {
+      _db.prepare('UPDATE events SET delivered_at = ?, delivery_method = ? WHERE id = ?')
+        .run(Date.now(), 'sse', eventId);
+    } catch (e) {
+      console.warn(`[sse] mark delivered failed event=${eventId}: ${e.message}`);
     }
   }
 }

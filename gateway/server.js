@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import { initDatabase } from './lib/db.js';
 import { genId, hashToken, hashPassword, verifyPassword } from './lib/utils.js';
 import { createAuthMiddleware } from './middleware/auth.js';
-import { sseClients, humanClients, pushEvent, pushHumanEvent, deliverWebhook, pollComments } from './lib/sse.js';
+import { sseClients, humanClients, pushEvent, pushHumanEvent, deliverWebhook, pollComments, setSseDb } from './lib/sse.js';
 import { createContentSync } from './lib/content-sync.js';
 import { createTableEngine } from './lib/table-engine/index.js';
 
@@ -31,6 +31,7 @@ const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('he
 
 // ─── Database ────────────────────────────────────
 const db = initDatabase(__dirname);
+setSseDb(db);
 
 // ─── Auth middleware ─────────────────────────────
 const { authenticateAny, authenticateAdmin, authenticateAgent } = createAuthMiddleware(db, JWT_SECRET, ADMIN_TOKEN);
@@ -78,6 +79,22 @@ docsRoutes(app, shared);
 dataRoutes(app, shared);
 contentRoutes(app, shared);
 eventsRoutes(app, shared);
+
+// ─── Events TTL cleanup ─────────────────────────
+const EVENT_TTL_DAYS = parseInt(process.env.GATEWAY_EVENT_TTL_DAYS || '30', 10);
+function cleanupDeliveredEvents() {
+  try {
+    const cutoff = Date.now() - EVENT_TTL_DAYS * 86400_000;
+    const result = db.prepare('DELETE FROM events WHERE delivered = 1 AND occurred_at < ?').run(cutoff);
+    if (result.changes > 0) {
+      console.log(`[gateway] events TTL cleanup: removed ${result.changes} delivered events older than ${EVENT_TTL_DAYS}d`);
+    }
+  } catch (e) {
+    console.warn(`[gateway] events TTL cleanup failed: ${e.message}`);
+  }
+}
+setTimeout(cleanupDeliveredEvents, 60_000);
+setInterval(cleanupDeliveredEvents, 24 * 3600 * 1000);
 
 // ─── Start ───────────────────────────────────────
 app.listen(PORT, () => {
