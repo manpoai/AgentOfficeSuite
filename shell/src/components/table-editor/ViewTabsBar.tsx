@@ -15,7 +15,7 @@ import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortabl
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { VIEW_TYPES, getViewIcon } from './types';
 
 export interface ViewTabsBarProps {

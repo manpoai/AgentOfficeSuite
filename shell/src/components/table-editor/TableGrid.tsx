@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import { formatDate } from '@/lib/utils/time';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { ContentLink } from '@/components/shared/ContentLink';
 import {
   CONTENT_LINK_RE, CONTENT_LINK_RE_G, extractContentId,

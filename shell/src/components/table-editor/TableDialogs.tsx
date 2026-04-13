@@ -12,7 +12,7 @@ import { formatDateTime } from '@/lib/utils/time';
 import { SnapshotPreview } from './TableHistory';
 import { SnapshotCellValue } from './TableGrid';
 import * as gw from '@/lib/api/gateway';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { showError } from '@/lib/utils/error';
 import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
 

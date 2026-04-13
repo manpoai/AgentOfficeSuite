@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import * as gw from '@/lib/api/gateway';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';

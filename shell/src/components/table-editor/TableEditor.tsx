@@ -26,7 +26,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { useT, getT } from '@/lib/i18n';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import * as gw from '@/lib/api/gateway';
 import { RowDetailPanel } from './RowDetailPanel';
 import { ColTypeDef, COLUMN_TYPES } from './types';
@@ -1578,15 +1578,10 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     setNewColType(col.type);
     setNewColOptions(col.options?.map(o => o.title).join(', ') || '');
     setNewColOptionsList(col.options?.map(o => o.title) || []);
-    setNewColFormula(col.formula || '');
     setNewColRelTable(col.relatedTableId || '');
     setNewColRelType(col.relationType || 'mm');
     setNewColRelMulti(col.relationType !== 'bt');
     setNewColRelBidirectional(true);
-    setNewColRelCol(col.fk_relation_column_id || '');
-    setNewColLookupCol(col.fk_lookup_column_id || '');
-    setNewColRollupCol(col.fk_rollup_column_id || '');
-    setNewColRollupFn(col.rollup_function || 'sum');
     // Number format from meta
     if (col.meta) {
       const m = col.meta as Record<string, unknown>;

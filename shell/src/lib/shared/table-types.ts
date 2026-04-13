@@ -75,11 +75,8 @@ export const COLUMN_TYPES: ColumnTypeDef[] = [
   { value: 'Checkbox',       label: 'Checkbox',      icon: CheckSquare, group: 'select' },
   { value: 'SingleSelect',   label: 'SingleSelect',  icon: List,        group: 'select' },
   { value: 'MultiSelect',    label: 'MultiSelect',   icon: Tags,        group: 'select' },
-  // Relation & Computed
+  // Relation (tableEngine does not support Lookup/Rollup/Formula — Links only)
   { value: 'Links',          label: 'Links',    icon: Link2,     group: 'relation' },
-  { value: 'Lookup',         label: 'Lookup',   icon: Search,    group: 'relation' },
-  { value: 'Rollup',         label: 'Rollup',   icon: Sigma,     group: 'relation' },
-  { value: 'Formula',        label: 'Formula',  icon: GitBranch, group: 'relation' },
   // Other
   { value: 'Attachment',     label: 'Attachment',      icon: Paperclip,  group: 'other' },
   { value: 'JSON',           label: 'JSON',            icon: Braces,     group: 'other' },

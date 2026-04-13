@@ -9,7 +9,7 @@ import React from 'react';
 import { Plus, X, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import {
   ColTypeDef, COLUMN_TYPES, GROUP_KEYS,
   getColIcon, SELECT_COLORS, isSelectType,

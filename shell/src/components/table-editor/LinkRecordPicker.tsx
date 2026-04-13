@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Search, Link2, Check, ChevronLeft, ChevronRight, Paperclip } from 'lucide-react';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';

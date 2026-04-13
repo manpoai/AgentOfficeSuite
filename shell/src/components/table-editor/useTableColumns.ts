@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { SELECT_COLORS, READONLY_TYPES, isSelectType } from './types';
 import { showError } from '@/lib/utils/error';
 import { getT } from '@/lib/i18n';
@@ -409,15 +409,10 @@ export function useTableColumns({
     setNewColType(col.type);
     setNewColOptions(col.options?.map(o => o.title).join(', ') || '');
     setNewColOptionsList(col.options?.map(o => o.title) || []);
-    setNewColFormula(col.formula || '');
     setNewColRelTable(col.relatedTableId || '');
     setNewColRelType(col.relationType || 'mm');
     setNewColRelMulti(col.relationType !== 'bt');
     setNewColRelBidirectional(true);
-    setNewColRelCol(col.fk_relation_column_id || '');
-    setNewColLookupCol(col.fk_lookup_column_id || '');
-    setNewColRollupCol(col.fk_rollup_column_id || '');
-    setNewColRollupFn(col.rollup_function || 'sum');
     if (col.meta) {
       const m = col.meta as Record<string, unknown>;
       setNumFormat({

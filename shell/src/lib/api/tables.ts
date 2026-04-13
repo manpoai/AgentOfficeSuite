@@ -1,5 +1,7 @@
 /**
- * Baserow API client — calls through /api/gateway/data/* proxy
+ * Tables API client — calls the Gateway tableEngine via /api/gateway/data/* proxy.
+ * (File was previously named baserow.ts; the backend has been fully migrated
+ * to SQLite tableEngine in P4. BR* type prefixes are a separate rename pass.)
  */
 
 const BASE = '/api/gateway/data';
@@ -41,13 +43,8 @@ export interface BRColumn {
   required: boolean;
   options?: BRSelectOption[]; // for SingleSelect / MultiSelect
   meta?: Record<string, unknown>; // for Currency symbol, decimal places, etc.
-  formula?: string; // for Formula columns
   relatedTableId?: string; // for Links/LinkToAnotherRecord
   relationType?: string; // hm, bt, mm
-  fk_relation_column_id?: string; // for Lookup/Rollup
-  fk_lookup_column_id?: string; // for Lookup
-  fk_rollup_column_id?: string; // for Rollup
-  rollup_function?: string; // for Rollup
 }
 
 export interface BRView {
@@ -166,13 +163,8 @@ export async function addColumn(
   opts?: {
     options?: BRSelectOption[];
     meta?: Record<string, unknown>;
-    formula_raw?: string;
     childId?: string;
     relationType?: string;
-    fk_relation_column_id?: string;
-    fk_lookup_column_id?: string;
-    fk_rollup_column_id?: string;
-    rollup_function?: string;
   }
 ): Promise<{ column_id: string; title: string; type: string }> {
   return brFetch(`/tables/${tableId}/columns`, {

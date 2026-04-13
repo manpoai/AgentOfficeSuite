@@ -14,7 +14,7 @@ import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import * as br from '@/lib/api/baserow';
+import * as br from '@/lib/api/tables';
 import { getColIcon, getFilterOpsForType, READONLY_TYPES } from './types';
 import { BottomSheet } from '@/components/shared/BottomSheet';
 
