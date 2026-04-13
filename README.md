@@ -32,6 +32,28 @@ After startup, AgentOffice should be configured with a public URL before cross-d
 - **Automatic public URL** — for users without a domain
 - **Custom domain** — for users who want a stable long-term address
 
+### 2. Daily use (recommended)
+
+For regular use, install AgentOffice globally so you get background mode, status checks, and one-command updates:
+
+```bash
+npm install -g agentoffice-main
+```
+
+Then manage the service with:
+
+```bash
+agentoffice-main start -d   # start in background
+agentoffice-main status     # show status, version, health
+agentoffice-main stop       # stop the service
+agentoffice-main restart    # restart the service
+agentoffice-main logs -f    # tail logs
+agentoffice-main update     # download latest runtime and restart
+agentoffice-main version    # show bootstrap and runtime versions
+```
+
+`npx agentoffice-main` and the global install share the same data directory (`~/.agentoffice/`), so you can switch between them at any time without losing data. The bootstrap package itself is upgraded with `npm install -g agentoffice-main@latest`; the runtime is upgraded separately with `agentoffice-main update`. The two are intentionally decoupled.
+
 ---
 
 
