@@ -26,13 +26,15 @@ The bootstrap CLI starts both and prints the final ports.
 
 ## External access
 
-AgentOffice does not bundle a tunnel and does not store a public base URL. You decide how (and whether) to expose it externally.
+The recommended setup is single-machine: AgentOffice and your agents both run on the same host, and agents reach AgentOffice via `http://localhost:4000` with no extra configuration.
 
-Typical setups:
+If you need an external URL — for example, to run an agent on another machine — pick any way to forward your URL to the local Shell port (Cloudflare Tunnel, ngrok, frp, tailscale-funnel, Caddy, nginx, …). AgentOffice reads `X-Forwarded-Proto` / `X-Forwarded-Host` from the incoming request and uses them when constructing share links and agent callbacks, so the workspace will display the right hostname automatically.
 
-- **Local-only** — open `http://127.0.0.1:<shell-port>` in a browser on the same machine. Done.
-- **LAN access** — bind a reverse proxy (Caddy, nginx, …) on your LAN IP and forward to the local Shell port.
-- **Public internet** — terminate TLS at a reverse proxy or tunnel (Caddy, nginx, Cloudflare Tunnel, ngrok, …) and forward to the local Shell port. AgentOffice trusts `X-Forwarded-Proto` and `X-Forwarded-Host` and uses them when constructing share links, agent callbacks, and webhook URLs.
+To switch an agent over to the new URL, run on the agent's machine:
+
+```bash
+npx agentoffice-mcp set-url https://your-domain.com/api/gateway
+```
 
 Internal services still communicate over localhost regardless of how the gateway is exposed.
 

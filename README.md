@@ -27,9 +27,9 @@ npx agentoffice-main
 
 This bootstrap package downloads the runtime artifact from GitHub Releases, initializes your local AgentOffice workspace, and automatically starts the local service.
 
-By default AgentOffice listens on `http://127.0.0.1:3000` (Shell) and `http://127.0.0.1:4000` (Gateway). For a single-machine setup with a local agent, that's all you need — no extra configuration.
+AgentOffice runs as a local service on `http://localhost:3000` (Shell) and `http://localhost:4000` (Gateway). The recommended setup is to run your agents on the same machine — they connect to AgentOffice via `http://localhost:4000` automatically, with zero configuration.
 
-If you want to reach AgentOffice from another device, or run an agent that doesn't live on the same machine, see [Custom URL](#custom-url) below.
+If you want to access AgentOffice from another device, or run an agent on another machine, see [Custom external URL](#custom-external-url) below.
 
 ### 2. Daily use (recommended)
 
@@ -55,40 +55,30 @@ agentoffice-main version    # show bootstrap and runtime versions
 
 ---
 
-## Custom URL
+## Custom external URL
 
-AgentOffice no longer manages remote access for you. There is no built-in tunnel, no `PUBLIC_BASE_URL` setting, and no central "current public URL" stored anywhere. You decide how AgentOffice is reached, and tell the agents the address you chose.
+The default same-machine setup needs no configuration. This section is only for when you want a different address — for example, you're hosting AgentOffice on one machine and want an agent on another machine to reach it.
 
-### Same machine (recommended)
+### Step 1 — Expose AgentOffice on your chosen URL
 
-If your agent runs on the same machine as AgentOffice, you don't need to do anything. The agent uses:
+Set up your own way to forward your URL to `http://localhost:3000`:
 
-```
-http://localhost:4000/api/gateway
-```
+- a tunnel (Cloudflare Tunnel, ngrok, frp, tailscale-funnel, …), or
+- a reverse proxy (Caddy, nginx, …) on a custom domain
 
-This is what the onboarding prompt fills in by default. Zero configuration.
+You pick the method. AgentOffice does not bundle one.
 
-### Custom external URL
+### Step 2 — Point your agent at the new URL
 
-If you want to access AgentOffice from another device, or run an agent on another machine, you provide your own way to expose the local Shell port:
-
-- a reverse proxy (Caddy, nginx, …)
-- a tunnel (Cloudflare Tunnel, ngrok, frp, tailscale-funnel, …)
-- a custom domain pointing at your machine
-
-Whatever you choose, make sure your proxy forwards `X-Forwarded-Proto` and `X-Forwarded-Host` to the local Shell port. AgentOffice reads those headers and uses them to construct share links, agent callbacks, and webhook URLs — so links inside the workspace will automatically reflect your custom hostname without any extra config on the AgentOffice side.
-
-Once your URL is up, point each agent's MCP server at it:
+On the machine where the agent runs, run:
 
 ```bash
-npx agentoffice-mcp set-url https://office.example.com/api/gateway
-npx agentoffice-mcp set-token <agent-token>
+npx agentoffice-mcp set-url https://your-domain.com/api/gateway
 ```
 
-These write to `~/.agentoffice-mcp/config.json` on the agent's machine and persist across restarts. You can run `set-url` again any time you change hostname.
+That's it. The next time the agent's MCP server starts, it will use the new URL.
 
-To inspect the current setting:
+To check the current setting:
 
 ```bash
 npx agentoffice-mcp show-config
@@ -96,30 +86,32 @@ npx agentoffice-mcp show-config
 
 ### Remote agent you cannot directly access
 
-If the agent runs in a hosted environment you can't `cd` into (a chat assistant, a cloud agent host, …), you can't run `set-url` yourself. Send the agent a message like the one below and ask it to run the command on its side:
+Most agents run on a machine you can `cd` into, so Step 2 above just works. The exception is when the agent runs on a remote host you don't have shell access to (a cloud VM, someone else's machine, a hosted agent platform). In that case you can't run `set-url` yourself.
+
+Send the agent a message asking it to run the command on its side:
 
 **English:**
 
 ```
-I switched my AgentOffice instance to a new URL: <NEW_URL>
-Please update your AgentOffice MCP connection by running this command in your environment:
+I switched my AgentOffice to a new URL: <NEW_URL>
+Please run this command in your environment to update your AgentOffice MCP connection:
 
   npx agentoffice-mcp set-url <NEW_URL>
 
-After it finishes, call the `whoami` tool to verify the connection works, and tell me the result.
+Then call the `whoami` tool to confirm the new connection works.
 ```
 
 **中文：**
 
 ```
-我把 AgentOffice 切换到了新地址 <NEW_URL>。请帮我在你的运行环境里执行以下命令切换 AgentOffice 连接：
+我把 AgentOffice 切换到了新地址 <NEW_URL>。请在你的运行环境里跑一下：
 
   npx agentoffice-mcp set-url <NEW_URL>
 
-执行完成后，请再调用 whoami 工具验证连接是否正常，并把结果告诉我。
+然后调一下 whoami 工具，确认新的连接正常。
 ```
 
-This only works if the remote agent has shell access. If it doesn't, you'll need to update the agent host's MCP configuration manually (each platform documents this differently — for example, by editing the `mcpServers` block in its config file).
+If even that isn't possible, you'll need to update the agent host's MCP configuration directly — each platform documents this differently (typically by editing the `mcpServers` block in the agent's config file).
 
 ---
 
@@ -127,11 +119,11 @@ This only works if the remote agent has shell access. If it doesn't, you'll need
 
 | Step | Stage | Description |
 |---|---|---|
-| Step 1 | Onboard | Copy the onboarding prompt from AgentOffice, fill in your AgentOffice URL (`http://localhost:4000` for same-machine, or your custom URL), and send it to the Agent. The Agent initiates a registration request. |
+| Step 1 | Onboard | Copy the onboarding prompt from AgentOffice and send it to the Agent. The Agent initiates a registration request. |
 | Step 2 | Activate | Review and approve the Agent's registration request in AgentOffice. |
 | Step 3 | Start collaborating | Assign tasks to the Agent from your original chat platform, or start collaboration directly in AgentOffice comments with `@agent`. |
 
-If you later move AgentOffice to a different URL, see the [Remote agent you cannot directly access](#remote-agent-you-cannot-directly-access) prompt template above to ask the agent to switch over.
+If you later move AgentOffice to a different URL, see [Custom external URL](#custom-external-url) above.
 
 Support for host-style Agent platforms will continue to expand. Current platforms include:
 

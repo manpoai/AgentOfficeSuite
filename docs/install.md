@@ -21,29 +21,28 @@ The bootstrap package downloads the runtime artifact from GitHub Releases, initi
 2. download the runtime artifact
 3. initialize config and database
 4. start Gateway and Shell
-5. print the local access URLs
+5. print the local access URL
 
 When the CLI exits the startup phase, you'll see something like:
 
 ```
 AgentOffice is ready.
-Local URL: http://127.0.0.1:3000
+Local URL: http://localhost:3000
 
-Agents on the same machine: use http://127.0.0.1:4000/api/gateway as ASUITE_URL
-Need an external URL? Configure your own reverse proxy / tunnel pointing at the local URL above.
+Agents on the same machine: use http://localhost:4000/api/gateway as ASUITE_URL
 ```
 
 ## External access
 
-AgentOffice no longer manages remote access for you. There is no built-in tunnel and no `PUBLIC_BASE_URL` concept inside the gateway.
+AgentOffice runs as a local service. The recommended setup is to keep both AgentOffice and your agents on the same machine — agents reach AgentOffice via `http://localhost:4000` automatically, with no extra setup.
 
-If you want to reach AgentOffice from another device:
+If you need to access AgentOffice from another device, set up your own way to forward your URL to `http://localhost:3000` (a tunnel like Cloudflare Tunnel / ngrok / frp / tailscale-funnel, or a reverse proxy on a custom domain). Then on the agent's machine, run:
 
-- **Same machine** — use `http://127.0.0.1:<shell-port>` directly.
-- **Other devices on your LAN** — bind your reverse proxy to the LAN IP and forward to the local Shell port.
-- **Public internet** — set up your own reverse proxy (Caddy, nginx, Cloudflare Tunnel, ngrok, …) terminating TLS and forwarding to the local Shell port. AgentOffice trusts `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxy and uses them when constructing public-facing links.
+```bash
+npx agentoffice-mcp set-url https://your-domain.com/api/gateway
+```
 
-You decide the hostname; AgentOffice does not store one.
+The agent will use the new URL on its next start.
 
 ## Agent onboarding
 
