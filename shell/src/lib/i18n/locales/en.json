@@ -1130,5 +1130,31 @@
       "objectPropertiesWithType": "{type} Properties",
       "objectFallback": "Object"
     }
+  },
+  "serverNotifications": {
+    "content_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} created {{kind}} \"{{title}}\""
+    },
+    "doc_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} created doc \"{{title}}\""
+    },
+    "agent_registered": {
+      "title": "New agent \"{{displayName}}\" requests access",
+      "body": "Agent \"{{name}}\" has registered and is pending approval."
+    },
+    "kinds": {
+      "doc": "doc",
+      "diagram": "diagram",
+      "table": "table",
+      "presentation": "presentation",
+      "board": "board",
+      "spreadsheet": "spreadsheet"
+    },
+    "defaults": {
+      "newContent": "New content",
+      "newDoc": "New document"
+    }
   }
 }

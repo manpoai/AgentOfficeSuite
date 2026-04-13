@@ -1130,5 +1130,31 @@
       "objectPropertiesWithType": "{type} 属性",
       "objectFallback": "对象"
     }
+  },
+  "serverNotifications": {
+    "content_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} 创建了{{kind}}「{{title}}」"
+    },
+    "doc_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} 创建了文档「{{title}}」"
+    },
+    "agent_registered": {
+      "title": "新 Agent「{{displayName}}」申请接入",
+      "body": "Agent「{{name}}」已注册，等待审批。"
+    },
+    "kinds": {
+      "doc": "文档",
+      "diagram": "流程图",
+      "table": "表格",
+      "presentation": "演示文稿",
+      "board": "看板",
+      "spreadsheet": "电子表格"
+    },
+    "defaults": {
+      "newContent": "新内容",
+      "newDoc": "新文档"
+    }
   }
 }

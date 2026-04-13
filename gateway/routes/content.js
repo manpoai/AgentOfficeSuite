@@ -12,6 +12,7 @@ import {
   setUnifiedCommentResolved,
 } from '../lib/comment-service.js';
 import { createSnapshot, isAgentRequest } from '../lib/snapshot-helper.js';
+import { insertNotification } from '../lib/notifications.js';
 
 /** Normalize agent-created diagram cells to flowchart-node format */
 function normalizeDiagramCells(cells) {
@@ -347,17 +348,19 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       try {
         // Notify all human actors
         const humanActors = db.prepare("SELECT id FROM actors WHERE type = 'human'").all();
+        const titleStr = contentTitle || contentId;
         for (const actor of humanActors) {
-          const notifId = genId('notif');
-          db.prepare(`INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, meta, read, created_at)
-            VALUES (?,?,?,?,?,?,?,?,0,?)`).run(
-            notifId, agentName, actor.id, 'content_created',
-            contentTitle || 'New content',
-            `${agentName} 创建了${type === 'doc' ? '文档' : type === 'diagram' ? '流程图' : type === 'table' ? '表格' : type === 'presentation' ? '演示文稿' : type}「${contentTitle || contentId}」`,
-            `/content?id=${contentId}`,
-            JSON.stringify({ content_id: contentId, type }),
-            Date.now()
-          );
+          const { id: notifId } = insertNotification(db, { genId }, {
+            actorId: agentName,
+            targetActorId: actor.id,
+            type: 'content_created',
+            titleKey: 'serverNotifications.content_created.title',
+            titleParams: { title: contentTitle || '' },
+            bodyKey: 'serverNotifications.content_created.body',
+            bodyParams: { agent: agentName, kind: `@:serverNotifications.kinds.${type}`, title: titleStr },
+            link: `/content?id=${contentId}`,
+            meta: { content_id: contentId, type },
+          });
           pushHumanEvent(actor.id, { event: 'notification.created', data: { id: notifId, type: 'content_created', content_id: contentId, title: contentTitle } });
           pushHumanEvent(actor.id, { event: 'content.changed', data: { action: 'created', type, id: contentId, title: contentTitle } });
         }

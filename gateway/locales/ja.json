@@ -1130,5 +1130,31 @@
       "objectPropertiesWithType": "{type} のプロパティ",
       "objectFallback": "オブジェクト"
     }
+  },
+  "serverNotifications": {
+    "content_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} が{{kind}}「{{title}}」を作成しました"
+    },
+    "doc_created": {
+      "title": "{{title}}",
+      "body": "{{agent}} がドキュメント「{{title}}」を作成しました"
+    },
+    "agent_registered": {
+      "title": "新しいエージェント「{{displayName}}」がアクセスを申請しています",
+      "body": "エージェント「{{name}}」が登録され、承認待ちです。"
+    },
+    "kinds": {
+      "doc": "ドキュメント",
+      "diagram": "ダイアグラム",
+      "table": "テーブル",
+      "presentation": "プレゼンテーション",
+      "board": "ボード",
+      "spreadsheet": "スプレッドシート"
+    },
+    "defaults": {
+      "newContent": "新しいコンテンツ",
+      "newDoc": "新しいドキュメント"
+    }
   }
 }

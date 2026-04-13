@@ -7,6 +7,23 @@
  */
 import { tServer, DEFAULT_LANGUAGE } from './i18n-server.js';
 
+/**
+ * Resolve params whose value is an i18n key reference (string starting with "@:").
+ * e.g. { kind: "@:serverNotifications.kinds.doc" } → { kind: tServer(lang, "serverNotifications.kinds.doc") }
+ */
+function resolveParams(lang, params) {
+  if (!params) return params;
+  const out = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (typeof v === 'string' && v.startsWith('@:')) {
+      out[k] = tServer(lang, v.slice(2));
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
 function getRecipientLang(db, targetActorId) {
   try {
     const row = db.prepare('SELECT preferred_language FROM actors WHERE id = ?').get(targetActorId);
@@ -45,8 +62,8 @@ export function insertNotification(db, deps, payload) {
   }
 
   const lang = getRecipientLang(db, targetActorId);
-  const titleRendered = tServer(lang, titleKey, titleParams);
-  const bodyRendered = bodyKey ? tServer(lang, bodyKey, bodyParams) : null;
+  const titleRendered = tServer(lang, titleKey, resolveParams(lang, titleParams));
+  const bodyRendered = bodyKey ? tServer(lang, bodyKey, resolveParams(lang, bodyParams)) : null;
 
   const id = genId('notif');
   const now = Math.floor(Date.now() / 1000);

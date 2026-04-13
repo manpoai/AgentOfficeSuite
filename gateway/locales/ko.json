@@ -1130,5 +1130,31 @@
       "objectPropertiesWithType": "{type} 속성",
       "objectFallback": "객체"
     }
+  },
+  "serverNotifications": {
+    "content_created": {
+      "title": "{{title}}",
+      "body": "{{agent}}님이 {{kind}} \"{{title}}\"을(를) 생성했습니다"
+    },
+    "doc_created": {
+      "title": "{{title}}",
+      "body": "{{agent}}님이 문서 \"{{title}}\"을(를) 생성했습니다"
+    },
+    "agent_registered": {
+      "title": "새 에이전트 \"{{displayName}}\" 액세스 요청",
+      "body": "에이전트 \"{{name}}\"이(가) 등록되어 승인 대기 중입니다."
+    },
+    "kinds": {
+      "doc": "문서",
+      "diagram": "다이어그램",
+      "table": "테이블",
+      "presentation": "프레젠테이션",
+      "board": "보드",
+      "spreadsheet": "스프레드시트"
+    },
+    "defaults": {
+      "newContent": "새 콘텐츠",
+      "newDoc": "새 문서"
+    }
   }
 }

@@ -7,6 +7,7 @@ import fs from 'fs';
 import multer from 'multer';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
+import { insertNotification } from '../lib/notifications.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
@@ -234,14 +235,15 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     // Notify all human admins about new agent registration
     const admins = db.prepare("SELECT id FROM actors WHERE type = 'human' AND role = 'admin'").all();
     for (const admin of admins) {
-      const notifId = genId('ntf');
-      db.prepare(`INSERT INTO notifications (id, actor_id, target_actor_id, type, title, body, link, created_at)
-        VALUES (?, ?, ?, 'agent_registered', ?, ?, ?, ?)`)
-        .run(notifId, agentId, admin.id,
-          `New agent "${display_name}" requests access`,
-          `Agent "${name}" has registered and is pending approval.`,
-          null,
-          now);
+      insertNotification(db, { genId }, {
+        actorId: agentId,
+        targetActorId: admin.id,
+        type: 'agent_registered',
+        titleKey: 'serverNotifications.agent_registered.title',
+        titleParams: { displayName: display_name },
+        bodyKey: 'serverNotifications.agent_registered.body',
+        bodyParams: { name },
+      });
     }
 
     const publicBaseUrl = getPublicBaseUrl(req);
