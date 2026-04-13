@@ -5,16 +5,25 @@
  * Exposes AgentOffice workspace operations (IM, Docs, Tasks, Data) as MCP tools.
  * Connects to AgentOffice Gateway via HTTP REST, talks to AI agents over MCP stdio.
  *
- * Configuration: ~/.agentoffice-mcp/config.json (managed by `set-url` / `set-token` subcommands).
- * Environment variables ASUITE_URL / ASUITE_TOKEN are still honored as a one-time migration
- * source — when present without a config file, they are written to the file on first run.
+ * Configuration:
+ *   • base_url  → ~/.agentoffice-mcp/config.json (managed by `set-url`)
+ *   • token     → process.env.ASUITE_TOKEN (set once in the MCP host's
+ *                 mcpServers env block at agent registration; never persisted
+ *                 to the local config file, never editable from this CLI)
+ *
+ * The token is intentionally not stored on disk. The agent receives it once
+ * from /api/agents/self-register and the MCP host writes it into the env
+ * block. Only the URL is mutable from the CLI, because the URL is the only
+ * thing that changes when the user moves AgentOffice to a new address.
+ *
+ * Environment variable ASUITE_URL is honored as a one-time migration source —
+ * when present without a config file, it is written to the file on first run.
  *
  * Subcommands:
- *   agentoffice-mcp                 — start the MCP stdio server (default)
- *   agentoffice-mcp set-url <url>   — write base_url to config and exit
- *   agentoffice-mcp set-token <tok> — write token to config and exit
- *   agentoffice-mcp show-config     — print effective config (token masked)
- *   agentoffice-mcp --help          — show usage
+ *   agentoffice-mcp                — start the MCP stdio server (default)
+ *   agentoffice-mcp set-url <url>  — write base_url to config and exit
+ *   agentoffice-mcp show-config    — print effective config (token masked)
+ *   agentoffice-mcp --help         — show usage
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -41,7 +50,6 @@ function printHelp() {
 Usage:
   agentoffice-mcp                  Start the MCP stdio server (default)
   agentoffice-mcp set-url <url>    Set base_url in ${CONFIG_PATH}
-  agentoffice-mcp set-token <tok>  Set token in ${CONFIG_PATH}
   agentoffice-mcp show-config      Print effective config (token masked)
   agentoffice-mcp --help, -h       Show this help
 
@@ -49,8 +57,13 @@ The base_url is the AgentOffice gateway address. For agents running on the
 same machine as AgentOffice, this is typically:
   http://localhost:4000/api/gateway
 
-For agents on a different machine, use the public URL the user configured
-for their AgentOffice instance (their tunnel hostname, custom domain, etc.).
+For agents on a different machine, use the URL you exposed AgentOffice on
+(your tunnel hostname, custom domain, etc.).
+
+The agent's token is set by your MCP host as the ASUITE_TOKEN env var when
+the agent first registers. It is not stored in this config file and cannot
+be changed from this CLI — moving AgentOffice to a new URL never changes
+the token, only the URL.
 `);
 }
 
@@ -66,18 +79,6 @@ function handleSetUrl(url) {
   const next = writeConfig({ base_url: url.replace(/\/$/, '') });
   console.log(`✓ base_url written to ${CONFIG_PATH}`);
   console.log(`  base_url: ${next.base_url}`);
-  console.log(`  token:    ${maskToken(next.token)}`);
-}
-
-function handleSetToken(token) {
-  if (!token || typeof token !== 'string') {
-    console.error('Error: set-token requires a token argument.');
-    process.exit(1);
-  }
-  const next = writeConfig({ token });
-  console.log(`✓ token written to ${CONFIG_PATH}`);
-  console.log(`  base_url: ${next.base_url || '(not set)'}`);
-  console.log(`  token:    ${maskToken(next.token)}`);
 }
 
 function handleShowConfig() {
@@ -85,14 +86,14 @@ function handleShowConfig() {
   console.log(`Config file: ${CONFIG_PATH}`);
   if (file) {
     console.log(`  base_url: ${file.base_url || '(not set)'}`);
-    console.log(`  token:    ${maskToken(file.token)}`);
   } else {
     console.log('  (file does not exist)');
   }
-  if (process.env.ASUITE_URL || process.env.ASUITE_TOKEN) {
-    console.log('Environment fallback:');
-    console.log(`  ASUITE_URL:   ${process.env.ASUITE_URL || '(unset)'}`);
-    console.log(`  ASUITE_TOKEN: ${maskToken(process.env.ASUITE_TOKEN)}`);
+  console.log('Token (from env, not stored on disk):');
+  console.log(`  ASUITE_TOKEN: ${maskToken(process.env.ASUITE_TOKEN)}`);
+  if (process.env.ASUITE_URL) {
+    console.log('Env URL fallback (only used if config file has no base_url):');
+    console.log(`  ASUITE_URL: ${process.env.ASUITE_URL}`);
   }
 }
 
@@ -104,7 +105,7 @@ async function startServer() {
     console.error(err.message);
     process.exit(1);
   }
-  console.error(`[mcp] config source: ${cfg.source}`);
+  console.error(`[mcp] url source: ${cfg.source}`);
   console.error(`[mcp] base_url: ${cfg.base_url}`);
 
   const server = new McpServer({ name: 'asuite', version: '0.1.0' });
@@ -129,9 +130,6 @@ switch (sub) {
     break;
   case 'set-url':
     handleSetUrl(process.argv[3]);
-    break;
-  case 'set-token':
-    handleSetToken(process.argv[3]);
     break;
   case 'show-config':
     handleShowConfig();

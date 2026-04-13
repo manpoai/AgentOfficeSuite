@@ -61,15 +61,16 @@ Treat this file as sensitive.
 
 ## Agent-side environment
 
-The agent-side MCP server (`agentoffice-mcp`) stores its connection settings in `~/.agentoffice-mcp/config.json` on the agent's machine.
+The agent-side MCP server (`agentoffice-mcp`) splits its configuration on purpose:
 
-The token is set automatically when the agent registers (the gateway returns it in `mcp_server.env.ASUITE_TOKEN` from `/api/agents/self-register`, and the agent host writes it into the MCP config).
+- **URL** — stored in `~/.agentoffice-mcp/config.json` on the agent's machine. Mutable from the CLI via `set-url`, because the URL changes whenever you move AgentOffice to a new address.
+- **Token** — read from the `ASUITE_TOKEN` env var only. The token is set once by your MCP host's `mcpServers` env block when the agent first registers (the gateway returns it in `mcp_server.env.ASUITE_TOKEN` from `/api/agents/self-register`). It is never persisted to disk by the MCP server and cannot be changed from this CLI. Moving AgentOffice to a new URL never changes the token.
 
-The URL only needs to be touched if you want the agent to talk to AgentOffice via a different address than where it first registered:
+So the only command you ever run on an agent machine is:
 
 ```bash
 npx agentoffice-mcp set-url https://your-domain.com/api/gateway
 npx agentoffice-mcp show-config
 ```
 
-For low-level recovery (e.g. token rotation), `set-token` exists but is rarely needed in normal operation.
+If a token ever needs to be rotated (e.g. compromised), use the **Reset token** action in the AgentOffice admin UI for that agent — that flow rotates the token server-side and you re-issue the new value to the agent host's env block.
