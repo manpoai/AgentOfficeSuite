@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS actors (
   webhook_secret TEXT,
   online      INTEGER DEFAULT 0,
   last_seen_at INTEGER,
-  br_password TEXT,
   platform    TEXT,
   pending_approval INTEGER DEFAULT 0,
   deleted_at  INTEGER,

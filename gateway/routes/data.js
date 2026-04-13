@@ -1,43 +1,28 @@
 /**
  * Data routes: tables, columns, views, filters, sorts, rows, links,
- * file upload/download proxy, table comments, snapshots
+ * file upload, table comments, snapshots
  */
 import crypto from 'crypto';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { createUnifiedComment } from '../lib/comment-service.js';
 import { isAgentRequest } from '../lib/snapshot-helper.js';
 import multer from 'multer';
-import {
-  BR_URL,
-  getBrJwt,
-} from '../baserow.js';
-// NOTE: P4.2 cleanup — only the file upload/download proxy at the bottom of
-// this file still talks to Baserow. Everything else (tables/columns/rows/
-// batch/views/links/snapshots/duplicate) goes through tableEngine. The
-// upload/download routes will be replaced when local file storage lands.
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GATEWAY_DIR = path.dirname(__dirname);
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
   return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
 }
 
-export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, authenticateAgent, genId, contentItemsUpsert, pushEvent, pushHumanEvent, humanClients, deliverWebhook, tableEngine }) {
-
-  // Baserow doesn't need per-agent users
-  async function createBrUser(agentName, displayName) {
-    console.log(`[gateway] Agent ${agentName} registered (Baserow mode — no per-agent DB user needed)`);
-    return null;
-  }
-
-  async function getBrAgentJwt(agentName, password) {
-    return getBrJwt();
-  }
+export default function dataRoutes(app, { db, authenticateAgent, genId, contentItemsUpsert, pushEvent, pushHumanEvent, humanClients, deliverWebhook, tableEngine }) {
 
   // ─── Auto-snapshot helper ─────────────────────────
   // Uses tableEngine.snapshotTable to capture id-keyed schema + rows.
   // Snapshot format (post-P4.2): { schema: [...field defs], rows: [...id-keyed rows] }
-  // Old Baserow-format snapshots (Baserow row shape, title-keyed) still
-  // exist in content_snapshots from before this rewrite; restoreTable
-  // detects format by presence of `schema` key vs legacy `columns`.
   async function createTableSnapshot(tableId, triggerType, agent, description) {
     const snap = tableEngine.snapshotTable(tableId);
     const dataJson = JSON.stringify(snap.rows);
@@ -703,7 +688,6 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
   };
 
   // Inlined parseWhere — pure string parser for (field,op,value)~and(…) syntax.
-  // Migrated from baserow.js so data.js no longer needs that module.
   function parseWhereString(where) {
     if (!where) return [];
     const filters = [];
@@ -1018,7 +1002,6 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
 
   // Post a comment on a row
   app.post('/api/data/:table_id/rows/:row_id/comments', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
@@ -1161,110 +1144,40 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     }
   });
 
-  // ─── File upload proxy (for Baserow attachments) ──────────────
-  const fileUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+  // ─── File upload (attachments for Database rows) ──────────────
+  // Writes to the same UPLOADS_ROOT/files directory used by /api/uploads
+  // in auth.js, so everything is served by the static route
+  // `/api/uploads/files/:filename` already registered there.
+  const UPLOADS_ROOT = process.env.UPLOADS_DIR || path.join(GATEWAY_DIR, 'uploads');
+  const FILES_DIR = path.join(UPLOADS_ROOT, 'files');
+  if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 
-  app.post('/api/data/upload', authenticateAgent, fileUpload.array('files', 10), async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  const attachmentUpload = multer({
+    storage: multer.diskStorage({
+      destination: FILES_DIR,
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname) || '.bin';
+        const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+        cb(null, name);
+      },
+    }),
+    limits: { fileSize: 50 * 1024 * 1024 },
+  });
+
+  app.post('/api/data/upload', authenticateAgent, attachmentUpload.array('files', 10), (req, res) => {
     if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'NO_FILES' });
-
-    try {
-      const brJwt = await getBrJwt();
-      const results = [];
-      for (const file of req.files) {
-        const form = new FormData();
-        const blob = new Blob([file.buffer], { type: file.mimetype });
-        form.append('file', blob, file.originalname);
-
-        const uploadRes = await fetch(`${BR_URL}/api/user-files/upload-file/`, {
-          method: 'POST',
-          headers: { 'Authorization': `JWT ${brJwt}` },
-          body: form,
-        });
-        if (!uploadRes.ok) {
-          const detail = await uploadRes.text();
-          return res.status(uploadRes.status).json({ error: 'UPLOAD_FAILED', detail });
-        }
-        const data = await uploadRes.json();
-        results.push({
-          name: data.name,  // Baserow server filename — required for setting file fields
-          path: data.url,
-          title: data.original_name || file.originalname,
-          mimetype: data.mime_type || file.mimetype,
-          size: data.size || file.size,
-          url: data.url,
-          thumbnails: data.thumbnails,
-        });
-      }
-      res.json(results);
-    } catch (e) {
-      console.error('[gateway] File upload error:', e);
-      res.status(500).json({ error: 'UPLOAD_ERROR', detail: e.message });
-    }
-  });
-
-  // File download proxy (restricted to Baserow origin to prevent SSRF)
-  app.get('/api/data/dl', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const filePath = req.query.path;
-    if (!filePath) return res.status(400).json({ error: 'MISSING_PATH' });
-    try {
-      let targetUrl;
-      if (filePath.startsWith('http')) {
-        // Only allow URLs pointing to the configured Baserow instance (hostname match)
-        try {
-          const parsed = new URL(filePath);
-          const allowed = new URL(BR_URL);
-          if (parsed.hostname !== allowed.hostname || parsed.port !== allowed.port) {
-            return res.status(403).json({ error: 'FORBIDDEN_URL' });
-          }
-        } catch { return res.status(403).json({ error: 'INVALID_URL' }); }
-        targetUrl = filePath;
-      } else {
-        targetUrl = `${BR_URL}${filePath.startsWith('/') ? filePath : '/' + filePath}`;
-      }
-      const brRes = await fetch(targetUrl);
-      if (!brRes.ok) return res.status(brRes.status).send('Not found');
-      res.set('Content-Type', brRes.headers.get('content-type') || 'application/octet-stream');
-      const cacheControl = brRes.headers.get('cache-control');
-      if (cacheControl) res.set('Cache-Control', cacheControl);
-      const buffer = Buffer.from(await brRes.arrayBuffer());
-      res.send(buffer);
-    } catch (e) {
-      console.error('[gateway] File download proxy error:', e);
-      res.status(500).json({ error: 'DOWNLOAD_ERROR' });
-    }
-  });
-
-  // Legacy path-based download route (restricted to Baserow origin)
-  app.get('/api/data/download/*', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    try {
-      const brPath = '/' + req.params[0];
-      let targetUrl;
-      if (brPath.startsWith('http')) {
-        try {
-          const parsed = new URL(brPath);
-          const allowed = new URL(BR_URL);
-          if (parsed.hostname !== allowed.hostname || parsed.port !== allowed.port) {
-            return res.status(403).json({ error: 'FORBIDDEN_URL' });
-          }
-        } catch { return res.status(403).json({ error: 'INVALID_URL' }); }
-        targetUrl = brPath;
-      } else {
-        targetUrl = `${BR_URL}${brPath}`;
-      }
-      const brRes = await fetch(targetUrl);
-      if (!brRes.ok) return res.status(brRes.status).send('Not found');
-      res.set('Content-Type', brRes.headers.get('content-type') || 'application/octet-stream');
-      const cacheControl = brRes.headers.get('cache-control');
-      if (cacheControl) res.set('Cache-Control', cacheControl);
-      const buffer = Buffer.from(await brRes.arrayBuffer());
-      res.send(buffer);
-    } catch (e) {
-      console.error('[gateway] File download proxy error:', e);
-      res.status(500).json({ error: 'DOWNLOAD_ERROR' });
-    }
+    const results = req.files.map((file) => {
+      const url = `/api/uploads/files/${file.filename}`;
+      return {
+        name: file.filename,
+        path: url,
+        title: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        url,
+      };
+    });
+    res.json(results);
   });
 
   // ─── Table Comments (SQLite-backed) ──────────────

@@ -45,7 +45,7 @@ function checkSelfRegisterRate(req, res, next) {
   next();
 }
 
-export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, authenticateAny, authenticateAdmin, authenticateAgent, genId, hashToken, hashPassword, verifyPassword, createBrUser, pushEvent }) {
+export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, authenticateAny, authenticateAdmin, authenticateAgent, genId, hashToken, hashPassword, verifyPassword, pushEvent }) {
 
   // ─── Shared: Avatar upload setup ─────────────────
   const UPLOADS_ROOT = process.env.UPLOADS_DIR || path.join(GATEWAY_DIR, 'uploads');
@@ -190,13 +190,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     // Mark ticket used
     db.prepare('UPDATE tickets SET used = 1 WHERE id = ?').run(ticket);
 
-    // Create a Baserow user for this agent
-    createBrUser(name, display_name).then(brPassword => {
-      if (brPassword) {
-        db.prepare('UPDATE actors SET br_password = ? WHERE id = ?').run(brPassword, agentId);
-      }
-    }).catch(e => console.warn(`[gateway] BR user creation failed: ${e.message}`));
-
     res.json({ agent_id: agentId, token, name, display_name, created_at: now });
   });
 
@@ -237,13 +230,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
       .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
         webhook_url || null, webhook_secret || null, platform || null, now, now);
-
-    // Create Baserow user in advance (will only activate after approval)
-    createBrUser(name, display_name).then(brPassword => {
-      if (brPassword) {
-        db.prepare('UPDATE actors SET br_password = ? WHERE id = ?').run(brPassword, agentId);
-      }
-    }).catch(e => console.warn(`[gateway] BR user creation failed: ${e.message}`));
 
     // Notify all human admins about new agent registration
     const admins = db.prepare("SELECT id FROM actors WHERE type = 'human' AND role = 'admin'").all();

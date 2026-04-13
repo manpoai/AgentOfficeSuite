@@ -11,7 +11,6 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID } from './baserow.js';
 import { initDatabase } from './lib/db.js';
 import { genId, hashToken, hashPassword, verifyPassword } from './lib/utils.js';
 import { createAuthMiddleware } from './middleware/auth.js';
@@ -42,12 +41,6 @@ const { contentItemsUpsert, syncContentItems } = createContentSync(db);
 // ─── Table engine (SQLite-backed, replaces Baserow) ──
 const tableEngine = createTableEngine(db);
 
-// Baserow doesn't need per-agent users
-async function createBrUser(agentName, displayName) {
-  console.log(`[gateway] Agent ${agentName} registered (Baserow mode — no per-agent DB user needed)`);
-  return null;
-}
-
 // ─── App ─────────────────────────────────────────
 const app = express();
 app.use(cors({
@@ -72,10 +65,10 @@ app.get('/api/health', (_req, res) => {
 
 // ─── Shared dependencies for route modules ──────
 const shared = {
-  express, db, JWT_SECRET, ADMIN_TOKEN, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID,
+  express, db, JWT_SECRET, ADMIN_TOKEN,
   authenticateAny, authenticateAdmin, authenticateAgent,
   genId, hashToken, hashPassword, verifyPassword,
-  createBrUser, contentItemsUpsert, syncContentItems, tableEngine,
+  contentItemsUpsert, syncContentItems, tableEngine,
   pushEvent, pushHumanEvent, deliverWebhook, sseClients, humanClients, pollComments,
 };
 

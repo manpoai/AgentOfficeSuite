@@ -65,8 +65,7 @@ function openDatabase(dbPath) {
 }
 
 function runMigrations(db) {
-  // Migrate: add br_password + pending_approval columns to actors
-  try { db.exec('ALTER TABLE actors ADD COLUMN br_password TEXT'); } catch { /* already exists */ }
+  // Migrate: add pending_approval column to actors
   try { db.exec('ALTER TABLE actors ADD COLUMN pending_approval INTEGER DEFAULT 0'); } catch { /* already exists */ }
 
   // Migrate: add platform column to actors (separate try/catch so UPDATE always runs)
@@ -475,14 +474,14 @@ function migrateAgentAccounts(db) {
     const hasAgentAccounts = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_accounts'").get();
     if (hasAgentAccounts) {
       const agents = db.prepare('SELECT * FROM agent_accounts').all();
-      const insert = db.prepare(`INSERT OR IGNORE INTO actors (id, type, username, display_name, avatar_url, token_hash, capabilities, webhook_url, webhook_secret, online, last_seen_at, br_password, pending_approval, created_at, updated_at) VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      const insert = db.prepare(`INSERT OR IGNORE INTO actors (id, type, username, display_name, avatar_url, token_hash, capabilities, webhook_url, webhook_secret, online, last_seen_at, pending_approval, created_at, updated_at) VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       let migrated = 0;
       for (const a of agents) {
-        const result = insert.run(a.id, a.name, a.display_name, a.avatar_url || null, a.token_hash, a.capabilities || null, a.webhook_url || null, a.webhook_secret || null, a.online || 0, a.last_seen_at || null, a.br_password || null, a.pending_approval || 0, a.created_at, a.updated_at);
+        const result = insert.run(a.id, a.name, a.display_name, a.avatar_url || null, a.token_hash, a.capabilities || null, a.webhook_url || null, a.webhook_secret || null, a.online || 0, a.last_seen_at || null, a.pending_approval || 0, a.created_at, a.updated_at);
         if (result.changes > 0) migrated++;
-        if (result.changes === 0 && (a.br_password || a.pending_approval)) {
-          db.prepare('UPDATE actors SET br_password = COALESCE(br_password, ?), pending_approval = COALESCE(pending_approval, ?) WHERE id = ?')
-            .run(a.br_password || null, a.pending_approval || 0, a.id);
+        if (result.changes === 0 && a.pending_approval) {
+          db.prepare('UPDATE actors SET pending_approval = COALESCE(pending_approval, ?) WHERE id = ?')
+            .run(a.pending_approval || 0, a.id);
         }
       }
       if (migrated > 0) console.log(`[gateway] Final migration: ${migrated} agents from agent_accounts -> actors`);

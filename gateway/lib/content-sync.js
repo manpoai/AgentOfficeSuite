@@ -1,8 +1,6 @@
 /**
  * Content items upsert and sync logic
  */
-import { br, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID } from '../baserow.js';
-
 export function createContentSync(db) {
   const contentItemsUpsert = db.prepare(`
     INSERT INTO content_items (id, raw_id, type, title, icon, parent_id, collection_id, created_by, updated_by, created_at, updated_at, deleted_at, owner_actor_id, synced_at)
@@ -23,9 +21,9 @@ export function createContentSync(db) {
 
   async function syncContentItems() {
     const now = Date.now();
-    console.log('[gateway] Syncing content items from local documents + Baserow...');
+    console.log('[gateway] Syncing content items from documents + user_tables...');
 
-    // 1. Sync docs from local documents table
+    // 1. Sync docs from documents table
     let docCount = 0;
     try {
       const docs = db.prepare('SELECT d.*, di.icon as custom_icon FROM documents d LEFT JOIN doc_icons di ON di.doc_id = d.id').all();
@@ -50,32 +48,29 @@ export function createContentSync(db) {
       console.error('[gateway] Content sync: documents error:', err.message);
     }
 
-    // 2. Sync tables from Baserow
+    // 2. Sync tables from user_tables (tableEngine)
     let tableCount = 0;
-    if (BR_EMAIL && BR_PASSWORD) {
-      try {
-        const result = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
-        if (result.status < 400 && Array.isArray(result.data)) {
-          for (const t of result.data) {
-            const nodeId = `table:${t.id}`;
-            const customIcon = db.prepare('SELECT icon FROM doc_icons WHERE doc_id = ?').get(String(t.id));
-            contentItemsUpsert.run(
-              nodeId, String(t.id), 'table', t.name || '',
-              customIcon?.icon || null, null, null,
-              null, null,
-              t.created_on || null, null, null,
-              null,
-              now
-            );
-            tableCount++;
-          }
-        }
-      } catch (err) {
-        console.error('[gateway] Content sync: Baserow error:', err.message);
+    try {
+      const tables = db.prepare('SELECT id, title, created_by, updated_by, created_at, updated_at FROM user_tables').all();
+      for (const t of tables) {
+        const nodeId = `table:${t.id}`;
+        const existing = db.prepare('SELECT parent_id, collection_id FROM content_items WHERE id = ?').get(nodeId);
+        const customIcon = db.prepare('SELECT icon FROM doc_icons WHERE doc_id = ?').get(t.id);
+        contentItemsUpsert.run(
+          nodeId, t.id, 'table', t.title || '',
+          customIcon?.icon || null, existing?.parent_id || null, existing?.collection_id || null,
+          t.created_by || null, t.updated_by || null,
+          t.created_at || null, t.updated_at || null, null,
+          null,
+          now
+        );
+        tableCount++;
       }
+    } catch (err) {
+      console.error('[gateway] Content sync: user_tables error:', err.message);
     }
 
-    // 3. Remove stale table items
+    // 3. Remove stale table items (deleted from user_tables but still in content_items)
     db.prepare("DELETE FROM content_items WHERE type = 'table' AND synced_at < ? AND deleted_at IS NULL").run(now);
 
     console.log(`[gateway] Content sync done: ${docCount} docs, ${tableCount} tables`);
