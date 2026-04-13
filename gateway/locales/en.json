@@ -979,7 +979,13 @@
     "renderVersionFailed": "Failed to render this version",
     "diffComputationFailed": "Diff computation failed",
     "parseDocumentFailed": "Failed to parse document content",
-    "loginFailed": "Login failed"
+    "loginFailed": "Login failed",
+    "addColumnFailed": "Add column failed",
+    "renameColumnFailed": "Rename column failed",
+    "changeColumnTypeFailed": "Change column type failed",
+    "deleteColumnFailed": "Delete column failed",
+    "duplicateColumnFailed": "Duplicate column failed",
+    "operationFailed": "Operation failed"
   },
   "entities": {
     "doc": "Doc",

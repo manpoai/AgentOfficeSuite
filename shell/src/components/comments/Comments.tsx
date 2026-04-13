@@ -234,7 +234,7 @@ export function Comments({
       setReplyToName('');
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Post comment failed', e);
+      showError(t('errors.postCommentFailed'), e);
     } finally {
       setPosting(false);
     }
@@ -248,7 +248,7 @@ export function Comments({
       setEditText('');
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Edit comment failed', e);
+      showError(t('errors.editCommentFailed'), e);
     }
   };
 
@@ -258,7 +258,7 @@ export function Comments({
       await deleteComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Delete comment failed', e);
+      showError(t('errors.deleteCommentFailed'), e);
     }
   };
 
@@ -268,7 +268,7 @@ export function Comments({
       await resolveComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Resolve comment failed', e);
+      showError(t('errors.resolveCommentFailed'), e);
     }
   };
 
@@ -278,7 +278,7 @@ export function Comments({
       await unresolveComment(commentId);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Unresolve comment failed', e);
+      showError(t('errors.unresolveCommentFailed'), e);
     }
   };
 
@@ -291,7 +291,7 @@ export function Comments({
       setNewComment(prev => prev ? `${prev}\n${imgMarkdown}` : imgMarkdown);
       commentInputRef.current?.focus();
     } catch (e) {
-      showError('Image upload failed', e);
+      showError(t('errors.imageUploadFailed'), e);
     } finally {
       setUploading(false);
     }
@@ -332,7 +332,7 @@ export function Comments({
       setInlineReplyId(null);
       queryClient.invalidateQueries({ queryKey });
     } catch (e) {
-      showError('Reply failed', e);
+      showError(t('errors.replyCommentFailed'), e);
     } finally {
       setInlineReplyPosting(false);
     }

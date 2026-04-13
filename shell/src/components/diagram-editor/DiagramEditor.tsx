@@ -245,7 +245,7 @@ function DiagramEditorInner({
         edges: edges.map(e => ({ ...e, selected: undefined })),
         viewport,
       }).catch((err: Error) => {
-        showError('Diagram auto-save failed', err);
+        showError(t('errors.diagramAutoSaveFailed'), err);
       });
     }, 1000);
   }, [diagramId, nodes, edges, reactFlowInstance]);

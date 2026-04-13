@@ -979,7 +979,13 @@
     "renderVersionFailed": "このバージョンの表示に失敗しました",
     "diffComputationFailed": "差分計算に失敗しました",
     "parseDocumentFailed": "ドキュメントの解析に失敗しました",
-    "loginFailed": "ログインに失敗しました"
+    "loginFailed": "ログインに失敗しました",
+    "addColumnFailed": "列の追加に失敗しました",
+    "renameColumnFailed": "列の名前変更に失敗しました",
+    "changeColumnTypeFailed": "列タイプの変更に失敗しました",
+    "deleteColumnFailed": "列の削除に失敗しました",
+    "duplicateColumnFailed": "列の複製に失敗しました",
+    "operationFailed": "操作に失敗しました"
   },
   "entities": {
     "doc": "ドキュメント",

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { showError } from '@/lib/utils/error';
+import { getT } from '@/lib/i18n';
 
 /**
  * A wrapper around useMutation that adds optimistic cache updates with rollback.
@@ -33,7 +34,7 @@ export function useOptimisticMutation<TData, TVars>(opts: {
       if (context?.previous !== undefined) {
         qc.setQueryData(opts.queryKey, context.previous);
       }
-      showError(opts.errorMessage ?? 'Operation failed', _err);
+      showError(opts.errorMessage ?? getT()('errors.operationFailed'), _err);
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: opts.queryKey });

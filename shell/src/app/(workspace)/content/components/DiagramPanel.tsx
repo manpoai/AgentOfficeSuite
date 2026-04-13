@@ -70,7 +70,7 @@ export function DiagramPanel({ diagramId, breadcrumb, onBack, onDeleted, onCopyL
       await gw.updateContentItem(`diagram:${diagramId}`, { title: newTitle });
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
     } catch (e) {
-      showError('Failed to update diagram title', e);
+      showError(t('errors.updateDiagramTitleFailed'), e);
     }
   }, [diagramId, queryClient]);
 
@@ -80,7 +80,7 @@ export function DiagramPanel({ diagramId, breadcrumb, onBack, onDeleted, onCopyL
       await gw.deleteContentItem(`diagram:${diagramId}`);
       onDeleted();
     } catch (e) {
-      showError('Delete failed', e);
+      showError(t('errors.deleteFailed'), e);
     }
   }, [diagramId, onDeleted]);
 

@@ -979,7 +979,13 @@
     "renderVersionFailed": "渲染此版本失败",
     "diffComputationFailed": "差异计算失败",
     "parseDocumentFailed": "解析文档内容失败",
-    "loginFailed": "登录失败"
+    "loginFailed": "登录失败",
+    "addColumnFailed": "添加列失败",
+    "renameColumnFailed": "重命名列失败",
+    "changeColumnTypeFailed": "更改列类型失败",
+    "deleteColumnFailed": "删除列失败",
+    "duplicateColumnFailed": "复制列失败",
+    "operationFailed": "操作失败"
   },
   "entities": {
     "doc": "文档",

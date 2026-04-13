@@ -305,7 +305,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
         setSaveStatus('saved');
       }
     } catch (e) {
-      showError('Auto-save failed', e);
+      showError(t('errors.autoSaveFailed'), e);
       if (saveDocId === docIdRef.current) setSaveStatus('error');
     }
   }, [queryClient]);
@@ -392,7 +392,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
         await gw.setDocIcon(doc.id, selectedEmoji);
         queryClient.invalidateQueries({ queryKey: ['content-items'] });
       } catch (e) {
-        showError('Failed to save custom icon', e);
+        showError(t('errors.saveCustomIconFailed'), e);
       }
     } else {
       // Unicode emoji or null (remove): save to Gateway doc metadata, remove custom icon

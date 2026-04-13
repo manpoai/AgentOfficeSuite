@@ -287,7 +287,7 @@ export function useTableColumns({
       refreshMeta();
       refresh();
     } catch (e) {
-      showError('Add column failed', e);
+      showError(getT()('errors.addColumnFailed'), e);
     }
   }, [newColTitle, newColType, newColOptionsList, newColFormula, newColRelTable, newColRelMulti,
       newColRelCol, newColLookupCol, newColRollupCol, newColRollupFn, decimalPrecision,
@@ -304,7 +304,7 @@ export function useTableColumns({
       refreshMeta();
       refresh();
     } catch (e) {
-      showError('Rename column failed', e);
+      showError(getT()('errors.renameColumnFailed'), e);
     }
   }, [colTitleValue, tableId, refreshMeta, refresh]);
 
@@ -316,7 +316,7 @@ export function useTableColumns({
       refreshMeta();
       refresh();
     } catch (e) {
-      showError('Change column type failed', e);
+      showError(getT()('errors.changeColumnTypeFailed'), e);
     }
   }, [tableId, refreshMeta, refresh]);
 
@@ -331,7 +331,7 @@ export function useTableColumns({
       refreshMeta();
       refresh();
     } catch (e) {
-      showError('Delete column failed', e);
+      showError(getT()('errors.deleteColumnFailed'), e);
     }
   }, [displayCols, tableId, t, refreshMeta, refresh]);
 
@@ -366,7 +366,7 @@ export function useTableColumns({
       refreshMeta();
       refresh();
     } catch (e) {
-      showError('Duplicate column failed', e);
+      showError(getT()('errors.duplicateColumnFailed'), e);
     }
   }, [tableId, activeViewId, viewColumns, displayCols, refreshMeta, refresh, refreshViewColumns]);
 

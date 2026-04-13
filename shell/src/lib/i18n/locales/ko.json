@@ -979,7 +979,13 @@
     "renderVersionFailed": "이 버전 렌더링에 실패했습니다",
     "diffComputationFailed": "차이 계산에 실패했습니다",
     "parseDocumentFailed": "문서 내용 파싱에 실패했습니다",
-    "loginFailed": "로그인에 실패했습니다"
+    "loginFailed": "로그인에 실패했습니다",
+    "addColumnFailed": "열 추가 실패",
+    "renameColumnFailed": "열 이름 변경 실패",
+    "changeColumnTypeFailed": "열 유형 변경 실패",
+    "deleteColumnFailed": "열 삭제 실패",
+    "duplicateColumnFailed": "열 복제 실패",
+    "operationFailed": "작업 실패"
   },
   "entities": {
     "doc": "문서",
