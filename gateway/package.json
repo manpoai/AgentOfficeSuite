@@ -4,6 +4,9 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "sync-locales": "node scripts/sync-locales.js",
+    "prestart": "node scripts/sync-locales.js",
+    "predev": "node scripts/sync-locales.js",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },

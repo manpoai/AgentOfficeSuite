@@ -417,6 +417,15 @@ function runMigrations(db) {
   try { db.exec('ALTER TABLE events ADD COLUMN delivery_method TEXT'); } catch { /* already exists */ }
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_events_delivered ON events(agent_id, delivered_at)'); } catch { /* already exists */ }
 
+  // Phase 6: i18n — structured keys + params for notifications, snapshots, actors preferred_language
+  try { db.exec('ALTER TABLE notifications ADD COLUMN title_key TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE notifications ADD COLUMN title_params TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE notifications ADD COLUMN body_key TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE notifications ADD COLUMN body_params TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE content_snapshots ADD COLUMN description_key TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE content_snapshots ADD COLUMN description_params TEXT'); } catch { /* already exists */ }
+  try { db.exec("ALTER TABLE actors ADD COLUMN preferred_language TEXT DEFAULT 'en'"); } catch { /* already exists */ }
+
   // Phase 4: table engine metadata (replaces Baserow)
   try {
     runTableEngineMigrations(db);
