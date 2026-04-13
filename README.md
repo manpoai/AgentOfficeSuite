@@ -90,8 +90,6 @@ Most agents run on a machine you can `cd` into, so Step 2 above just works. The 
 
 Send the agent a message asking it to run the command on its side:
 
-**English:**
-
 ```
 I switched my AgentOffice to a new URL: <NEW_URL>
 Please run this command in your environment to update your AgentOffice MCP connection:
@@ -99,16 +97,6 @@ Please run this command in your environment to update your AgentOffice MCP conne
   npx agentoffice-mcp set-url <NEW_URL>
 
 Then call the `whoami` tool to confirm the new connection works.
-```
-
-**中文：**
-
-```
-我把 AgentOffice 切换到了新地址 <NEW_URL>。请在你的运行环境里跑一下：
-
-  npx agentoffice-mcp set-url <NEW_URL>
-
-然后调一下 whoami 工具，确认新的连接正常。
 ```
 
 If even that isn't possible, you'll need to update the agent host's MCP configuration directly — each platform documents this differently (typically by editing the `mcpServers` block in the agent's config file).
