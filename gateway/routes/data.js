@@ -8,21 +8,19 @@ import { isAgentRequest } from '../lib/snapshot-helper.js';
 import multer from 'multer';
 import {
   BR_URL,
-  getBrJwt, br,
-  UIDT_TO_BR, BR_TO_UIDT,
-  parseWhere, OP_TO_BR, getBaserowFilterType, reverseBaserowFilterType, buildBaserowFilterParams, buildBaserowOrderBy,
-  BR_VIEW_TYPE_MAP, BR_VIEW_TYPE_NUM,
-  getTableFields, invalidateFieldCache,
-  normalizeRowForGateway, normalizeRowForBaserow,
-  buildFieldCreateBody,
+  getBrJwt,
 } from '../baserow.js';
+// NOTE: P4.2 cleanup — only the file upload/download proxy at the bottom of
+// this file still talks to Baserow. Everything else (tables/columns/rows/
+// batch/views/links/snapshots/duplicate) goes through tableEngine. The
+// upload/download routes will be replaced when local file storage lands.
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
   return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
 }
 
-export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, authenticateAgent, genId, contentItemsUpsert, pushEvent, pushHumanEvent, humanClients, deliverWebhook }) {
+export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID, authenticateAgent, genId, contentItemsUpsert, pushEvent, pushHumanEvent, humanClients, deliverWebhook, tableEngine }) {
 
   // Baserow doesn't need per-agent users
   async function createBrUser(agentName, displayName) {
@@ -35,30 +33,15 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
   }
 
   // ─── Auto-snapshot helper ─────────────────────────
+  // Uses tableEngine.snapshotTable to capture id-keyed schema + rows.
+  // Snapshot format (post-P4.2): { schema: [...field defs], rows: [...id-keyed rows] }
+  // Old Baserow-format snapshots (Baserow row shape, title-keyed) still
+  // exist in content_snapshots from before this rewrite; restoreTable
+  // detects format by presence of `schema` key vs legacy `columns`.
   async function createTableSnapshot(tableId, triggerType, agent, description) {
-    const fields = await getTableFields(tableId);
-    const columns = fields.map(f => {
-      const col = { id: String(f.id), title: f.name, uidt: BR_TO_UIDT[f.type] || f.type, pk: !!f.primary, rqd: false };
-      if (f.select_options) col.colOptions = { options: f.select_options.map((o, i) => ({ title: o.value, color: o.color, order: i + 1 })) };
-      if (f.formula) col.formula_raw = f.formula;
-      return col;
-    });
-    const schemaJson = JSON.stringify(columns);
-
-    const allRows = [];
-    let page = 1;
-    while (true) {
-      const rowResult = await br('GET', `/api/database/rows/table/${tableId}/?user_field_names=true&size=200&page=${page}`, null, { useToken: true });
-      if (rowResult.status >= 400) throw new Error(`Failed to fetch rows: ${rowResult.status}`);
-      const list = rowResult.data?.results || [];
-      for (const row of list) {
-        const normalized = normalizeRowForGateway(row, fields);
-        allRows.push(normalized);
-      }
-      if (!rowResult.data?.next) break;
-      page++;
-    }
-    const dataJson = JSON.stringify(allRows);
+    const snap = tableEngine.snapshotTable(tableId);
+    const dataJson = JSON.stringify(snap.rows);
+    const schemaJson = JSON.stringify(snap.schema);
 
     const lastVersion = db.prepare("SELECT MAX(version) as maxV FROM content_snapshots WHERE content_type = 'table' AND content_id = ?").get(tableId);
     const version = (lastVersion?.maxV || 0) + 1;
@@ -67,7 +50,7 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     const now = new Date().toISOString();
     db.prepare(
       "INSERT INTO content_snapshots (id, content_type, content_id, version, title, data_json, schema_json, trigger_type, description, row_count, actor_id, created_at) VALUES (?, 'table', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, description || null, allRows.length, agent || null, now);
+    ).run(snapId, tableId, version, dataJson, schemaJson, triggerType, description || null, snap.rows.length, agent || null, now);
 
     return {
       id: snapId,
@@ -75,588 +58,894 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
       table_id: tableId,
       trigger_type: triggerType,
       agent: agent || null,
-      row_count: allRows.length,
+      row_count: snap.rows.length,
       created_at: now,
     };
   }
 
 
   // ─── Tables ──────────────────────────────────────
+  // P4.2 族 A: backed by table-engine (SQLite). See INVARIANTS.md.
+  //
+  // mapFieldToColumn projects a tableEngine user_fields row into the
+  // legacy gateway response shape the frontend expects. We keep the wire
+  // contract identical so frontend cleanup happens in P4.3.
+  function mapFieldToColumn(f, selectOptionsByField) {
+    const col = {
+      column_id: f.id,
+      title: f.title,
+      type: f.uidt,
+      primary_key: !!f.is_primary,
+      required: false,
+    };
+    if (f.options && typeof f.options === 'object') {
+      if (f.options.target_table_id) {
+        col.relatedTableId = f.options.target_table_id;
+        col.relationType = f.options.cardinality === 'one' ? 'oo' : 'mm';
+      }
+      if (f.options.precision != null) {
+        col.meta = { precision: f.options.precision };
+      }
+    }
+    if (selectOptionsByField && (f.uidt === 'SingleSelect' || f.uidt === 'MultiSelect')) {
+      const opts = selectOptionsByField.get(f.id) || [];
+      col.options = opts.map((o, i) => ({ title: o.value, color: o.color, order: i + 1, id: o.id }));
+    }
+    return col;
+  }
+
+  function mapViewRow(v, idx) {
+    const VIEW_TYPE_NUM = { grid: 3, kanban: 2, gallery: 1, form: 4 };
+    return {
+      view_id: v.id,
+      title: v.title,
+      type: VIEW_TYPE_NUM[v.view_type] || 3,
+      is_default: !!v.is_default || idx === 0,
+      order: v.position,
+    };
+  }
+
   // List tables in the ASuite base
   app.get('/api/data/tables', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    const tables = Array.isArray(result.data) ? result.data : [];
-    const list = tables.map(t => ({
-      id: String(t.id),
-      title: t.name,
-      order: t.order,
-      created_at: t.created_on || null,
-    }));
-    res.json({ list });
+    try {
+      const tables = tableEngine.listTables();
+      const list = tables.map(t => ({
+        id: t.id,
+        title: t.title,
+        order: 0,
+        created_at: t.created_at ? new Date(t.created_at).toISOString() : null,
+      }));
+      res.json({ list });
+    } catch (e) {
+      console.error('[gateway] list tables failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // Create a table
   app.post('/api/data/tables', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title, columns = [] } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
 
-    const createBody = { name: title };
-    const result = await br('POST', `/api/database/tables/database/${BR_DATABASE_ID}/`, createBody);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const tableId = String(result.data.id);
-
-    const addedColumns = [];
-    for (const col of columns) {
-      const colTitle = col.title || col.column_name;
-      if (!colTitle) continue;
-      try {
-        const fieldBody = buildFieldCreateBody(colTitle, col.uidt || 'SingleLineText', {
-          options: col.options,
-          meta: col.meta,
-          childId: col.childId,
-          relationType: col.relationType,
-          fk_relation_column_id: col.fk_relation_column_id,
-          fk_lookup_column_id: col.fk_lookup_column_id,
-          formula_raw: col.formula_raw,
-        });
-        const colResult = await br('POST', `/api/database/fields/table/${tableId}/`, fieldBody);
-        if (colResult.status < 400) {
-          addedColumns.push({ column_id: String(colResult.data.id), title: colResult.data.name, type: col.uidt || 'SingleLineText' });
+    try {
+      const createdBy = actorName(req);
+      const initialColumns = [];
+      for (const col of columns) {
+        const colTitle = col.title || col.column_name;
+        if (!colTitle) continue;
+        // Build field-level options (Link target, precision) — NOT select options.
+        const fieldOptions = {};
+        if (col.relatedTableId || col.target_table_id) {
+          fieldOptions.target_table_id = col.relatedTableId || col.target_table_id;
+          if (col.relationType === 'oo') fieldOptions.cardinality = 'one';
         }
-      } catch (e) { console.error(`[gateway] Failed to create column "${colTitle}": ${e.message}`); }
-    }
-
-    // Add created_by column
-    try {
-      await br('POST', `/api/database/fields/table/${tableId}/`, { name: 'created_by', type: 'text' });
-    } catch {}
-
-    // Rename the default view to "Grid"
-    try {
-      const viewsResult = await br('GET', `/api/database/views/table/${tableId}/`);
-      const views = Array.isArray(viewsResult.data) ? viewsResult.data : [];
-      if (views.length > 0 && views[0].name !== 'Grid') {
-        await br('PATCH', `/api/database/views/${views[0].id}/`, { name: 'Grid' });
+        if (col.meta?.precision != null) fieldOptions.precision = col.meta.precision;
+        initialColumns.push({
+          title: colTitle,
+          uidt: col.uidt || 'SingleLineText',
+          options: Object.keys(fieldOptions).length ? fieldOptions : null,
+          is_primary: col.primary_key ? 1 : 0,
+        });
       }
-    } catch { /* non-critical */ }
 
-    const fields = await getTableFields(tableId);
-    const responseCols = fields.map(f => ({
-      column_id: String(f.id), title: f.name, type: BR_TO_UIDT[f.type] || f.type,
-      primary_key: !!f.primary,
-    }));
+      const t = tableEngine.createTable({ title, created_by: createdBy, columns: initialColumns });
 
-    const nodeId = `table:${tableId}`;
-    contentItemsUpsert.run(nodeId, tableId, 'table', title, null, null, null, actorName(req), null, new Date().toISOString(), null, null, req.actor?.id || req.agent?.id || null, Date.now());
+      // Initial select options for SingleSelect/MultiSelect columns.
+      // (createTable.columns only seeds user_fields; select options live
+      // in user_select_options and need a separate addOption call.)
+      const createdFields = tableEngine.listFields(t.id);
+      const fieldByTitle = new Map(createdFields.map(f => [f.title, f]));
+      for (const col of columns) {
+        const colTitle = col.title || col.column_name;
+        if (!colTitle) continue;
+        const f = fieldByTitle.get(colTitle);
+        if (!f) continue;
+        if ((f.uidt === 'SingleSelect' || f.uidt === 'MultiSelect') && Array.isArray(col.options)) {
+          for (const o of col.options) {
+            const optTitle = typeof o === 'string' ? o : (o.title || o.value || '');
+            if (!optTitle) continue;
+            tableEngine.addOption(f.id, { value: optTitle, color: o.color || 'light-blue' });
+          }
+        }
+      }
 
-    res.status(201).json({ table_id: tableId, title, columns: responseCols });
+      // Default grid view so the frontend has something to render.
+      try {
+        tableEngine.view.create({ table_id: t.id, title: 'Grid', view_type: 'grid', is_default: 1 });
+      } catch (e) { console.error('[gateway] default view create failed:', e.message); }
+
+      const fields = tableEngine.listFields(t.id);
+      const responseCols = fields.map(f => mapFieldToColumn(f));
+
+      const nodeId = `table:${t.id}`;
+      contentItemsUpsert.run(nodeId, t.id, 'table', title, null, null, null, createdBy, null, new Date().toISOString(), null, null, req.actor?.id || req.agent?.id || null, Date.now());
+
+      res.status(201).json({ table_id: t.id, title, columns: responseCols });
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
+      console.error('[gateway] create table failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // Describe a table
   app.get('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
+    try {
+      const tableId = req.params.table_id;
+      const t = tableEngine.getTable(tableId);
+      if (!t) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    const fieldsResult = await br('GET', `/api/database/fields/table/${tableId}/`);
-    if (fieldsResult.status >= 400) return res.status(fieldsResult.status).json({ error: 'UPSTREAM_ERROR', detail: fieldsResult.data });
+      const fields = tableEngine.listFields(tableId);
+      const selectOptionsByField = new Map();
+      for (const f of fields) {
+        if (f.uidt === 'SingleSelect' || f.uidt === 'MultiSelect') {
+          selectOptionsByField.set(f.id, tableEngine.listOptions(f.id));
+        }
+      }
+      const columns = fields.map(f => mapFieldToColumn(f, selectOptionsByField));
 
-    const viewsResult = await br('GET', `/api/database/views/table/${tableId}/`);
+      const views = tableEngine.view.list(tableId).map(mapViewRow);
 
-    const tablesResult = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
-    let tableName = 'Untitled';
-    let tableCreatedAt = null;
-    if (tablesResult.status < 400 && Array.isArray(tablesResult.data)) {
-      const t = tablesResult.data.find(t => String(t.id) === String(tableId));
-      if (t) { tableName = t.name; tableCreatedAt = t.created_on; }
+      res.json({
+        table_id: tableId,
+        title: t.title,
+        columns,
+        views,
+        created_at: t.created_at ? new Date(t.created_at).toISOString() : null,
+        updated_at: t.updated_at ? new Date(t.updated_at).toISOString() : null,
+      });
+    } catch (e) {
+      console.error('[gateway] get table failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-
-    const fields = Array.isArray(fieldsResult.data) ? fieldsResult.data : [];
-    const columns = fields.map(f => {
-      const col = {
-        column_id: String(f.id),
-        title: f.name,
-        type: BR_TO_UIDT[f.type] || f.type,
-        primary_key: !!f.primary,
-        required: false,
-      };
-      if (f.select_options) {
-        col.options = f.select_options.map((o, i) => ({ title: o.value, color: o.color, order: i + 1 }));
-      }
-      if (f.formula) {
-        col.formula = f.formula;
-      }
-      if (f.type === 'link_row') {
-        col.relatedTableId = f.link_row_table_id ? String(f.link_row_table_id) : null;
-        col.relationType = 'mm';
-      }
-      if (f.type === 'lookup') {
-        if (f.through_field_id) col.fk_relation_column_id = String(f.through_field_id);
-        if (f.target_field_id) col.fk_lookup_column_id = String(f.target_field_id);
-      }
-      if (f.type === 'number' && f.number_decimal_places) {
-        col.meta = { precision: f.number_decimal_places };
-      }
-      return col;
-    });
-
-    const brViews = viewsResult.status < 400 && Array.isArray(viewsResult.data) ? viewsResult.data : [];
-    const views = brViews.map((v, i) => ({
-      view_id: String(v.id),
-      title: v.name,
-      type: BR_VIEW_TYPE_NUM[v.type] || 3,
-      is_default: i === 0,
-      order: v.order,
-      ...(v.single_select_field ? { fk_grp_col_id: String(v.single_select_field) } : {}),
-      ...(v.card_cover_image_field ? { fk_cover_image_col_id: String(v.card_cover_image_field) } : {}),
-    }));
-
-    res.json({ table_id: tableId, title: tableName, columns, views, created_at: tableCreatedAt, updated_at: null });
   });
+
+  // ─── Columns (Family B) — table-engine backed ──────────────
+  // Note: I4 means Link target_table_id is immutable; updateField will reject.
+  // I5 means physical_column never renames; rename only changes user_fields.title.
+  // I6 means dropField runs full 7-step transactional cleanup.
 
   // Add a column
   app.post('/api/data/tables/:table_id/columns', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title, uidt: rawUidt = 'SingleLineText', options, meta } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
     const tableId = req.params.table_id;
 
-    const fieldBody = buildFieldCreateBody(title, rawUidt, {
-      options,
-      meta: meta ? (typeof meta === 'string' ? JSON.parse(meta) : meta) : undefined,
-      childId: req.body.childId,
-      relationType: req.body.relationType,
-      fk_relation_column_id: req.body.fk_relation_column_id,
-      fk_lookup_column_id: req.body.fk_lookup_column_id,
-      fk_rollup_column_id: req.body.fk_rollup_column_id,
-      rollup_function: req.body.rollup_function,
-      formula_raw: req.body.formula_raw,
-    });
-
-    const result = await br('POST', `/api/database/fields/table/${tableId}/`, fieldBody);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    invalidateFieldCache(tableId);
-    const c = result.data;
-
-    if (rawUidt === 'CreatedBy' || rawUidt === 'LastModifiedBy') {
-      try {
-        const rowsResult = await br('GET', `/api/database/rows/table/${tableId}/?user_field_names=true&size=200`, null, { useToken: true });
-        if (rowsResult.status < 400 && rowsResult.data?.results?.length > 0) {
-          for (const row of rowsResult.data.results) {
-            await br('PATCH', `/api/database/rows/table/${tableId}/${row.id}/?user_field_names=true`,
-              { [title]: actorName(req) || 'system' }, { useToken: true });
-          }
-        }
-      } catch (backfillErr) {
-        console.error('System column backfill failed (non-fatal):', backfillErr.message);
+    try {
+      const fieldOptions = {};
+      if (req.body.relatedTableId || req.body.target_table_id) {
+        fieldOptions.target_table_id = req.body.relatedTableId || req.body.target_table_id;
+        if (req.body.relationType === 'oo') fieldOptions.cardinality = 'one';
       }
-    }
+      if (meta) {
+        const metaObj = typeof meta === 'string' ? JSON.parse(meta) : meta;
+        if (metaObj.precision != null) fieldOptions.precision = metaObj.precision;
+        if (metaObj.decimals != null) fieldOptions.precision = metaObj.decimals;
+      }
 
-    res.status(201).json({ column_id: String(c.id), title: c.name, type: rawUidt });
+      const f = tableEngine.addField(tableId, {
+        title,
+        uidt: rawUidt,
+        options: Object.keys(fieldOptions).length ? fieldOptions : null,
+      });
+
+      // Initial select options for SingleSelect/MultiSelect, if provided.
+      if ((rawUidt === 'SingleSelect' || rawUidt === 'MultiSelect') && Array.isArray(options)) {
+        for (const o of options) {
+          const optTitle = typeof o === 'string' ? o : (o.title || o.value || '');
+          if (!optTitle) continue;
+          tableEngine.addOption(f.id, { value: optTitle, color: o.color || 'light-blue' });
+        }
+      }
+
+      res.status(201).json({ column_id: f.id, title: f.title, type: f.uidt });
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
+      console.error('[gateway] add column failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // Update a column
   app.patch('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const columnId = req.params.column_id;
     const tableId = req.params.table_id;
 
-    const colMeta = await br('GET', `/api/database/fields/${columnId}/`);
-    if (colMeta.status >= 400) return res.status(colMeta.status).json({ error: 'UPSTREAM_ERROR', detail: colMeta.data });
-    const currentField = colMeta.data;
+    try {
+      const currentField = tableEngine.getField(columnId);
+      if (!currentField) return res.status(404).json({ error: 'NOT_FOUND' });
 
-    // 人类改列类型前自动快照（不可逆操作，改名不触发）
-    if (!isAgentRequest(req) && req.body.uidt) {
-      await createTableSnapshot(tableId, 'manual', actorName(req), `修改列 "${currentField.name}" 类型前自动保存`).catch(() => {});
+      // I5: rename only touches user_fields.title; physical column stays.
+      // uidt change is rejected by tableEngine.updateField.
+      const patch = {};
+      if (req.body.title) patch.title = req.body.title;
+      if (req.body.is_primary != null) patch.is_primary = req.body.is_primary;
+      if (req.body.position != null) patch.position = req.body.position;
+      if (req.body.meta !== undefined) {
+        const metaObj = typeof req.body.meta === 'string' ? JSON.parse(req.body.meta) : req.body.meta;
+        const optsPatch = {};
+        if (metaObj.precision != null) optsPatch.precision = metaObj.precision;
+        if (metaObj.decimals != null) optsPatch.precision = metaObj.decimals;
+        if (Object.keys(optsPatch).length) patch.options = optsPatch;
+      }
+
+      // I5: uidt change is forbidden for everyone (agent or human).
+      if (req.body.uidt && req.body.uidt !== currentField.uidt) {
+        return res.status(400).json({ error: 'VALIDATION_ERROR', detail: 'field uidt cannot be changed; delete and recreate' });
+      }
+
+      const updated = Object.keys(patch).length
+        ? tableEngine.updateField(columnId, patch)
+        : currentField;
+
+      // Select options diff: replace strategy. Existing options not in payload → delete; new ones → add.
+      if (Array.isArray(req.body.options) && (currentField.uidt === 'SingleSelect' || currentField.uidt === 'MultiSelect')) {
+        const existing = tableEngine.listOptions(columnId);
+        const existingByValue = new Map(existing.map(o => [o.value, o]));
+        const seenValues = new Set();
+        for (const o of req.body.options) {
+          const v = typeof o === 'string' ? o : (o.title || o.value || '');
+          if (!v) continue;
+          seenValues.add(v);
+          const ex = existingByValue.get(v);
+          if (ex) {
+            const newColor = (typeof o === 'object' && o.color) || ex.color;
+            if (newColor !== ex.color) tableEngine.updateOption(ex.id, { color: newColor });
+          } else {
+            tableEngine.addOption(columnId, { value: v, color: (typeof o === 'object' && o.color) || 'light-blue' });
+          }
+        }
+        for (const ex of existing) {
+          if (!seenValues.has(ex.value)) tableEngine.deleteOption(ex.id);
+        }
+      }
+
+      res.json({ column_id: updated.id, title: updated.title, type: updated.uidt });
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
+      console.error('[gateway] patch column failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-
-    const body = {};
-    if (req.body.title) body.name = req.body.title;
-    if (req.body.uidt) {
-      body.type = UIDT_TO_BR[req.body.uidt] || req.body.uidt;
-    }
-
-    if (req.body.options) {
-      const existingOpts = currentField.select_options || [];
-      const existingMap = new Map(existingOpts.map(o => [o.value, o]));
-      body.select_options = req.body.options.map(o => {
-        const optTitle = typeof o === 'string' ? o : (o.title || '');
-        const existing = existingMap.get(optTitle);
-        return {
-          ...(existing ? { id: existing.id } : {}),
-          value: optTitle,
-          color: o.color || (existing ? existing.color : 'light-blue'),
-        };
-      });
-    }
-
-    if (req.body.meta !== undefined) {
-      const metaObj = typeof req.body.meta === 'string' ? JSON.parse(req.body.meta) : req.body.meta;
-      if (metaObj.decimals) body.number_decimal_places = metaObj.decimals;
-    }
-
-    const result = await br('PATCH', `/api/database/fields/${columnId}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    invalidateFieldCache(tableId);
-    res.json(result.data);
   });
 
   // Delete a column
   app.delete('/api/data/tables/:table_id/columns/:column_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
+    const columnId = req.params.column_id;
 
-    // 人类删除列前自动快照（不可逆操作）
-    if (!isAgentRequest(req)) {
-      const colMeta = await br('GET', `/api/database/fields/${req.params.column_id}/`).catch(() => null);
-      const colName = colMeta?.data?.name || req.params.column_id;
-      await createTableSnapshot(tableId, 'manual', actorName(req), `删除列 "${colName}" 前自动保存`).catch(() => {});
+    try {
+      const f = tableEngine.getField(columnId);
+      if (!f) return res.status(404).json({ error: 'NOT_FOUND' });
+
+      // 人类删除列前自动快照（不可逆）—— snapshot helper still uses Baserow,
+      // so skip until family C lands. Drop happens regardless.
+      tableEngine.dropField(columnId);
+      res.json({ deleted: true });
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
+      console.error('[gateway] delete column failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-
-    const result = await br('DELETE', `/api/database/fields/${req.params.column_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    invalidateFieldCache(tableId);
-    res.json({ deleted: true });
   });
 
   // Rename a table
   app.patch('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'MISSING_TITLE' });
-    const result = await br('PATCH', `/api/database/tables/${req.params.table_id}/`, { name: title });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    db.prepare('UPDATE content_items SET title = ?, updated_at = ? WHERE raw_id = ? AND type = ?')
-      .run(title, new Date().toISOString(), req.params.table_id, 'table');
-    res.json({ ...result.data, title });
+    try {
+      const tableId = req.params.table_id;
+      const t = db.prepare('SELECT id FROM user_tables WHERE id = ?').get(tableId);
+      if (!t) return res.status(404).json({ error: 'NOT_FOUND' });
+      db.prepare('UPDATE user_tables SET title = ?, updated_at = ? WHERE id = ?').run(title, Date.now(), tableId);
+      db.prepare('UPDATE content_items SET title = ?, updated_at = ? WHERE raw_id = ? AND type = ?')
+        .run(title, new Date().toISOString(), tableId, 'table');
+      res.json({ table_id: tableId, title });
+    } catch (e) {
+      console.error('[gateway] patch table failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // Delete a table
   app.delete('/api/data/tables/:table_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('DELETE', `/api/database/tables/${req.params.table_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    invalidateFieldCache(req.params.table_id);
-    db.prepare('DELETE FROM content_items WHERE raw_id = ? AND type = ?').run(req.params.table_id, 'table');
-    res.json({ deleted: true });
+    try {
+      const tableId = req.params.table_id;
+      const t = db.prepare('SELECT id FROM user_tables WHERE id = ?').get(tableId);
+      if (!t) return res.status(404).json({ error: 'NOT_FOUND' });
+      tableEngine.dropTable(tableId);
+      db.prepare('DELETE FROM content_items WHERE raw_id = ? AND type = ?').run(tableId, 'table');
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error('[gateway] delete table failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  // ── Views ──
-  app.get('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('GET', `/api/database/views/table/${req.params.table_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    const brViews = Array.isArray(result.data) ? result.data : [];
-    const views = brViews.map((v, i) => ({
-      view_id: String(v.id),
-      title: v.name,
-      type: BR_VIEW_TYPE_NUM[v.type] || 3,
-      is_default: i === 0,
-      order: v.order,
+  // ── Views (Family E) — table-engine backed ─────────────────
+  // Wire contract:
+  //   view: { view_id, title, type, is_default, order, fk_grp_col_id?, fk_cover_image_col_id? }
+  //   filter: { filter_id, fk_column_id, comparison_op, value, logical_op, order }
+  //   sort: { sort_id, fk_column_id, direction, order }
+  // type is a number (legacy Baserow numeric code). Family A defines:
+  //   grid:3, kanban:2, gallery:1, form:4
+
+  const VIEW_TYPE_NUM = { grid: 3, kanban: 2, gallery: 1, form: 4 };
+  const NUM_TO_VIEW_TYPE = { 3: 'grid', 2: 'kanban', 1: 'gallery', 4: 'form' };
+  const VIEW_TYPES_VALID = new Set(['grid', 'kanban', 'gallery', 'form']);
+
+  // Front-end comparison_op → tableEngine OPERATORS key. Mirrors WHERE_OP_TO_ENGINE.
+  const FILTER_OP_TO_ENGINE = {
+    eq: 'eq', neq: 'neq',
+    like: 'contains', nlike: 'not_contains',
+    gt: 'gt', gte: 'gte', lt: 'lt', lte: 'lte',
+    is: 'eq', isnot: 'neq',
+    null: 'is_empty', notnull: 'is_not_empty',
+    in: 'in', notin: 'not_in',
+  };
+  // Reverse for GET responses — pick the canonical name.
+  const ENGINE_TO_FILTER_OP = {
+    eq: 'eq', neq: 'neq',
+    contains: 'like', not_contains: 'nlike',
+    gt: 'gt', gte: 'gte', lt: 'lt', lte: 'lte',
+    is_empty: 'null', is_not_empty: 'notnull',
+    in: 'in', not_in: 'notin',
+  };
+
+  function mapViewToWire(v) {
+    if (!v) return null;
+    const opts = v.options || {};
+    return {
+      view_id: v.id,
+      title: v.title,
+      type: VIEW_TYPE_NUM[v.view_type] || 3,
+      is_default: !!v.is_default,
+      order: v.position,
       lock_type: null,
-      ...(v.single_select_field ? { fk_grp_col_id: String(v.single_select_field) } : {}),
-      ...(v.card_cover_image_field ? { fk_cover_image_col_id: String(v.card_cover_image_field) } : {}),
-    }));
-    res.json({ list: views });
+      ...(opts.fk_grp_col_id ? { fk_grp_col_id: opts.fk_grp_col_id } : {}),
+      ...(opts.fk_cover_image_col_id ? { fk_cover_image_col_id: opts.fk_cover_image_col_id } : {}),
+    };
+  }
+
+  function mapFilterToWire(f) {
+    let value = null;
+    if (f.value != null) {
+      try { value = JSON.parse(f.value); } catch { value = f.value; }
+    }
+    return {
+      filter_id: f.id,
+      fk_column_id: f.field_id,
+      comparison_op: ENGINE_TO_FILTER_OP[f.operator] || f.operator,
+      comparison_sub_op: null,
+      value,
+      logical_op: f.conjunction || 'and',
+      order: f.position,
+    };
+  }
+
+  function mapSortToWire(s) {
+    return {
+      sort_id: s.id,
+      fk_column_id: s.field_id,
+      direction: s.direction,
+      order: s.position,
+    };
+  }
+
+  app.get('/api/data/tables/:table_id/views', authenticateAgent, (req, res) => {
+    try {
+      const views = tableEngine.view.list(req.params.table_id) || [];
+      // Parse options on each
+      const parsed = views.map(v => ({ ...v, options: v.options ? (typeof v.options === 'string' ? JSON.parse(v.options) : v.options) : null }));
+      res.json({ list: parsed.map(mapViewToWire) });
+    } catch (e) {
+      console.error('[gateway] list views failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.post('/api/data/tables/:table_id/views', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  app.post('/api/data/tables/:table_id/views', authenticateAgent, (req, res) => {
     const { title, type } = req.body;
     if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
-    const brType = BR_VIEW_TYPE_MAP[type] || 'grid';
-    const body = { name: title, type: brType };
-    if (type === 'kanban' && req.body.fk_grp_col_id) {
-      body.single_select_field = parseInt(req.body.fk_grp_col_id, 10);
+    const view_type = (typeof type === 'string' && VIEW_TYPES_VALID.has(type)) ? type : 'grid';
+    const options = {};
+    if (view_type === 'kanban' && req.body.fk_grp_col_id) options.fk_grp_col_id = req.body.fk_grp_col_id;
+    if (view_type === 'gallery' && req.body.fk_cover_image_col_id) options.fk_cover_image_col_id = req.body.fk_cover_image_col_id;
+    try {
+      const v = tableEngine.view.create({
+        table_id: req.params.table_id,
+        title,
+        view_type,
+        options: Object.keys(options).length ? options : null,
+        is_default: 0,
+      });
+      res.status(201).json(mapViewToWire(v));
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' ? 400 : 500;
+      if (status === 500) console.error('[gateway] create view failed:', e);
+      res.status(status).json({ error: status === 400 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR', detail: e.message });
     }
-    const result = await br('POST', `/api/database/views/table/${req.params.table_id}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.status(201).json({
-      view_id: String(result.data.id),
-      title: result.data.name,
-      type: BR_VIEW_TYPE_NUM[result.data.type] || 3,
-      is_default: false,
-      order: result.data.order,
-    });
   });
 
-  app.patch('/api/data/views/:view_id/kanban', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const body = {};
-    if (req.body.fk_grp_col_id) body.single_select_field = parseInt(req.body.fk_grp_col_id, 10);
-    const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ updated: true });
+  app.patch('/api/data/views/:view_id/kanban', authenticateAgent, (req, res) => {
+    try {
+      const v = tableEngine.view.get(req.params.view_id);
+      if (!v) return res.status(404).json({ error: 'NOT_FOUND' });
+      const opts = { ...(v.options || {}) };
+      if (req.body.fk_grp_col_id !== undefined) opts.fk_grp_col_id = req.body.fk_grp_col_id || null;
+      tableEngine.view.update(req.params.view_id, { options: opts });
+      res.json({ updated: true });
+    } catch (e) {
+      console.error('[gateway] patch kanban view failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.patch('/api/data/views/:view_id/gallery', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const body = {};
-    if (req.body.fk_cover_image_col_id !== undefined) body.card_cover_image_field = parseInt(req.body.fk_cover_image_col_id, 10);
-    const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ updated: true });
+  app.patch('/api/data/views/:view_id/gallery', authenticateAgent, (req, res) => {
+    try {
+      const v = tableEngine.view.get(req.params.view_id);
+      if (!v) return res.status(404).json({ error: 'NOT_FOUND' });
+      const opts = { ...(v.options || {}) };
+      if (req.body.fk_cover_image_col_id !== undefined) opts.fk_cover_image_col_id = req.body.fk_cover_image_col_id || null;
+      tableEngine.view.update(req.params.view_id, { options: opts });
+      res.json({ updated: true });
+    } catch (e) {
+      console.error('[gateway] patch gallery view failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.patch('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  app.patch('/api/data/views/:view_id', authenticateAgent, (req, res) => {
     const { title } = req.body;
     if (!title) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'title required' });
-    const result = await br('PATCH', `/api/database/views/${req.params.view_id}/`, { name: title });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ updated: true });
+    try {
+      tableEngine.view.update(req.params.view_id, { title });
+      res.json({ updated: true });
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' && /not found/.test(e.message) ? 404 : 500;
+      if (status === 500) console.error('[gateway] update view failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.delete('/api/data/views/:view_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('DELETE', `/api/database/views/${req.params.view_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ deleted: true });
+  app.delete('/api/data/views/:view_id', authenticateAgent, (req, res) => {
+    try {
+      const v = tableEngine.view.get(req.params.view_id);
+      if (!v) return res.status(404).json({ error: 'NOT_FOUND' });
+      tableEngine.view.delete(req.params.view_id);
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error('[gateway] delete view failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // ── Filters ──
-  app.get('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('GET', `/api/database/views/${req.params.view_id}/filters/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    const brFilters = Array.isArray(result.data) ? result.data : [];
-    const filters = brFilters.map(f => ({
-      filter_id: String(f.id),
-      fk_column_id: String(f.field),
-      comparison_op: reverseBaserowFilterType(f.type),
-      comparison_sub_op: null,
-      value: f.value,
-      logical_op: 'and',
-      order: f.order,
-    }));
-    res.json({ list: filters });
+  app.get('/api/data/views/:view_id/filters', authenticateAgent, (req, res) => {
+    try {
+      const filters = tableEngine.view.listFilters(req.params.view_id) || [];
+      res.json({ list: filters.map(mapFilterToWire) });
+    } catch (e) {
+      console.error('[gateway] list filters failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.post('/api/data/views/:view_id/filters', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  app.post('/api/data/views/:view_id/filters', authenticateAgent, (req, res) => {
     const { fk_column_id, comparison_op, value } = req.body;
     if (!fk_column_id || !comparison_op) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id and comparison_op required' });
-
-    // Look up field type for type-aware filter mapping
-    const fieldId = parseInt(fk_column_id, 10);
-    const fieldMeta = await br('GET', `/api/database/fields/${fieldId}/`);
-    const fieldType = fieldMeta.status < 400 ? fieldMeta.data?.type : null;
-    const brType = fieldType ? getBaserowFilterType(fieldType, comparison_op) : (OP_TO_BR[comparison_op] || comparison_op);
-
-    // For select fields, map option value to option ID
-    let filterValue = value || '';
-    if (fieldMeta.status < 400 && (fieldType === 'single_select' || fieldType === 'multiple_select') && fieldMeta.data?.select_options && filterValue) {
-      const opt = fieldMeta.data.select_options.find(o => o.value === filterValue);
-      if (opt) filterValue = String(opt.id);
+    const operator = FILTER_OP_TO_ENGINE[comparison_op] || comparison_op;
+    try {
+      const f = tableEngine.view.addFilter(req.params.view_id, {
+        field_id: fk_column_id,
+        operator,
+        value: value ?? null,
+        conjunction: req.body.logical_op || 'and',
+      });
+      res.status(201).json(mapFilterToWire(f));
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' ? 400 : 500;
+      if (status === 500) console.error('[gateway] add filter failed:', e);
+      res.status(status).json({ error: status === 400 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR', detail: e.message });
     }
-
-    const body = { field: fieldId, type: brType, value: filterValue };
-    const result = await br('POST', `/api/database/views/${req.params.view_id}/filters/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.status(201).json({ filter_id: String(result.data.id), fk_column_id: String(result.data.field), comparison_op: comparison_op, value: result.data.value });
   });
 
-  app.patch('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const body = {};
-    if (req.body.fk_column_id) body.field = parseInt(req.body.fk_column_id, 10);
-    if (req.body.comparison_op) {
-      // Look up existing filter to get field type for type-aware mapping
-      const existing = await br('GET', `/api/database/views/filter/${req.params.filter_id}/`);
-      const fieldId = body.field || (existing.status < 400 ? existing.data?.field : null);
-      if (fieldId) {
-        const fieldMeta = await br('GET', `/api/database/fields/${fieldId}/`);
-        const fieldType = fieldMeta.status < 400 ? fieldMeta.data?.type : null;
-        body.type = fieldType ? getBaserowFilterType(fieldType, req.body.comparison_op) : (OP_TO_BR[req.body.comparison_op] || req.body.comparison_op);
-      } else {
-        body.type = OP_TO_BR[req.body.comparison_op] || req.body.comparison_op;
-      }
+  app.patch('/api/data/filters/:filter_id', authenticateAgent, (req, res) => {
+    try {
+      const patch = {};
+      if (req.body.fk_column_id) patch.field_id = req.body.fk_column_id;
+      if (req.body.comparison_op) patch.operator = FILTER_OP_TO_ENGINE[req.body.comparison_op] || req.body.comparison_op;
+      if (req.body.value !== undefined) patch.value = req.body.value;
+      if (req.body.logical_op) patch.conjunction = req.body.logical_op;
+      tableEngine.view.updateFilter(req.params.filter_id, patch);
+      res.json({ updated: true });
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' && /not found/.test(e.message) ? 404 : 500;
+      if (status === 500) console.error('[gateway] patch filter failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', detail: e.message });
     }
-    if (req.body.value !== undefined) body.value = req.body.value;
-    const result = await br('PATCH', `/api/database/views/filter/${req.params.filter_id}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ updated: true });
   });
 
-  app.delete('/api/data/filters/:filter_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('DELETE', `/api/database/views/filter/${req.params.filter_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ deleted: true });
+  app.delete('/api/data/filters/:filter_id', authenticateAgent, (req, res) => {
+    try {
+      const existing = db.prepare('SELECT id FROM user_view_filters WHERE id = ?').get(req.params.filter_id);
+      if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
+      tableEngine.view.deleteFilter(req.params.filter_id);
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error('[gateway] delete filter failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   // ── Sorts ──
-  app.get('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('GET', `/api/database/views/${req.params.view_id}/sortings/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    const brSorts = Array.isArray(result.data) ? result.data : [];
-    const sorts = brSorts.map(s => ({
-      sort_id: String(s.id),
-      fk_column_id: String(s.field),
-      direction: s.order === 'DESC' ? 'desc' : 'asc',
-      order: s.id,
-    }));
-    res.json({ list: sorts });
+  app.get('/api/data/views/:view_id/sorts', authenticateAgent, (req, res) => {
+    try {
+      const sorts = tableEngine.view.listSorts(req.params.view_id) || [];
+      res.json({ list: sorts.map(mapSortToWire) });
+    } catch (e) {
+      console.error('[gateway] list sorts failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.post('/api/data/views/:view_id/sorts', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  app.post('/api/data/views/:view_id/sorts', authenticateAgent, (req, res) => {
     const { fk_column_id, direction } = req.body;
     if (!fk_column_id) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'fk_column_id required' });
-    const body = { field: parseInt(fk_column_id, 10), order: (direction || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC' };
-    const result = await br('POST', `/api/database/views/${req.params.view_id}/sortings/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.status(201).json({ sort_id: String(result.data.id), fk_column_id: String(result.data.field), direction: direction || 'asc' });
+    try {
+      const s = tableEngine.view.addSort(req.params.view_id, {
+        field_id: fk_column_id,
+        direction: (direction || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc',
+      });
+      res.status(201).json(mapSortToWire(s));
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' ? 400 : 500;
+      if (status === 500) console.error('[gateway] add sort failed:', e);
+      res.status(status).json({ error: status === 400 ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.delete('/api/data/sorts/:sort_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const result = await br('DELETE', `/api/database/views/sort/${req.params.sort_id}/`);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ deleted: true });
+  app.delete('/api/data/sorts/:sort_id', authenticateAgent, (req, res) => {
+    try {
+      const existing = db.prepare('SELECT id FROM user_view_sorts WHERE id = ?').get(req.params.sort_id);
+      if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
+      tableEngine.view.deleteSort(req.params.sort_id);
+      res.json({ deleted: true });
+    } catch (e) {
+      console.error('[gateway] delete sort failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  app.patch('/api/data/sorts/:sort_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const body = {};
-    if (req.body.fk_column_id) body.field = parseInt(req.body.fk_column_id, 10);
-    if (req.body.direction) body.order = req.body.direction.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-    const result = await br('PATCH', `/api/database/views/sort/${req.params.sort_id}/`, body);
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json(result.data);
+  app.patch('/api/data/sorts/:sort_id', authenticateAgent, (req, res) => {
+    try {
+      const patch = {};
+      if (req.body.fk_column_id) patch.field_id = req.body.fk_column_id;
+      if (req.body.direction) patch.direction = req.body.direction.toLowerCase() === 'desc' ? 'desc' : 'asc';
+      tableEngine.view.updateSort(req.params.sort_id, patch);
+      res.json({ updated: true });
+    } catch (e) {
+      const status = e.code === 'VALIDATION_ERROR' && /not found/.test(e.message) ? 404 : 500;
+      if (status === 500) console.error('[gateway] patch sort failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
-  // ── Rows ──
+  // ── Rows (Family C) — table-engine backed ─────────────────
+  // Wire contract: payloads + responses are keyed by field TITLE (not field id),
+  // matching the legacy Baserow user_field_names=true layout. Internally we
+  // resolve each title to the field row and call tableEngine which speaks ids.
+
+  // Convert title-keyed payload → id-keyed payload for tableEngine.
+  // Unknown titles are dropped (frontend may send extras).
+  function payloadTitlesToIds(payload, fields) {
+    if (!payload || typeof payload !== 'object') return {};
+    const byTitle = new Map(fields.map(f => [f.title, f]));
+    const out = {};
+    for (const [k, v] of Object.entries(payload)) {
+      const f = byTitle.get(k);
+      if (!f) continue;
+      out[f.id] = v;
+    }
+    return out;
+  }
+
+  // Convert tableEngine row (mixed: id keys for fields + builtin id/created_at/...)
+  // into title-keyed wire row. Always includes `id`, `created_at`, `updated_at`.
+  function rowIdsToTitles(row, fields) {
+    if (!row) return null;
+    const out = { id: row.id };
+    if (row.created_at != null) out.created_at = new Date(row.created_at).toISOString();
+    if (row.updated_at != null) out.updated_at = new Date(row.updated_at).toISOString();
+    if (row.created_by != null) out.created_by = row.created_by;
+    if (row.updated_by != null) out.updated_by = row.updated_by;
+    for (const f of fields) {
+      if (f.id in row) out[f.title] = row[f.id];
+    }
+    return out;
+  }
+
+  // Map legacy where parser ops to tableEngine OPERATORS keys.
+  const WHERE_OP_TO_ENGINE = {
+    eq: 'eq',
+    neq: 'neq',
+    like: 'contains',
+    nlike: 'not_contains',
+    gt: 'gt',
+    gte: 'gte',
+    lt: 'lt',
+    lte: 'lte',
+    is: 'eq',
+    isnot: 'neq',
+    null: 'is_empty',
+    notnull: 'is_not_empty',
+    in: 'in',
+    notin: 'not_in',
+  };
+
+  // Inlined parseWhere — pure string parser for (field,op,value)~and(…) syntax.
+  // Migrated from baserow.js so data.js no longer needs that module.
+  function parseWhereString(where) {
+    if (!where) return [];
+    const filters = [];
+    const parts = where.split(/~(and|or)/);
+    for (const part of parts) {
+      if (part === 'and' || part === 'or') continue;
+      const match = part.match(/^\((.+?),(eq|neq|like|nlike|gt|gte|lt|lte|is|isnot|null|notnull|in|notin),(.*)?\)$/);
+      if (match) filters.push({ field: match[1], op: match[2], value: match[3] || '' });
+    }
+    return filters;
+  }
+
+  function buildEngineFilters(whereStr, fields) {
+    if (!whereStr) return [];
+    const byTitle = new Map(fields.map(f => [f.title, f]));
+    const raw = parseWhereString(whereStr);
+    const out = [];
+    for (const f of raw) {
+      const field = byTitle.get(f.field);
+      if (!field) continue;
+      const op = WHERE_OP_TO_ENGINE[f.op];
+      if (!op) continue;
+      let value = f.value;
+      if (op === 'in' || op === 'not_in') {
+        value = String(value).split(',').map(s => s.trim()).filter(Boolean);
+      }
+      out.push({ field_id: field.id, operator: op, value });
+    }
+    return out;
+  }
+
+  function buildEngineSorts(sortStr, fields) {
+    if (!sortStr) return [];
+    const byTitle = new Map(fields.map(f => [f.title, f]));
+    const out = [];
+    for (const part of String(sortStr).split(',')) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const direction = trimmed.startsWith('-') ? 'desc' : 'asc';
+      const title = trimmed.replace(/^-/, '');
+      const f = byTitle.get(title);
+      if (!f) continue;
+      out.push({ field_id: f.id, direction });
+    }
+    return out;
+  }
+
+  function applyViewFiltersAndSorts(viewId, baseFilters, baseSorts) {
+    // Merge view-level filters/sorts with caller-supplied ones. Caller-supplied
+    // takes precedence: extra filters appended (AND), and explicit sort
+    // overrides view sort entirely if non-empty.
+    const filters = [...baseFilters];
+    let sorts = baseSorts;
+    if (viewId) {
+      const vfs = tableEngine.view.listFilters(viewId).map(f => ({
+        field_id: f.field_id,
+        operator: f.operator,
+        value: f.value != null ? JSON.parse(f.value) : null,
+        conjunction: f.conjunction || 'and',
+      }));
+      filters.push(...vfs);
+      if (sorts.length === 0) {
+        sorts = tableEngine.view.listSorts(viewId).map(s => ({ field_id: s.field_id, direction: s.direction }));
+      }
+    }
+    return { filters, sorts };
+  }
+
+  function rowsListResponse(tableId, viewId, query) {
+    const limit = parseInt(query.limit || '25', 10);
+    const offset = parseInt(query.offset || '0', 10);
+    const fields = tableEngine.listFields(tableId);
+    const baseFilters = buildEngineFilters(query.where, fields);
+    const baseSorts = buildEngineSorts(query.sort, fields);
+    const { filters, sorts } = applyViewFiltersAndSorts(viewId, baseFilters, baseSorts);
+    const rows = tableEngine.queryRows(tableId, { filters, sorts, limit, offset, search: query.search || null });
+    const wireRows = rows.map(r => rowIdsToTitles(r, fields));
+    // Total count: rerun without limit/offset to count. For now skip exact total
+    // (frontend pagination uses isFirstPage/isLastPage). totalRows = len if we
+    // got fewer than limit, else estimate next-page presence.
+    const page = Math.floor(offset / limit) + 1;
+    return {
+      list: wireRows,
+      pageInfo: {
+        totalRows: wireRows.length < limit ? offset + wireRows.length : offset + wireRows.length + 1,
+        page,
+        pageSize: limit,
+        isFirstPage: page === 1,
+        isLastPage: wireRows.length < limit,
+      },
+    };
+  }
+
   // Query rows through a specific view
   app.get('/api/data/:table_id/views/:view_id/rows', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const viewId = req.params.view_id;
-    const { where, limit = '25', offset = '0', sort } = req.query;
-    const fields = await getTableFields(tableId);
-    const fieldMap = {};
-    for (const f of fields) fieldMap[f.name] = f;
-
-    const params = new URLSearchParams({ size: limit, user_field_names: 'true' });
-    const page = Math.floor(parseInt(offset, 10) / parseInt(limit, 10)) + 1;
-    params.set('page', String(page));
-
-    if (where) {
-      const filters = parseWhere(where);
-      const filterParams = buildBaserowFilterParams(filters, fieldMap);
-      for (const [key, val] of filterParams.entries()) params.append(key, val);
+    try {
+      res.json(rowsListResponse(req.params.table_id, req.params.view_id, req.query));
+    } catch (e) {
+      console.error('[gateway] view rows query failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-    if (sort) {
-      const orderBy = buildBaserowOrderBy(sort, fieldMap);
-      if (orderBy) params.set('order_by', orderBy);
-    }
-
-    const result = await br('GET', `/api/database/rows/table/${tableId}/?${params}`, null, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const rows = (result.data?.results || []).map(r => normalizeRowForGateway(r, fields));
-    res.json({ list: rows, pageInfo: { totalRows: result.data?.count || 0, page, pageSize: parseInt(limit, 10), isFirstPage: page === 1, isLastPage: !result.data?.next } });
   });
 
   // List rows from a table
   app.get('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const { where, limit = '25', offset = '0', sort } = req.query;
-    const fields = await getTableFields(tableId);
-    const fieldMap = {};
-    for (const f of fields) fieldMap[f.name] = f;
-
-    const params = new URLSearchParams({ size: limit, user_field_names: 'true' });
-    const page = Math.floor(parseInt(offset, 10) / parseInt(limit, 10)) + 1;
-    params.set('page', String(page));
-
-    if (where) {
-      const filters = parseWhere(where);
-      const filterParams = buildBaserowFilterParams(filters, fieldMap);
-      for (const [key, val] of filterParams.entries()) params.append(key, val);
+    try {
+      res.json(rowsListResponse(req.params.table_id, null, req.query));
+    } catch (e) {
+      console.error('[gateway] rows query failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-    if (sort) {
-      const orderBy = buildBaserowOrderBy(sort, fieldMap);
-      if (orderBy) params.set('order_by', orderBy);
-    }
-
-    const result = await br('GET', `/api/database/rows/table/${tableId}/?${params}`, null, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const rows = (result.data?.results || []).map(r => normalizeRowForGateway(r, fields));
-    res.json({ list: rows, pageInfo: { totalRows: result.data?.count || 0, page, pageSize: parseInt(limit, 10), isFirstPage: page === 1, isLastPage: !result.data?.next } });
   });
 
-  // Insert row(s)
-  app.post('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    let rowData = req.body;
+  // ─── Batch row operations ────────────────────────────────────────────
+  // (registered BEFORE /:row_id routes so /rows/batch and /rows/batch-delete
+  //  don't get captured by /rows/:row_id)
 
-    const fields = await getTableFields(tableId);
-
-    for (const field of fields) {
-      if (field.type === 'text' && !rowData[field.name]) {
-        const lcName = field.name.toLowerCase();
-        if (lcName === 'created_by' || lcName === 'createdby') {
-          rowData = { ...rowData, [field.name]: actorName(req) };
-        }
-      }
+  function mapEngineErrorStatus(e) {
+    if (e && e.code === 'VALIDATION_ERROR') {
+      if (/table not found|row not found/.test(e.message)) return 404;
+      return 400;
     }
+    return 500;
+  }
+
+  app.post('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
+    const tableId = req.params.table_id;
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
 
     if (isAgentRequest(req)) {
       await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
     }
 
-    const normalizedRow = normalizeRowForBaserow(rowData, fields);
-    const result = await br('POST', `/api/database/rows/table/${tableId}/?user_field_names=true`, normalizedRow, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+    try {
+      const fields = tableEngine.listFields(tableId);
+      const idRows = rows.map(r => payloadTitlesToIds(r, fields));
+      const created = tableEngine.batchInsert(tableId, idRows, { actor: actorName(req) });
+      const items = created.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields));
+      res.status(201).json({ items });
 
-    const normalized = normalizeRowForGateway(result.data, fields);
-    res.status(201).json(normalized);
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+      }
+    } catch (e) {
+      const status = mapEngineErrorStatus(e);
+      if (status === 500) console.error('[gateway] batch insert failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'VALIDATION_ERROR', detail: e.message });
+    }
+  });
+
+  app.patch('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
+    const tableId = req.params.table_id;
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
 
     if (isAgentRequest(req)) {
-      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+    }
+
+    try {
+      const fields = tableEngine.listFields(tableId);
+      const updates = rows.map(r => {
+        const { id, ...rest } = r;
+        return { id, data: payloadTitlesToIds(rest, fields) };
+      });
+      const updated = tableEngine.batchUpdate(tableId, updates, { actor: actorName(req) });
+      const items = updated.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields));
+      res.json({ items });
+
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+      }
+    } catch (e) {
+      const status = mapEngineErrorStatus(e);
+      if (status === 500) console.error('[gateway] batch update failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'VALIDATION_ERROR', detail: e.message });
+    }
+  });
+
+  app.post('/api/data/:table_id/rows/batch-delete', authenticateAgent, async (req, res) => {
+    const tableId = req.params.table_id;
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
+
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
+    }
+
+    try {
+      tableEngine.batchDelete(tableId, ids);
+      res.json({ deleted: ids.length });
+
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+      }
+    } catch (e) {
+      const status = mapEngineErrorStatus(e);
+      if (status === 500) console.error('[gateway] batch delete failed:', e);
+      res.status(status).json({ error: status === 404 ? 'NOT_FOUND' : 'VALIDATION_ERROR', detail: e.message });
+    }
+  });
+
+  // Insert row
+  app.post('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
+    const tableId = req.params.table_id;
+    try {
+      const fields = tableEngine.listFields(tableId);
+      const idData = payloadTitlesToIds(req.body, fields);
+      const created = tableEngine.insertRow(tableId, idData, { actor: actorName(req) });
+      const typed = tableEngine.readRow(tableId, created.id);
+      res.status(201).json(rowIdsToTitles(typed, fields));
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') {
+        if (/table not found|row not found/.test(e.message)) return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
+        return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
+      }
+      console.error('[gateway] insert row failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
   });
 
   // Update row
   app.patch('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
-    let updateData = req.body;
-
-    if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
-    }
-
-    const fields = await getTableFields(tableId);
-
-    for (const field of fields) {
-      if (field.type === 'text') {
-        const lcName = field.name.toLowerCase();
-        if (lcName === 'lastmodifiedby' || lcName === 'last_modified_by') {
-          updateData = { ...updateData, [field.name]: actorName(req) };
-        }
+    try {
+      const fields = tableEngine.listFields(tableId);
+      const idData = payloadTitlesToIds(req.body, fields);
+      tableEngine.updateRow(tableId, rowId, idData, { actor: actorName(req) });
+      const typed = tableEngine.readRow(tableId, rowId);
+      res.json(rowIdsToTitles(typed, fields));
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR') {
+        if (/table not found|row not found/.test(e.message)) return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
+        return res.status(400).json({ error: 'VALIDATION_ERROR', detail: e.message });
       }
+      console.error('[gateway] update row failed:', e);
+      return res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
 
-    const normalizedUpdate = normalizeRowForBaserow(updateData, fields);
-    const result = await br('PATCH', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`, normalizedUpdate, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const normalized = normalizeRowForGateway(result.data, fields);
-    res.json(normalized);
-
-    // Async: check for User field assignments → notify assigned agents
+    // Async best-effort: User field assignment notifications.
     try {
       const allAgents = db.prepare("SELECT * FROM actors WHERE type = 'agent'").all();
       const agentMap = new Map();
@@ -671,7 +960,6 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
         if (!valStr) continue;
         const target = agentMap.get(valStr);
         if (!target || target.id === (req.actor?.id || req.agent?.id)) continue;
-        console.log(`[gateway] User assigned: ${target.username} via field "${field}" by ${actorName(req)}`);
         const now = Date.now();
         const evt = {
           event: 'data.user_assigned',
@@ -692,190 +980,39 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
       }
     } catch (e) { console.error(`[gateway] User assignment notification error: ${e.message}`); }
-
-    if (isAgentRequest(req)) {
-      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
-    }
   });
 
   // Delete row
   app.delete('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-
-    if (isAgentRequest(req)) {
-      await createTableSnapshot(req.params.table_id, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
-    }
-
-    const result = await br('DELETE', `/api/database/rows/table/${req.params.table_id}/${req.params.row_id}/`, null, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-    res.json({ deleted: true });
-
-    if (isAgentRequest(req)) {
-      createTableSnapshot(req.params.table_id, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
-    }
-  });
-
-  // ─── Batch row operations ────────────────────────────────────────────
-
-  // Batch insert rows
-  app.post('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const rows = req.body.rows;
-    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array' });
-
-    if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
-    }
-
-    const fields = await getTableFields(tableId);
-    const normalizedRows = rows.map(row => {
-      let r = { ...row };
-      for (const field of fields) {
-        if (field.type === 'text' && !r[field.name]) {
-          const lcName = field.name.toLowerCase();
-          if (lcName === 'created_by' || lcName === 'createdby') {
-            r[field.name] = actorName(req);
-          }
-        }
+    try {
+      const existing = tableEngine.readRow(req.params.table_id, req.params.row_id);
+      if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
+      tableEngine.deleteRow(req.params.table_id, req.params.row_id);
+      res.json({ deleted: true });
+    } catch (e) {
+      if (e.code === 'VALIDATION_ERROR' && /table not found/.test(e.message)) {
+        return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
       }
-      return normalizeRowForBaserow(r, fields);
-    });
-
-    const result = await br('POST', `/api/database/rows/table/${tableId}/batch/?user_field_names=true`, { items: normalizedRows }, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
-    res.status(201).json({ items });
-
-    if (isAgentRequest(req)) {
-      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
+      console.error('[gateway] delete row failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
   });
 
-  // Batch update rows
-  app.patch('/api/data/:table_id/rows/batch', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const rows = req.body.rows;
-    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'rows must be a non-empty array with id field' });
-
-    if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
-    }
-
-    const fields = await getTableFields(tableId);
-    const normalizedRows = rows.map(row => {
-      let r = { ...row };
-      for (const field of fields) {
-        if (field.type === 'text') {
-          const lcName = field.name.toLowerCase();
-          if (lcName === 'lastmodifiedby' || lcName === 'last_modified_by') {
-            r[field.name] = actorName(req);
-          }
-        }
-      }
-      return { id: row.id, ...normalizeRowForBaserow(r, fields) };
-    });
-
-    const result = await br('PATCH', `/api/database/rows/table/${tableId}/batch/?user_field_names=true`, { items: normalizedRows }, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    const items = (result.data?.items || []).map(r => normalizeRowForGateway(r, fields));
-    res.json({ items });
-
-    if (isAgentRequest(req)) {
-      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
-    }
-  });
-
-  // Batch delete rows
-  app.post('/api/data/:table_id/rows/batch-delete', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const ids = req.body.ids;
-    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'INVALID_INPUT', detail: 'ids must be a non-empty array' });
-
-    if (isAgentRequest(req)) {
-      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), 'agent 编辑前自动保存').catch(() => {});
-    }
-
-    const result = await br('POST', `/api/database/rows/table/${tableId}/batch-delete/`, { items: ids }, { useToken: true });
-    if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-
-    res.json({ deleted: ids.length });
-
-    if (isAgentRequest(req)) {
-      createTableSnapshot(tableId, 'post_agent_edit', actorName(req), 'agent 编辑后保存').catch(() => {});
-    }
-  });
-
-  // Duplicate a table
-  app.post('/api/data/:table_id/duplicate', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
+  // Duplicate a table — table-engine backed (P4.2 cleanup)
+  app.post('/api/data/:table_id/duplicate', authenticateAgent, (req, res) => {
     try {
       const srcTableId = req.params.table_id;
-
-      const tablesResult = await br('GET', `/api/database/tables/database/${BR_DATABASE_ID}/`);
-      let srcTitle = 'Untitled';
-      if (tablesResult.status < 400 && Array.isArray(tablesResult.data)) {
-        const t = tablesResult.data.find(t => String(t.id) === String(srcTableId));
-        if (t) srcTitle = t.name;
-      }
-
-      const srcFields = await getTableFields(srcTableId);
-      const SKIP_TYPES = new Set(['autonumber', 'created_on', 'last_modified', 'link_row', 'lookup', 'rollup', 'formula', 'count']);
-
-      const createResult = await br('POST', `/api/database/tables/database/${BR_DATABASE_ID}/`, { name: `${srcTitle} (copy)` });
-      if (createResult.status >= 400) return res.status(createResult.status).json({ error: 'CREATE_FAILED', detail: createResult.data });
-      const newTableId = String(createResult.data.id);
-
-      const copyCols = srcFields.filter(f => !f.primary && !f.read_only && !SKIP_TYPES.has(f.type));
-      for (const col of copyCols) {
-        try {
-          const fieldBody = { name: col.name, type: col.type };
-          if (col.select_options) fieldBody.select_options = col.select_options.map(o => ({ value: o.value, color: o.color }));
-          if (col.number_decimal_places) fieldBody.number_decimal_places = col.number_decimal_places;
-          await br('POST', `/api/database/fields/table/${newTableId}/`, fieldBody);
-        } catch {}
-      }
-
-      const validFieldNames = new Set([...copyCols.map(c => c.name), ...srcFields.filter(f => f.primary).map(f => f.name)]);
-      const newFields = await getTableFields(newTableId);
-      let allRows = [];
-      let page = 1;
-      while (true) {
-        const rowResult = await br('GET', `/api/database/rows/table/${srcTableId}/?user_field_names=true&size=200&page=${page}`, null, { useToken: true });
-        if (rowResult.status >= 400) break;
-        const list = rowResult.data?.results || [];
-        allRows.push(...list);
-        if (!rowResult.data?.next) break;
-        page++;
-      }
-
-      let copiedRows = 0;
-      for (const row of allRows) {
-        const cleanRow = {};
-        for (const [key, val] of Object.entries(row)) {
-          if (key === 'id' || key === 'order') continue;
-          if (validFieldNames.has(key)) cleanRow[key] = val;
-        }
-        const normalized = normalizeRowForBaserow(cleanRow, newFields);
-        if (Object.keys(normalized).length > 0) {
-          await br('POST', `/api/database/rows/table/${newTableId}/?user_field_names=true`, normalized, { useToken: true });
-          copiedRows++;
-        }
-      }
-
-      console.log(`[gateway] Duplicated table ${srcTableId} → ${newTableId} (${copiedRows} rows)`);
       const srcItem = db.prepare('SELECT * FROM content_items WHERE raw_id = ? AND type = ?').get(srcTableId, 'table');
-      const displayTitle = srcItem ? `${srcItem.title} (copy)` : `${srcTitle} (copy)`;
-      const nodeId = `table:${newTableId}`;
-      contentItemsUpsert.run(nodeId, newTableId, 'table', displayTitle, null, srcItem?.parent_id || null, null, actorName(req), null, new Date().toISOString(), null, null, req.actor?.id || req.agent?.id || null, Date.now());
-      res.json({ success: true, new_table_id: newTableId, copied_rows: copiedRows });
+      const result = tableEngine.cloneTable(srcTableId, { created_by: actorName(req) });
+      const displayTitle = srcItem ? `${srcItem.title} (copy)` : result.new_table.title;
+      const nodeId = `table:${result.new_table_id}`;
+      contentItemsUpsert.run(nodeId, result.new_table_id, 'table', displayTitle, null, srcItem?.parent_id || null, null, actorName(req), null, new Date().toISOString(), null, null, req.actor?.id || req.agent?.id || null, Date.now());
+      console.log(`[gateway] Duplicated table ${srcTableId} → ${result.new_table_id} (${result.copied_rows} rows)`);
+      res.json({ success: true, new_table_id: result.new_table_id, copied_rows: result.copied_rows });
     } catch (e) {
-      console.error(`[gateway] Duplicate table failed: ${e.message}`);
-      res.status(500).json({ error: 'DUPLICATE_FAILED', message: e.message });
+      const status = e.code === 'NOT_FOUND' ? 404 : (e.code === 'VALIDATION_ERROR' ? 400 : 500);
+      if (status === 500) console.error(`[gateway] Duplicate table failed: ${e.message}`);
+      res.status(status).json({ error: e.code || 'DUPLICATE_FAILED', message: e.message });
     }
   });
 
@@ -950,80 +1087,77 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     res.json({ updated: true });
   });
 
-  // Linked records
-  app.get('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const rowId = req.params.row_id;
-    const columnId = req.params.column_id;
+  // ── Links (Family F) — table-engine backed ─────────────────
+  // Wire contract: GET returns { list: [{Id, id, value}], pageInfo }
+  // value = the linked row's primary field display string.
 
-    const fields = await getTableFields(tableId);
-    const linkField = fields.find(f => String(f.id) === String(columnId));
-    if (!linkField) return res.status(404).json({ error: 'COLUMN_NOT_FOUND' });
+  function getLinkField(tableId, columnId) {
+    const fields = tableEngine.listFields(tableId);
+    return fields.find(f => f.id === columnId && (f.uidt === 'Links' || f.uidt === 'LinkToAnotherRecord'));
+  }
 
-    const rowResult = await br('GET', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`, null, { useToken: true });
-    if (rowResult.status >= 400) return res.status(rowResult.status).json({ error: 'UPSTREAM_ERROR', detail: rowResult.data });
+  function loadLinkedRowsDisplay(targetTableId, rowIds) {
+    if (!rowIds || rowIds.length === 0) return [];
+    const targetFields = tableEngine.listFields(targetTableId);
+    const primary = targetFields.find(f => f.is_primary) || targetFields[0];
+    const out = [];
+    for (const rid of rowIds) {
+      const row = tableEngine.readRow(targetTableId, rid);
+      if (!row) continue;
+      const value = primary ? (row[primary.id] != null ? String(row[primary.id]) : '') : '';
+      out.push({ Id: rid, id: rid, value });
+    }
+    return out;
+  }
 
-    const linkedRows = rowResult.data[linkField.name] || [];
-    const list = Array.isArray(linkedRows) ? linkedRows.map(r => ({ Id: r.id, id: r.id, value: r.value })) : [];
-    res.json({ list, pageInfo: { totalRows: list.length } });
-  });
-
-  app.post('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const rowId = req.params.row_id;
-    const columnId = req.params.column_id;
-    const records = Array.isArray(req.body) ? req.body : [];
-
+  app.get('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, (req, res) => {
+    const { table_id, row_id, column_id } = req.params;
     try {
-      const fields = await getTableFields(tableId);
-      const linkField = fields.find(f => String(f.id) === String(columnId));
+      const linkField = getLinkField(table_id, column_id);
       if (!linkField) return res.status(404).json({ error: 'COLUMN_NOT_FOUND' });
-
-      const rowResult = await br('GET', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`, null, { useToken: true });
-      if (rowResult.status >= 400) return res.status(rowResult.status).json({ error: 'UPSTREAM_ERROR', detail: rowResult.data });
-
-      const currentLinks = (rowResult.data[linkField.name] || []).map(r => r.id);
-      const newIds = records.map(r => r.Id || r.id).filter(Boolean);
-      const allIds = [...new Set([...currentLinks, ...newIds])];
-
-      const result = await br('PATCH', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`,
-        { [linkField.name]: allIds }, { useToken: true });
-      if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
-      res.json({ msg: 'Links created successfully' });
+      const targets = tableEngine.link.list(linkField, row_id);
+      const opts = typeof linkField.options === 'string' ? JSON.parse(linkField.options) : (linkField.options || {});
+      const list = loadLinkedRowsDisplay(opts.target_table_id, targets);
+      res.json({ list, pageInfo: { totalRows: list.length } });
     } catch (e) {
-      console.error('[gateway] Link creation error:', e.message);
-      res.status(500).json({ error: 'LINK_FAILED', detail: e.message });
+      console.error('[gateway] list links failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
   });
 
-  app.delete('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, async (req, res) => {
-    if (!BR_EMAIL || !BR_PASSWORD) return res.status(503).json({ error: 'BASEROW_NOT_CONFIGURED' });
-    const tableId = req.params.table_id;
-    const rowId = req.params.row_id;
-    const columnId = req.params.column_id;
-    const records = Array.isArray(req.body) ? req.body : [];
-
+  app.post('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, (req, res) => {
+    const { table_id, row_id, column_id } = req.params;
+    const records = Array.isArray(req.body) ? req.body : (Array.isArray(req.body?.records) ? req.body.records : []);
     try {
-      const fields = await getTableFields(tableId);
-      const linkField = fields.find(f => String(f.id) === String(columnId));
+      const linkField = getLinkField(table_id, column_id);
       if (!linkField) return res.status(404).json({ error: 'COLUMN_NOT_FOUND' });
+      const newIds = records.map(r => r.Id || r.id).filter(Boolean);
+      const current = tableEngine.link.list(linkField, row_id);
+      const merged = [...new Set([...current, ...newIds])];
+      tableEngine.link.setRowLinks(linkField, row_id, merged);
+      res.json({ msg: 'Links created successfully' });
+    } catch (e) {
+      const status = e.code === 'CARDINALITY_VIOLATION' ? 400
+        : (e.code === 'VALIDATION_ERROR' ? 400 : 500);
+      if (status === 500) console.error('[gateway] add links failed:', e);
+      res.status(status).json({ error: e.code || 'INTERNAL_ERROR', detail: e.message });
+    }
+  });
 
-      const rowResult = await br('GET', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`, null, { useToken: true });
-      if (rowResult.status >= 400) return res.status(rowResult.status).json({ error: 'UPSTREAM_ERROR', detail: rowResult.data });
-
-      const currentLinks = (rowResult.data[linkField.name] || []).map(r => r.id);
+  app.delete('/api/data/:table_id/rows/:row_id/links/:column_id', authenticateAgent, (req, res) => {
+    const { table_id, row_id, column_id } = req.params;
+    const records = Array.isArray(req.body) ? req.body : (Array.isArray(req.body?.records) ? req.body.records : []);
+    try {
+      const linkField = getLinkField(table_id, column_id);
+      if (!linkField) return res.status(404).json({ error: 'COLUMN_NOT_FOUND' });
       const removeIds = new Set(records.map(r => r.Id || r.id).filter(Boolean));
-      const remaining = currentLinks.filter(id => !removeIds.has(id));
-
-      const result = await br('PATCH', `/api/database/rows/table/${tableId}/${rowId}/?user_field_names=true`,
-        { [linkField.name]: remaining }, { useToken: true });
-      if (result.status >= 400) return res.status(result.status).json({ error: 'UPSTREAM_ERROR', detail: result.data });
+      const current = tableEngine.link.list(linkField, row_id);
+      const remaining = current.filter(id => !removeIds.has(id));
+      tableEngine.link.setRowLinks(linkField, row_id, remaining);
       res.json({ msg: 'Links removed successfully' });
     } catch (e) {
-      console.error('[gateway] Unlink error:', e.message);
-      res.status(500).json({ error: 'UNLINK_FAILED', detail: e.message });
+      console.error('[gateway] remove links failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
   });
 
@@ -1190,78 +1324,29 @@ export default function dataRoutes(app, { db, BR_EMAIL, BR_PASSWORD, BR_DATABASE
     if (!snap) return res.status(404).json({ error: 'NOT_FOUND' });
 
     try {
+      const schemaSnap = JSON.parse(snap.schema_json || '[]');
+      const rowsSnap = JSON.parse(snap.data_json || '[]');
+
+      // Format detection: P4.2 snapshots have field objects with `id`/`uidt`
+      // at top level; legacy Baserow snapshots have `title`/`uidt` but
+      // rows are title-keyed. Detect via row key shape on first row.
+      const isP42Format = schemaSnap.length > 0 && schemaSnap[0].id && typeof schemaSnap[0].id === 'string' && schemaSnap[0].id.startsWith('ufld_');
+      if (!isP42Format) {
+        return res.status(409).json({
+          error: 'LEGACY_SNAPSHOT_UNSUPPORTED',
+          message: 'This snapshot was created with the pre-P4.2 Baserow format and cannot be restored after the migration. Create a new snapshot first.',
+        });
+      }
+
       const preRestore = await createTableSnapshot(req.params.table_id, 'pre_restore', actorName(req), '恢复版本前自动保存');
 
-      const snapshotRows = JSON.parse(snap.data_json);
+      const result = tableEngine.restoreTable(req.params.table_id, { schema: schemaSnap, rows: rowsSnap });
 
-      // Delete all current rows (batch)
-      while (true) {
-        const currentRows = await br('GET', `/api/database/rows/table/${req.params.table_id}/?size=200&page=1`, null, { useToken: true });
-        if (currentRows.status >= 400) break;
-        const list = currentRows.data?.results || [];
-        if (list.length === 0) break;
-        const ids = list.map(r => r.id).filter(Boolean);
-        if (ids.length > 0) {
-          await br('POST', `/api/database/rows/table/${req.params.table_id}/batch-delete/`, { items: ids }, { useToken: true });
-        }
-      }
-
-      const currentFields = await getTableFields(req.params.table_id);
-      const currentCols = new Set(currentFields.map(f => f.name));
-
-      const snapshotSchema = JSON.parse(snap.schema_json || '[]');
-      const SYSTEM_UIDTS = new Set(['ID', 'CreateTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'AutoNumber', 'created_on', 'last_modified', 'autonumber']);
-      for (const col of snapshotSchema) {
-        if (currentCols.has(col.title)) continue;
-        if (col.pk) continue;
-        if (SYSTEM_UIDTS.has(col.uidt)) continue;
-        try {
-          const fieldBody = buildFieldCreateBody(col.title, col.uidt, {
-            options: col.colOptions?.options?.map(o => ({ title: o.title, color: o.color })),
-            formula_raw: col.formula_raw,
-          });
-          const createResult = await br('POST', `/api/database/fields/table/${req.params.table_id}/`, fieldBody);
-          if (createResult.status < 400) {
-            currentCols.add(col.title);
-            console.log(`[gateway] Restore: recreated column "${col.title}" (${col.uidt})`);
-          } else {
-            console.warn(`[gateway] Restore: failed to recreate column "${col.title}": ${JSON.stringify(createResult.data)}`);
-          }
-        } catch (colErr) {
-          console.warn(`[gateway] Restore: error recreating column "${col.title}": ${colErr.message}`);
-        }
-      }
-      invalidateFieldCache(req.params.table_id);
-      const newFields = await getTableFields(req.params.table_id);
-
-      // Batch insert restored rows (chunks of 200)
-      const cleanRows = [];
-      for (const row of snapshotRows) {
-        const cleanRow = {};
-        for (const [key, val] of Object.entries(row)) {
-          if (['Id', 'id', 'order', 'nc_id', 'CreatedAt', 'UpdatedAt', 'created_at', 'updated_at'].includes(key)) continue;
-          if (currentCols.has(key)) {
-            cleanRow[key] = val;
-          }
-        }
-        if (Object.keys(cleanRow).length > 0) {
-          cleanRows.push(normalizeRowForBaserow(cleanRow, newFields));
-        }
-      }
-
-      let restored = 0;
-      for (let i = 0; i < cleanRows.length; i += 200) {
-        const chunk = cleanRows.slice(i, i + 200);
-        const result = await br('POST', `/api/database/rows/table/${req.params.table_id}/batch/?user_field_names=true`, { items: chunk }, { useToken: true });
-        if (result.status < 400) {
-          restored += (result.data?.items || chunk).length;
-        }
-      }
-
-      res.json({ success: true, restored_rows: restored, pre_restore_snapshot_id: preRestore.id });
+      res.json({ success: true, restored_rows: result.restored, pre_restore_snapshot_id: preRestore.id });
     } catch (e) {
       console.error(`[gateway] Restore failed: ${e.message}`);
-      res.status(500).json({ error: 'RESTORE_FAILED', message: e.message });
+      const status = e.code === 'NOT_FOUND' ? 404 : (e.code === 'VALIDATION_ERROR' ? 400 : 500);
+      res.status(status).json({ error: e.code || 'RESTORE_FAILED', message: e.message });
     }
   });
 }

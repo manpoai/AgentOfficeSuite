@@ -4,6 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { runTableEngineMigrations } from './table-engine/migrations.js';
 
 export function initDatabase(gatewayDir) {
   const DB_PATH = process.env.GATEWAY_DB_PATH || path.join(gatewayDir, 'gateway.db');
@@ -411,6 +412,11 @@ function runMigrations(db) {
       }
     }
   } catch (e) { console.warn('[gateway] content_revisions migration skipped:', e.message); }
+
+  // Phase 4: table engine metadata (replaces Baserow)
+  try {
+    runTableEngineMigrations(db);
+  } catch (e) { console.error('[gateway] table-engine migrations failed:', e.message); throw e; }
 }
 
 function migrateTableComments(db) {

@@ -17,6 +17,7 @@ import { genId, hashToken, hashPassword, verifyPassword } from './lib/utils.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { sseClients, humanClients, pushEvent, pushHumanEvent, deliverWebhook, pollComments } from './lib/sse.js';
 import { createContentSync } from './lib/content-sync.js';
+import { createTableEngine } from './lib/table-engine/index.js';
 
 import authRoutes from './routes/auth.js';
 import docsRoutes from './routes/docs.js';
@@ -37,6 +38,9 @@ const { authenticateAny, authenticateAdmin, authenticateAgent } = createAuthMidd
 
 // ─── Content sync ────────────────────────────────
 const { contentItemsUpsert, syncContentItems } = createContentSync(db);
+
+// ─── Table engine (SQLite-backed, replaces Baserow) ──
+const tableEngine = createTableEngine(db);
 
 // Baserow doesn't need per-agent users
 async function createBrUser(agentName, displayName) {
@@ -71,7 +75,7 @@ const shared = {
   express, db, JWT_SECRET, ADMIN_TOKEN, BR_EMAIL, BR_PASSWORD, BR_DATABASE_ID,
   authenticateAny, authenticateAdmin, authenticateAgent,
   genId, hashToken, hashPassword, verifyPassword,
-  createBrUser, contentItemsUpsert, syncContentItems,
+  createBrUser, contentItemsUpsert, syncContentItems, tableEngine,
   pushEvent, pushHumanEvent, deliverWebhook, sseClients, humanClients, pollComments,
 };
 
