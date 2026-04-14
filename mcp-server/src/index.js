@@ -132,7 +132,7 @@ async function startServer() {
         if (pending > 0) {
           result.content.push({
             type: 'text',
-            text: `[agentoffice-bridge] ${pending} new event(s) arrived since your last tool call. Call get_unread_events to inspect.`,
+            text: `[aose-bridge] ${pending} new event(s) arrived since your last tool call. Call get_unread_events to inspect.`,
           });
         }
       }

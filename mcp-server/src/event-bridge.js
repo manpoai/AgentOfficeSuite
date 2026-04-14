@@ -211,9 +211,9 @@ export class EventBridge {
     try {
       await this.mcpServer.server.sendLoggingMessage({
         level: 'info',
-        logger: 'agentoffice',
+        logger: 'aose',
         data: {
-          source: 'agentoffice',
+          source: 'aose',
           delivery: source,
           event: evt,
         },

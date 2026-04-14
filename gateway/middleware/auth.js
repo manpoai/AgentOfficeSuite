@@ -52,9 +52,16 @@ export function createAuthMiddleware(db, JWT_SECRET, ADMIN_TOKEN) {
       if (agent.deleted_at) {
         return res.status(403).json({ error: 'AGENT_DELETED', message: 'This agent has been deleted' });
       }
-      // Pending approval check: only allow whoami + catchup endpoints
+      // Pending approval check: allow whoami + full event read/ack cycle so
+      // pending agents can receive agent.approved without ack-path asymmetry.
       if (agent.pending_approval) {
-        const allowedPaths = ['/api/me', '/api/me/catchup', '/api/me/events/stream'];
+        const allowedPaths = [
+          '/api/me',
+          '/api/me/catchup',
+          '/api/me/events/stream',
+          '/api/me/events/count',
+          '/api/me/events/ack',
+        ];
         const isAllowed = allowedPaths.some(p => req.path === p || req.path.startsWith(p + '?'));
         if (!isAllowed) {
           return res.status(403).json({ error: 'PENDING_APPROVAL', message: 'Your registration is pending approval' });
