@@ -45,7 +45,6 @@ interface SnapshotPreview {
 }
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { BottomSheet } from '@/components/shared/BottomSheet';
-import { EditFAB } from '@/components/shared/EditFAB';
 import { ContentMenuList } from '@/components/shared/ContentMenuList';
 import { buildActionMap } from '@/actions/types';
 import { tableColumnActions } from '@/actions/table-column.actions';
@@ -356,10 +355,10 @@ export function TableEditor(props: TableEditorProps) {
 function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate, onCopyLink, docListVisible, onToggleDocList, focusCommentId, showComments, onShowComments, onCloseComments, onToggleComments, isPinned, onTogglePin }: TableEditorProps) {
   const { t } = useT();
   const isMobile = useIsMobile();
-  const [mobileEditing, setMobileEditing] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  // On mobile, default to read-only preview; on desktop always editable
-  const mobilePreview = isMobile && !mobileEditing;
+  // On mobile, list view is always read-only. Editing happens in the
+  // full-screen RowDetailPanel.
+  const mobilePreview = isMobile;
   const [page, setPage] = useState(1);
   const [editingCell, setEditingCell] = useState<{ rowId: number; col: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -3179,13 +3178,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                   );
                 })}
                   </SortableContext>
-                {!mobilePreview && (
                 <th className="px-2 py-1.5 border-r border-border">
-                  <button onClick={(e) => { const rect = (e.target as HTMLElement).getBoundingClientRect(); setEditFieldAnchor({ x: rect.right - 384, y: rect.bottom + 4 }); setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title={t('dataTable.addCol')}>
+                  <button onClick={(e) => { if (isMobile) { setEditFieldAnchor(null); } else { const rect = (e.target as HTMLElement).getBoundingClientRect(); setEditFieldAnchor({ x: rect.right - 384, y: rect.bottom + 4 }); } setInsertColPosition(null); openAddField(); }} className="p-0.5 text-muted-foreground hover:text-foreground" title={t('dataTable.addCol')}>
                     <Plus className="h-3.5 w-3.5" />
                   </button>
                 </th>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -4356,23 +4353,6 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         />
       )}
 
-      {/* Mobile Edit FAB */}
-      {isMobile && (
-        <EditFAB
-          isEditing={mobileEditing}
-          onEdit={() => setMobileEditing(true)}
-          onSave={() => {
-            // Save any active edit before exiting edit mode
-            if (editingCell) saveEdit();
-            setMobileEditing(false);
-          }}
-          onCancel={() => {
-            setEditingCell(null);
-            setMobileEditing(false);
-          }}
-        />
-      )}
-
       {/* Row Detail Panel */}
       {expandedRowIdx != null && rows[expandedRowIdx] && (
         <RowDetailPanel
@@ -4408,6 +4388,21 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
           e.target.value = ''; // reset so same file can be re-selected
         }}
       />
+
+      {/* Mobile add-row FAB (grid view only) */}
+      {isMobile && !previewSnapshot && expandedRowIdx == null && (() => {
+        const vt = views.find(v => v.view_id === activeViewId)?.type || 3;
+        if (vt !== 3) return null;
+        return (
+          <button
+            onClick={handleAddRow}
+            className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-2xl flex items-center justify-center active:scale-95 transition-transform"
+            title={t('dataTable.addRecord')}
+          >
+            <Plus className="h-6 w-6" />
+          </button>
+        );
+      })()}
 
       </div>{/* end main table content */}
 
