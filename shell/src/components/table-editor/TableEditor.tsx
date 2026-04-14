@@ -2937,8 +2937,23 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             {previewSnapshot.rows.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">{t('dataTable.emptyTable')}</div>
             ) : (() => {
-              const HIDDEN_SNAPSHOT_UIDTS = new Set(['ID', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'Count']);
+              const HIDDEN_SNAPSHOT_UIDTS = new Set(['Links', 'LinkToAnotherRecord', 'Lookup', 'Rollup', 'Formula', 'Count']);
               const snapshotCols = previewSnapshot.schema.filter((c: { uidt: string }) => !HIDDEN_SNAPSHOT_UIDTS.has(c.uidt));
+              // P4.2 snapshots key row values by field id (ufld_xxx). Virtual fields
+              // (CreatedTime/LastModifiedTime/CreatedBy/LastModifiedBy/ID) are not written
+              // to row[fieldId] — they live on the row's builtin columns.
+              const virtualKeyMap: Record<string, string> = {
+                ID: 'id',
+                CreatedTime: 'created_at',
+                LastModifiedTime: 'updated_at',
+                CreatedBy: 'created_by',
+                LastModifiedBy: 'updated_by',
+              };
+              const cellValue = (row: Record<string, unknown>, col: { id?: string; title: string; uidt: string }) => {
+                if (virtualKeyMap[col.uidt]) return row[virtualKeyMap[col.uidt]];
+                if (col.id && col.id in row) return row[col.id];
+                return row[col.title];
+              };
               return (
                 <table className="text-xs" style={{ minWidth: '100%' }}>
                   <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-[5]">
@@ -2955,9 +2970,9 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                     {previewSnapshot.rows.map((row: Record<string, unknown>, ri: number) => (
                       <tr key={ri} className="border-b border-border/30 hover:bg-accent/20">
                         <td className="w-10 min-w-[40px] px-2 py-1.5 text-center text-[10px] text-muted-foreground/50 border-r border-border sticky left-0 bg-amber-50/30 dark:bg-amber-950/10 z-10">{ri + 1}</td>
-                        {snapshotCols.map((col: { title: string; uidt: string }, ci: number) => (
+                        {snapshotCols.map((col: { id?: string; title: string; uidt: string }, ci: number) => (
                           <td key={ci} className="px-3 py-1.5 text-foreground max-w-[250px]">
-                            <SnapshotCellValue value={row[col.title]} colType={col.uidt} />
+                            <SnapshotCellValue value={cellValue(row, col)} colType={col.uidt} />
                           </td>
                         ))}
                       </tr>
