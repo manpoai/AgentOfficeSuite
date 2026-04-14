@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const GW_URL = process.env.GATEWAY_URL;
 const GW_TOKEN = process.env.GATEWAY_AGENT_TOKEN || process.env.GATEWAY_ADMIN_TOKEN || '';
 
@@ -63,6 +66,57 @@ async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
         if (ct) headers['Content-Type'] = ct;
       }
     }
+  }
+
+  // SSE endpoints need streaming passthrough: buffering to arrayBuffer() kills
+  // the long-lived event stream. Detect by path suffix and route through the
+  // upstream response body directly.
+  const joinedPath = pathParts.join('/');
+  const isSSE = joinedPath === 'notifications/stream' || joinedPath === 'me/events/stream';
+
+  if (isSSE) {
+    const resp = await fetch(url.toString(), {
+      method: req.method,
+      headers: { ...headers, Accept: 'text/event-stream' },
+      // @ts-expect-error Node fetch supports duplex but types don't expose it
+      duplex: 'half',
+      signal: req.signal,
+    });
+    if (!resp.ok || !resp.body) {
+      return new NextResponse(null, { status: resp.status });
+    }
+    const upstream = resp.body.getReader();
+    const stream = new ReadableStream({
+      async start(controller) {
+        // Flush headers to client immediately — without an initial chunk,
+        // Next.js buffers the response until upstream sends something.
+        controller.enqueue(new TextEncoder().encode(': connected\n\n'));
+        try {
+          while (true) {
+            const { done, value } = await upstream.read();
+            if (done) break;
+            controller.enqueue(value);
+          }
+        } catch {
+          // client disconnect or upstream error
+        } finally {
+          controller.close();
+          try { upstream.releaseLock(); } catch {}
+        }
+      },
+      cancel() {
+        try { upstream.cancel(); } catch {}
+      },
+    });
+    return new NextResponse(stream, {
+      status: resp.status,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   }
 
   const resp = await fetch(url.toString(), {
