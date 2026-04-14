@@ -43,7 +43,11 @@ export function createView(db) {
   }
 
   function listViews(tableId) {
-    return db.prepare('SELECT * FROM user_views WHERE table_id = ? ORDER BY position').all(tableId);
+    const rows = db.prepare('SELECT * FROM user_views WHERE table_id = ? ORDER BY position').all(tableId);
+    for (const v of rows) {
+      if (v.options) try { v.options = JSON.parse(v.options); } catch { v.options = null; }
+    }
+    return rows;
   }
 
   function updateView(id, patch) {

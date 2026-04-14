@@ -242,12 +242,13 @@ export function TableToolbar(props: TableToolbarProps) {
                 <div className="p-3">
                   <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.selectGroupCondition')}</div>
                   <div className="space-y-0.5">
-                    {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(c => {
+                    {displayCols.filter(c => c.type === 'SingleSelect').map(c => {
                       const ColIcon = getColIcon(c.type);
                       const isActive = activeView?.fk_grp_col_id === c.column_id;
                       return (
                         <button
                           key={c.column_id}
+                          onMouseDown={e => e.stopPropagation()}
                           onClick={async () => {
                             if (activeView) {
                               await br.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });

@@ -561,6 +561,19 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     }
   }, [activeViewId, tableId]);
 
+  // Auto-pick fk_grp_col_id for kanban views when exactly one SingleSelect column exists
+  useEffect(() => {
+    if (!meta || !activeViewId) return;
+    const v = meta.views?.find(x => x.view_id === activeViewId);
+    if (!v || v.type !== 4 || v.fk_grp_col_id) return;
+    const selectCols = (meta.columns || []).filter(c => c.type === 'SingleSelect');
+    if (selectCols.length === 1) {
+      br.updateKanbanConfig(activeViewId, { fk_grp_col_id: selectCols[0].column_id })
+        .then(() => queryClient.invalidateQueries({ queryKey: ['nc-table-meta', tableId] }))
+        .catch(() => {});
+    }
+  }, [meta, activeViewId, tableId, queryClient]);
+
   const views = meta?.views || [];
 
   // View filters
@@ -2345,12 +2358,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                       <div className="p-3">
                         <div className="text-xs text-muted-foreground mb-1.5">{t('dataTable.selectGroupCondition')}</div>
                         <div className="space-y-0.5">
-                          {displayCols.filter(c => !c.primary_key && c.title !== 'created_by').map(c => {
+                          {displayCols.filter(c => c.type === 'SingleSelect').map(c => {
                             const ColIcon = getColIcon(c.type);
                             const isActive = activeView?.fk_grp_col_id === c.column_id;
                             return (
                               <button
                                 key={c.column_id}
+                                onMouseDown={e => e.stopPropagation()}
                                 onClick={async () => {
                                   if (activeView) {
                                     await br.updateKanbanConfig(activeView.view_id, { fk_grp_col_id: c.column_id });

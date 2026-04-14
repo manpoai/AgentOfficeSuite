@@ -90,12 +90,17 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
 
   function mapViewRow(v, idx) {
     const VIEW_TYPE_NUM = { form: 1, gallery: 2, grid: 3, kanban: 4 };
+    const opts = v.options && typeof v.options === 'string'
+      ? (() => { try { return JSON.parse(v.options); } catch { return {}; } })()
+      : (v.options || {});
     return {
       view_id: v.id,
       title: v.title,
       type: VIEW_TYPE_NUM[v.view_type] || 3,
       is_default: !!v.is_default || idx === 0,
       order: v.position,
+      ...(opts.fk_grp_col_id ? { fk_grp_col_id: opts.fk_grp_col_id } : {}),
+      ...(opts.fk_cover_image_col_id ? { fk_cover_image_col_id: opts.fk_cover_image_col_id } : {}),
     };
   }
 
