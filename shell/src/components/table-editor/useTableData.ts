@@ -36,7 +36,7 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       return;
     }
     if (meta.views?.length) {
-      const savedViewId = localStorage.getItem(`asuite-table-last-view-${tableId}`);
+      const savedViewId = localStorage.getItem(`aose-table-last-view-${tableId}`);
       const savedView = savedViewId ? meta.views.find(v => v.view_id === savedViewId) : null;
       const defaultView = savedView || meta.views.find(v => v.is_default) || meta.views[0];
       setActiveViewId(defaultView.view_id);
@@ -46,7 +46,7 @@ export function useTableData(tableId: string, pageSize: number = 50) {
   // Save active view to localStorage when it changes
   useEffect(() => {
     if (activeViewId) {
-      localStorage.setItem(`asuite-table-last-view-${tableId}`, activeViewId);
+      localStorage.setItem(`aose-table-last-view-${tableId}`, activeViewId);
     }
   }, [activeViewId, tableId]);
 

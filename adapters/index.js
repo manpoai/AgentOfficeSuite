@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ASuite Universal Adapter
+ * AOSE Universal Adapter
  *
  * Platform-agnostic adapter entry point.
  * Loads platform plugin based on config.platform, then runs the standard
@@ -47,8 +47,8 @@ function loadConfig() {
 let config = loadConfig();
 
 // Supplement with env vars
-const GATEWAY_URL = config.gateway_url || process.env.ASUITE_GATEWAY_URL;
-const AGENT_TOKEN = config.agent_token || process.env.ASUITE_AGENT_TOKEN;
+const GATEWAY_URL = config.gateway_url || process.env.AOSE_GATEWAY_URL;
+const AGENT_TOKEN = config.agent_token || process.env.AOSE_AGENT_TOKEN;
 const AGENT_NAME  = config.agent_name  || agentDirName;
 const PLATFORM    = config.platform    || 'zylos';
 
@@ -57,12 +57,12 @@ const zylosHome = config.zylos_home || process.env.ZYLOS_HOME || path.join(proce
 config = { ...config, zylos_dir: AGENT_ZYLOS_DIR, zylos_home: zylosHome, gateway_url: GATEWAY_URL, agent_token: AGENT_TOKEN };
 
 if (!AGENT_TOKEN) {
-  console.error('[adapter] ASUITE_AGENT_TOKEN is required. Set in config or env.');
+  console.error('[adapter] AOSE_AGENT_TOKEN is required. Set in config or env.');
   process.exit(1);
 }
 
 if (!GATEWAY_URL) {
-  console.error('[adapter] ASUITE_GATEWAY_URL is required. Use the public aose gateway URL.');
+  console.error('[adapter] AOSE_GATEWAY_URL is required. Use the public aose gateway URL.');
   process.exit(1);
 }
 

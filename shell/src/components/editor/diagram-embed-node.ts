@@ -1,6 +1,6 @@
 /**
  * Diagram Embed node for ProseMirror editor.
- * Block node that renders a live preview of an ASuite diagram.
+ * Block node that renders a live preview of an AOSE diagram.
  */
 import type { Node as PMNode, NodeSpec } from 'prosemirror-model';
 import type { EditorView, NodeView } from 'prosemirror-view';

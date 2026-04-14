@@ -78,7 +78,7 @@ export function useTableColumns({
   // ── Freeze columns ──
   const [frozenColCount, setFrozenColCountRaw] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(`asuite-table-frozen-${tableId}`);
+      const saved = localStorage.getItem(`aose-table-frozen-${tableId}`);
       return saved ? parseInt(saved, 10) : 1;
     }
     return 1;
@@ -86,7 +86,7 @@ export function useTableColumns({
   const setFrozenColCount = useCallback((v: number | ((prev: number) => number)) => {
     setFrozenColCountRaw(prev => {
       const next = typeof v === 'function' ? v(prev) : v;
-      localStorage.setItem(`asuite-table-frozen-${tableId}`, String(next));
+      localStorage.setItem(`aose-table-frozen-${tableId}`, String(next));
       return next;
     });
   }, [tableId]);

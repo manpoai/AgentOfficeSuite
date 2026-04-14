@@ -22,7 +22,7 @@ export function translateEvent(event, ctx) {
       const summaryObj = cp.summary || {};
       const summaryText = summaryObj.comment_text || d.text || '';
 
-      let content = `[ASuite] ${d.actor || 'Someone'} mentioned you in a comment`;
+      let content = `[AOSE] ${d.actor || 'Someone'} mentioned you in a comment`;
       if (target.title) content += ` on "${target.title}"`;
       content += `:\n${summaryText}`;
 
@@ -44,7 +44,7 @@ export function translateEvent(event, ctx) {
       const cp = d.context || {};
       const target = cp.target || {};
 
-      let content = `[ASuite] ${d.actor || 'Someone'} commented on your content`;
+      let content = `[AOSE] ${d.actor || 'Someone'} commented on your content`;
       if (target.title) content += ` "${target.title}"`;
       content += `:\n${d.text || ''}`;
 
@@ -58,7 +58,7 @@ export function translateEvent(event, ctx) {
       const d = event.data;
       const cp = d.context || {};
       const target = cp.target || {};
-      let content = `[ASuite] ${d.actor || 'Someone'} replied to your comment`;
+      let content = `[AOSE] ${d.actor || 'Someone'} replied to your comment`;
       if (target.title) content += ` on "${target.title}"`;
       content += `:\n${d.text || ''}`;
       // reply via is auto-appended by c4-receive.js
@@ -71,7 +71,7 @@ export function translateEvent(event, ctx) {
       const d = event.data;
       const cp = d.context || {};
       const target = cp.target || {};
-      let content = `[ASuite] ${d.actor || 'Someone'} resolved a comment`;
+      let content = `[AOSE] ${d.actor || 'Someone'} resolved a comment`;
       if (target.title) content += ` on "${target.title}"`;
       content += `. No action needed unless you want to reopen it.`;
       return null; // typically no action needed, suppress
@@ -81,7 +81,7 @@ export function translateEvent(event, ctx) {
       const d = event.data;
       const cp = d.context || {};
       const target = cp.target || {};
-      let content = `[ASuite] ${d.actor || 'Someone'} reopened a comment`;
+      let content = `[AOSE] ${d.actor || 'Someone'} reopened a comment`;
       if (target.title) content += ` on "${target.title}"`;
       content += `:\n${d.text || ''}`;
       // reply via is auto-appended by c4-receive.js
@@ -92,13 +92,13 @@ export function translateEvent(event, ctx) {
 
     case 'agent.approved': {
       const d = event.data;
-      const content = `[ASuite] Your registration has been approved. You now have full access to ASuite.\n\n${d.message || ''}`;
+      const content = `[AOSE] Your registration has been approved. You now have full access to AOSE.\n\n${d.message || ''}`;
       return { endpoint: `agent:${d.agent_id}|approved`, content };
     }
 
     case 'agent.rejected': {
       const d = event.data;
-      const content = `[ASuite] Your registration has been rejected.\n\n${d.message || ''}`;
+      const content = `[AOSE] Your registration has been rejected.\n\n${d.message || ''}`;
       return { endpoint: `agent:${d.agent_id}|rejected`, content };
     }
 
@@ -108,7 +108,7 @@ export function translateEvent(event, ctx) {
       const d = event.data;
       const cp = d.context || {};
       const target = cp.target || {};
-      let content = `[ASuite] ${d.actor || d.sender?.name || 'Someone'} mentioned you in "${target.title || d.doc_title || d.content_title}":\n${d.text_without_mention || d.text || ''}`;
+      let content = `[AOSE] ${d.actor || d.sender?.name || 'Someone'} mentioned you in "${target.title || d.doc_title || d.content_title}":\n${d.text_without_mention || d.text || ''}`;
       // reply via is auto-appended by c4-receive.js
       const endpoint = `${d.target_id || d.doc_id || d.content_id}|comment:${d.comment_id || 'none'}`;
       return { endpoint, content };

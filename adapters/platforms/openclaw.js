@@ -1,7 +1,7 @@
 /**
  * OpenClaw platform adapter plugin.
  *
- * Connects to OpenClaw Gateway via WebSocket and delivers ASuite events
+ * Connects to OpenClaw Gateway via WebSocket and delivers AOSE events
  * to a pre-configured OpenClaw session via sessions.send.
  */
 

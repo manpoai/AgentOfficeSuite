@@ -484,7 +484,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       const defaultData = JSON.stringify({
         type: 'excalidraw',
         version: 2,
-        source: 'asuite',
+        source: 'aose',
         elements: [],
         appState: {},
         files: {},

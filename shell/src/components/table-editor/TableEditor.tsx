@@ -445,7 +445,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // Freeze columns state (persisted per table)
   const [frozenColCount, setFrozenColCountRaw] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(`asuite-table-frozen-${tableId}`);
+      const saved = localStorage.getItem(`aose-table-frozen-${tableId}`);
       return saved ? parseInt(saved, 10) : 1;
     }
     return 1;
@@ -453,7 +453,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const setFrozenColCount = useCallback((v: number | ((prev: number) => number)) => {
     setFrozenColCountRaw(prev => {
       const next = typeof v === 'function' ? v(prev) : v;
-      localStorage.setItem(`asuite-table-frozen-${tableId}`, String(next));
+      localStorage.setItem(`aose-table-frozen-${tableId}`, String(next));
       return next;
     });
   }, [tableId]);
@@ -547,7 +547,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       return;
     }
     if (meta.views?.length) {
-      const savedViewId = localStorage.getItem(`asuite-table-last-view-${tableId}`);
+      const savedViewId = localStorage.getItem(`aose-table-last-view-${tableId}`);
       const savedView = savedViewId ? meta.views.find(v => v.view_id === savedViewId) : null;
       const defaultView = savedView || meta.views.find(v => v.is_default) || meta.views[0];
       setActiveViewId(defaultView.view_id);
@@ -557,7 +557,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   // Save active view to localStorage when it changes
   useEffect(() => {
     if (activeViewId) {
-      localStorage.setItem(`asuite-table-last-view-${tableId}`, activeViewId);
+      localStorage.setItem(`aose-table-last-view-${tableId}`, activeViewId);
     }
   }, [activeViewId, tableId]);
 

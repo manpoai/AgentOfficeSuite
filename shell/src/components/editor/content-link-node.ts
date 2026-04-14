@@ -2,7 +2,7 @@
  * Content Link node for ProseMirror editor.
  *
  * Adds a `content_link` inline node that renders as a styled chip
- * linking to an internal ASuite content item (doc, table, diagram, etc.).
+ * linking to an internal AOSE content item (doc, table, diagram, etc.).
  *
  * Usage:
  * - Slash command `/link` opens a picker (inserted via slash-menu integration)

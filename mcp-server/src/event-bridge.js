@@ -6,7 +6,7 @@
  * State file: ~/.agentoffice-mcp/state-<agent_id>.json
  *   { last_seen_timestamp: <ms> }
  *
- * Push modes (ASUITE_PUSH):
+ * Push modes (AOSE_PUSH):
  *   sse  (default) — SSE + catchup-on-reconnect
  *   poll           — periodic catchup on a timer
  *   off            — no active bridge (still allows manual tool catchup)

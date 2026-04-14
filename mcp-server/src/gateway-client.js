@@ -1,5 +1,5 @@
 /**
- * ASuite Gateway HTTP client.
+ * AOSE Gateway HTTP client.
  * Thin wrapper around fetch with auth header injection.
  */
 export class GatewayClient {

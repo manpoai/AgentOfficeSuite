@@ -1,5 +1,5 @@
 /**
- * Zylos platform plugin for ASuite Adapter.
+ * Zylos platform plugin for AOSE Adapter.
  * Delivers events to a Zylos agent via C4 comm-bridge (c4-receive.js).
  */
 
@@ -39,7 +39,7 @@ export function deliver(config, adapterDir, endpoint, content) {
   return new Promise((resolve, reject) => {
     execFile('node', [
       c4Receive,
-      '--channel', 'asuite',
+      '--channel', 'aose',
       '--endpoint', endpoint,
       '--content', content,
     ], {
@@ -58,7 +58,7 @@ export function deliver(config, adapterDir, endpoint, content) {
 }
 
 function ensureChannelLink(skillsDir, adapterDir) {
-  const linkPath = path.join(skillsDir, 'asuite');
+  const linkPath = path.join(skillsDir, 'aose');
   try {
     const existing = fs.readlinkSync(linkPath);
     if (existing === adapterDir) return;

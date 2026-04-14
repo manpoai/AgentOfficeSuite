@@ -1,5 +1,5 @@
 /**
- * ASuite Zylos Adapter — legacy entry point, now superseded.
+ * AOSE Zylos Adapter — legacy entry point, now superseded.
  *
  * This file is no longer used. PM2 now starts adapters/index.js directly.
  * See adapters/index.js for the current unified adapter implementation.

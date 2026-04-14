@@ -3,7 +3,7 @@ import { z } from 'zod';
 export function registerAgentTools(server, gw) {
   server.tool(
     'list_agents',
-    'List all registered agents in the ASuite workspace. Shows names, capabilities, and online status.',
+    'List all registered agents in the AOSE workspace. Shows names, capabilities, and online status.',
     {},
     async () => {
       const result = await gw.get('/agents');

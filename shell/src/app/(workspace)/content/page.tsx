@@ -97,9 +97,9 @@ interface TreeState {
   parents: Record<string, string>;
 }
 
-const TREE_STATE_KEY = 'asuite-content-tree';
-const EXPANDED_STATE_KEY = 'asuite-content-expanded';
-const SIDEBAR_WIDTH_KEY = 'asuite-sidebar-width';
+const TREE_STATE_KEY = 'aose-content-tree';
+const EXPANDED_STATE_KEY = 'aose-content-expanded';
+const SIDEBAR_WIDTH_KEY = 'aose-sidebar-width';
 const DEFAULT_SIDEBAR_WIDTH = 232;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 480;
@@ -256,7 +256,7 @@ export default function ContentPage() {
       setMobileView('detail');
     } else {
       try {
-        const saved = sessionStorage.getItem('asuite-content-selection');
+        const saved = sessionStorage.getItem('aose-content-selection');
         if (saved) { setSelection(JSON.parse(saved)); setMobileView('detail'); }
       } catch { /* ignore */ }
     }
@@ -269,7 +269,7 @@ export default function ContentPage() {
 
     setExpandedIds(new Set(loadExpandedState()));
     setTreeState(loadTreeState());
-    const savedCollapsed = localStorage.getItem('asuite-sidebar-collapsed');
+    const savedCollapsed = localStorage.getItem('aose-sidebar-collapsed');
     if (savedCollapsed === 'true') setSidebarCollapsed(true);
     const savedSidebarWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     if (savedSidebarWidth !== null) {
@@ -291,7 +291,7 @@ export default function ContentPage() {
     const handleToggleSidebar = () => {
       setSidebarCollapsed(prev => {
         const next = !prev;
-        localStorage.setItem('asuite-sidebar-collapsed', String(next));
+        localStorage.setItem('aose-sidebar-collapsed', String(next));
         return next;
       });
     };
@@ -544,7 +544,7 @@ export default function ContentPage() {
       if (nextNode) {
         const sel = { type: nextNode.type, id: nextNode.rawId } as Selection;
         setSelection(sel);
-        sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+        sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
         syncSelectionToURL(sel);
         return;
       }
@@ -559,7 +559,7 @@ export default function ContentPage() {
     window.dispatchEvent(new CustomEvent('flush-doc-save'));
     setSelection(null);
     syncSelectionToURL(null);
-    try { sessionStorage.removeItem('asuite-content-selection'); } catch {}
+    try { sessionStorage.removeItem('aose-content-selection'); } catch {}
     setMobileView('list');
   }, []);
 
@@ -599,7 +599,7 @@ export default function ContentPage() {
     if (!node) return;
     const sel = { type: node.type, id: node.rawId };
     setSelection(sel);
-    sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+    sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
     syncSelectionToURL(sel);
     setMobileView('detail');
     // Clear comment state when switching files
@@ -679,7 +679,7 @@ export default function ContentPage() {
     if (firstNode) {
       const sel = { type: firstNode.type, id: firstNode.rawId } as Selection;
       setSelection(sel);
-      sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+      sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
       syncSelectionToURL(sel, true);
     }
   }, [hydrated, rootIds, selection, effectiveNodes, isMobilePage]);
@@ -1020,7 +1020,7 @@ export default function ContentPage() {
   const toggleSidebarCollapse = () => {
     const next = !sidebarCollapsed;
     setSidebarCollapsed(next);
-    localStorage.setItem('asuite-sidebar-collapsed', String(next));
+    localStorage.setItem('aose-sidebar-collapsed', String(next));
   };
 
   const dragActiveNode = dragActiveId ? effectiveNodes.get(dragActiveId) : null;

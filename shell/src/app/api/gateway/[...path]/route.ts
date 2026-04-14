@@ -4,7 +4,7 @@ const GW_URL = process.env.GATEWAY_URL;
 const GW_TOKEN = process.env.GATEWAY_AGENT_TOKEN || process.env.GATEWAY_ADMIN_TOKEN || '';
 
 /**
- * Proxy all /api/gateway/* requests to ASuite Gateway /api/*
+ * Proxy all /api/gateway/* requests to AOSE Gateway /api/*
  */
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   return proxy(req, params.path);

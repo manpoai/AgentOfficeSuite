@@ -52,8 +52,8 @@ export type DropIntent = { overId: string; position: 'before' | 'after' | 'insid
 // localStorage / Gateway persistence
 // ═══════════════════════════════════════════════════
 
-const TREE_STATE_KEY = 'asuite-content-tree';
-const EXPANDED_STATE_KEY = 'asuite-content-expanded';
+const TREE_STATE_KEY = 'aose-content-tree';
+const EXPANDED_STATE_KEY = 'aose-content-expanded';
 
 function loadTreeState(): TreeState {
   try {
@@ -260,13 +260,13 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
       setMobileView('detail');
     } else {
       try {
-        const saved = sessionStorage.getItem('asuite-content-selection');
+        const saved = sessionStorage.getItem('aose-content-selection');
         if (saved) { setSelectionRaw(JSON.parse(saved)); setMobileView('detail'); }
       } catch { /* ignore */ }
     }
     setExpandedIds(new Set(loadExpandedState()));
     setTreeState(loadTreeState());
-    const savedCollapsed = localStorage.getItem('asuite-sidebar-collapsed');
+    const savedCollapsed = localStorage.getItem('aose-sidebar-collapsed');
     if (savedCollapsed === 'true') setSidebarCollapsed(true);
     setHydrated(true);
 
@@ -284,7 +284,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
     const handleToggleSidebar = () => {
       setSidebarCollapsed(prev => {
         const next = !prev;
-        localStorage.setItem('asuite-sidebar-collapsed', String(next));
+        localStorage.setItem('aose-sidebar-collapsed', String(next));
         return next;
       });
     };
@@ -490,7 +490,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
       if (nextNode) {
         const sel = { type: nextNode.type, id: nextNode.rawId } as Selection;
         setSelectionRaw(sel);
-        sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+        sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
         syncSelectionToURL(sel);
         return;
       }
@@ -504,7 +504,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
   const handleMobileBack = useCallback(() => {
     setSelectionRaw(null);
     syncSelectionToURL(null);
-    try { sessionStorage.removeItem('asuite-content-selection'); } catch {}
+    try { sessionStorage.removeItem('aose-content-selection'); } catch {}
     setMobileView('list');
   }, []);
 
@@ -542,7 +542,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
     if (!node) return;
     const sel = { type: node.type, id: node.rawId };
     setSelectionRaw(sel);
-    sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+    sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
     syncSelectionToURL(sel);
     setMobileView('detail');
     const children = childrenMap.get(nodeId);
@@ -613,7 +613,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
     if (firstNode) {
       const sel = { type: firstNode.type, id: firstNode.rawId } as Selection;
       setSelectionRaw(sel);
-      sessionStorage.setItem('asuite-content-selection', JSON.stringify(sel));
+      sessionStorage.setItem('aose-content-selection', JSON.stringify(sel));
       syncSelectionToURL(sel, true);
     }
   }, [hydrated, rootIds, selection, effectiveNodes, isMobilePage]);
@@ -740,7 +740,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
   const toggleSidebarCollapse = useCallback(() => {
     const next = !sidebarCollapsed;
     setSidebarCollapsed(next);
-    localStorage.setItem('asuite-sidebar-collapsed', String(next));
+    localStorage.setItem('aose-sidebar-collapsed', String(next));
   }, [sidebarCollapsed]);
 
   const getBreadcrumb = useCallback((typePrefix: string, rawId: string): { id: string; title: string }[] => {

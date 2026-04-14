@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * ASuite Zylos Adapter — Send Script
- * Called by Zylos c4-send.js when agent replies via the "asuite" channel.
+ * AOSE Zylos Adapter — Send Script
+ * Called by Zylos c4-send.js when agent replies via the "aose" channel.
  * Receives: node send.js <endpoint> "<message>"
  * Endpoint format: <channel_id>|msg:<msg_id>|thread:<thread_id>
- * Routes the reply back through ASuite Gateway API.
+ * Routes the reply back through AOSE Gateway API.
  */
 
 import fs from 'fs';
@@ -22,11 +22,11 @@ let config = {};
 try { config = JSON.parse(fs.readFileSync(AGENT_CONFIG_PATH, 'utf8')); }
 catch { try { config = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf8')); } catch {} }
 
-const GATEWAY_URL = config.gateway_url || process.env.ASUITE_GATEWAY_URL || 'http://localhost:4000';
-const AGENT_TOKEN = config.agent_token || process.env.ASUITE_AGENT_TOKEN;
+const GATEWAY_URL = config.gateway_url || process.env.AOSE_GATEWAY_URL || 'http://localhost:4000';
+const AGENT_TOKEN = config.agent_token || process.env.AOSE_AGENT_TOKEN;
 
 if (!AGENT_TOKEN) {
-  console.error('Error: No agent token configured. Set in config.json or ASUITE_AGENT_TOKEN env var.');
+  console.error('Error: No agent token configured. Set in config.json or AOSE_AGENT_TOKEN env var.');
   process.exit(1);
 }
 

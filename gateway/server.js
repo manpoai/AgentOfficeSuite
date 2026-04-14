@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ASuite API Gateway
+ * AOSE API Gateway
  * Implements Agent protocol v1: registration, docs, data, events
  */
 
@@ -98,7 +98,7 @@ setInterval(cleanupDeliveredEvents, 24 * 3600 * 1000);
 
 // ─── Start ───────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`[gateway] ASuite API Gateway listening on :${PORT}`);
+  console.log(`[gateway] AOSE API Gateway listening on :${PORT}`);
   console.log(`[gateway] Admin token: ${ADMIN_TOKEN.slice(0, 8)}...`);
   console.log('[gateway] Content items managed by Gateway (no periodic sync)');
 });

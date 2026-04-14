@@ -176,7 +176,7 @@ async function main() {
   console.log('aose is ready. / aose 已就绪。');
   console.log(`Local URL / 本地地址: http://127.0.0.1:${shellPort}`);
   console.log('');
-  console.log(`Agents on the same machine: use http://127.0.0.1:${gatewayPort}/api/gateway as ASUITE_URL`);
+  console.log(`Agents on the same machine: use http://127.0.0.1:${gatewayPort}/api/gateway as AOSE_URL`);
   console.log('Need an external URL? Configure your own reverse proxy / tunnel pointing at the local URL above.');
   console.log(`Data dir: ${DATA_DIR}`);
   console.log('Default admin credentials / 默认管理员账号：');

@@ -99,7 +99,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     };
   }
 
-  // List tables in the ASuite base
+  // List tables in the AOSE base
   app.get('/api/data/tables', authenticateAgent, async (req, res) => {
     try {
       const tables = tableEngine.listTables();

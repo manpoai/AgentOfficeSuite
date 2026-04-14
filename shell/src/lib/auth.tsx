@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On mount, check for stored token
   useEffect(() => {
-    const stored = localStorage.getItem('asuite_token');
+    const stored = localStorage.getItem('aose_token');
     if (stored) {
       setToken(stored);
       // Verify token
@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setActor(data);
         setLoading(false);
       }).catch(() => {
-        localStorage.removeItem('asuite_token');
+        localStorage.removeItem('aose_token');
         setToken(null);
         setLoading(false);
       });
@@ -66,13 +66,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(err.error || 'Login failed');
     }
     const data = await res.json();
-    localStorage.setItem('asuite_token', data.token);
+    localStorage.setItem('aose_token', data.token);
     setToken(data.token);
     setActor(data.actor);
   }, []);
 
   const refreshActor = useCallback(async () => {
-    const stored = localStorage.getItem('asuite_token');
+    const stored = localStorage.getItem('aose_token');
     if (!stored) return;
     try {
       const res = await fetch('/api/gateway/auth/me', {
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('asuite_token');
+    localStorage.removeItem('aose_token');
     setToken(null);
     setActor(null);
   }, []);

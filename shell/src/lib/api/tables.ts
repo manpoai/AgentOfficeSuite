@@ -5,7 +5,7 @@
 const BASE = '/api/gateway/data';
 
 async function brFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string>),
   };

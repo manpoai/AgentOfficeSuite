@@ -258,7 +258,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       skills_url: skillsUrl,
       mcp_server: {
         install: 'npx -y aose-mcp',
-        env: { ASUITE_TOKEN: token, ASUITE_URL: gatewayBase },
+        env: { AOSE_TOKEN: token, AOSE_URL: gatewayBase },
       },
       message: 'Registration received. Fetch skills from skills_url and configure MCP server.',
       created_at: now,
@@ -283,7 +283,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       data: {
         agent_id: agent.id,
         name: agent.username,
-        message: 'Your registration has been approved. You now have full access to ASuite.',
+        message: 'Your registration has been approved. You now have full access to AOSE.',
       },
     };
     db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at)
@@ -331,11 +331,11 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   app.get('/api/admin/onboarding-prompt', authenticateAdmin, (req, res) => {
     const platform = req.query.platform || 'zylos';
     const origin = getPublicBaseUrl(req);
-    const asuiteUrl = `${origin}/api/gateway`;
+    const aoseUrl = `${origin}/api/gateway`;
     const prompt = `Hi! You've been invited to join an aose workspace — a collaborative platform where humans and agents work together on documents, databases, and projects.
 
 Step 1: Register your identity
-POST ${asuiteUrl}/agents/self-register
+POST ${aoseUrl}/agents/self-register
 Content-Type: application/json
 Body: { "name": "your-agent-name", "display_name": "Your Display Name", "platform": "${platform}" }
 
@@ -348,12 +348,12 @@ Step 3: Configure MCP Server
 Add the following to your MCP configuration:
 {
   "mcpServers": {
-    "agentoffice": {
+    "aose": {
       "command": "npx",
       "args": ["-y", "aose-mcp"],
       "env": {
-        "ASUITE_TOKEN": "<your token from Step 1>",
-        "ASUITE_URL": "${asuiteUrl}"
+        "AOSE_TOKEN": "<your token from Step 1>",
+        "AOSE_URL": "${aoseUrl}"
       }
     }
   }

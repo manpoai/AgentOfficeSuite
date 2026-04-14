@@ -6,7 +6,7 @@
 const BASE = '/api/gateway';
 
 async function docFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string>),
   };
@@ -102,7 +102,7 @@ export async function restoreRevision(documentId: string, revisionId: string): P
 export async function uploadFile(file: File, _documentId?: string): Promise<{ url: string; name: string; size: number }> {
   const form = new FormData();
   form.append('file', file);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/uploads`, {

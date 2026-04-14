@@ -7,7 +7,7 @@
  *
  * Configuration:
  *   • base_url  → ~/.agentoffice-mcp/config.json (managed by `set-url`)
- *   • token     → process.env.ASUITE_TOKEN (set once in the MCP host's
+ *   • token     → process.env.AOSE_TOKEN (set once in the MCP host's
  *                 mcpServers env block at agent registration; never persisted
  *                 to the local config file, never editable from this CLI)
  *
@@ -16,7 +16,7 @@
  * block. Only the URL is mutable from the CLI, because the URL is the only
  * thing that changes when the user moves aose to a new address.
  *
- * Environment variable ASUITE_URL is honored as a one-time migration source —
+ * Environment variable AOSE_URL is honored as a one-time migration source —
  * when present without a config file, it is written to the file on first run.
  *
  * Subcommands:
@@ -61,7 +61,7 @@ same machine as aose, this is typically:
 For agents on a different machine, use the URL you exposed aose on
 (your tunnel hostname, custom domain, etc.).
 
-The agent's token is set by your MCP host as the ASUITE_TOKEN env var when
+The agent's token is set by your MCP host as the AOSE_TOKEN env var when
 the agent first registers. It is not stored in this config file and cannot
 be changed from this CLI — moving aose to a new URL never changes
 the token, only the URL.
@@ -91,10 +91,10 @@ function handleShowConfig() {
     console.log('  (file does not exist)');
   }
   console.log('Token (from env, not stored on disk):');
-  console.log(`  ASUITE_TOKEN: ${maskToken(process.env.ASUITE_TOKEN)}`);
-  if (process.env.ASUITE_URL) {
+  console.log(`  AOSE_TOKEN: ${maskToken(process.env.AOSE_TOKEN)}`);
+  if (process.env.AOSE_URL) {
     console.log('Env URL fallback (only used if config file has no base_url):');
-    console.log(`  ASUITE_URL: ${process.env.ASUITE_URL}`);
+    console.log(`  AOSE_URL: ${process.env.AOSE_URL}`);
   }
 }
 
@@ -110,7 +110,7 @@ async function startServer() {
   console.error(`[mcp] base_url: ${cfg.base_url}`);
 
   const server = new McpServer(
-    { name: 'asuite', version: '0.1.0' },
+    { name: 'aose', version: '0.1.0' },
     { capabilities: { logging: {} } },
   );
   const gw = new GatewayClient(cfg.base_url, cfg.token);
@@ -154,7 +154,7 @@ async function startServer() {
   await server.connect(transport);
 
   // ─── Event bridge: push gateway events to host via MCP notifications ──
-  const pushMode = (process.env.ASUITE_PUSH || 'sse').toLowerCase();
+  const pushMode = (process.env.AOSE_PUSH || 'sse').toLowerCase();
   let bridge = null;
   if (pushMode !== 'off') {
     try {
@@ -163,7 +163,7 @@ async function startServer() {
       if (!agentId) {
         console.error('[mcp] bridge skipped: /me did not return an agent id');
       } else {
-        const pollIntervalMs = parseInt(process.env.ASUITE_POLL_INTERVAL_MS || '15000', 10);
+        const pollIntervalMs = parseInt(process.env.AOSE_POLL_INTERVAL_MS || '15000', 10);
         bridge = new EventBridge({
           baseUrl: cfg.base_url,
           token: cfg.token,
@@ -180,7 +180,7 @@ async function startServer() {
       console.error(`[mcp] event bridge start failed: ${e.message}`);
     }
   } else {
-    console.error('[mcp] event bridge disabled (ASUITE_PUSH=off)');
+    console.error('[mcp] event bridge disabled (AOSE_PUSH=off)');
   }
 
   const shutdown = async () => {

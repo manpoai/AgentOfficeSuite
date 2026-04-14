@@ -1,5 +1,5 @@
 /**
- * ASuite Gateway API client — calls through /api/gateway/* proxy
+ * AOSE Gateway API client — calls through /api/gateway/* proxy
  */
 
 const BASE = '/api/gateway';
@@ -14,12 +14,12 @@ export function resolveAvatarUrl(url: string | null | undefined): string | null 
 
 /** Get auth headers for direct fetch calls to /api/gateway/* */
 export function gwAuthHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function gwFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string>),
   };
@@ -62,7 +62,7 @@ export async function updateProfile(fields: { name?: string }): Promise<any> {
 export async function uploadSlideThumbnail(blob: Blob, filename: string): Promise<string> {
   const form = new FormData();
   form.append('file', blob, filename);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/uploads/thumbnails`, {
@@ -79,7 +79,7 @@ export async function uploadSlideThumbnail(blob: Blob, filename: string): Promis
 export async function uploadUserAvatar(file: File): Promise<{ avatar_url: string }> {
   const form = new FormData();
   form.append('avatar', file);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/auth/avatar`, {
@@ -170,7 +170,7 @@ export async function adminUpdateAgent(agentId: string, fields: {
 export async function adminUploadAgentAvatar(agentId: string, file: File): Promise<{ avatar_url: string }> {
   const form = new FormData();
   form.append('avatar', file);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/admin/agents/${agentId}/avatar`, {
@@ -185,7 +185,7 @@ export async function adminUploadAgentAvatar(agentId: string, file: File): Promi
 export async function uploadAgentAvatar(name: string, file: File): Promise<{ avatar_url: string }> {
   const form = new FormData();
   form.append('avatar', file);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}/agents/${name}/avatar`, {
@@ -622,7 +622,7 @@ export async function createContentManualSnapshot(contentId: string, description
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('asuite_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const res = await fetch(`${BASE}/auth/password`, {
     method: 'PATCH',
     headers: {

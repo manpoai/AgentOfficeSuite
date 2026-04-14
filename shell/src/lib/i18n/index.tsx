@@ -17,7 +17,7 @@ export const LOCALE_LABELS: Record<Locale, string> = {
   ko: '한국어',
 };
 
-const STORAGE_KEY = 'asuite-locale';
+const STORAGE_KEY = 'aose-locale';
 
 function getNestedValue(obj: any, path: string, returnObjects = false): any {
   const keys = path.split('.');

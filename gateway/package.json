@@ -1,5 +1,5 @@
 {
-  "name": "asuite-gateway",
+  "name": "aose-gateway",
   "version": "0.1.0",
   "type": "module",
   "main": "server.js",

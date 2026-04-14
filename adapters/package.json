@@ -1,7 +1,7 @@
 {
-  "name": "asuite-adapters",
+  "name": "aose-adapters",
   "version": "0.1.0",
-  "description": "ASuite platform adapters — unified entry + platform plugins",
+  "description": "AOSE platform adapters — unified entry + platform plugins",
   "type": "module",
   "dependencies": {
     "eventsource": "^2.0.2",
