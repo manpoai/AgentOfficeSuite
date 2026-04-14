@@ -692,9 +692,11 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   function payloadTitlesToIds(payload, fields) {
     if (!payload || typeof payload !== 'object') return {};
     const byTitle = new Map(fields.map(f => [f.title, f]));
+    const byId = new Map(fields.map(f => [f.id, f]));
     const out = {};
     for (const [k, v] of Object.entries(payload)) {
-      const f = byTitle.get(k);
+      // Prefer exact field-id match (unique); fall back to title lookup.
+      const f = byId.get(k) || byTitle.get(k);
       if (!f) continue;
       out[f.id] = v;
     }
