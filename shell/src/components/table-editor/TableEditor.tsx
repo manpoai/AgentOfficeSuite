@@ -139,7 +139,14 @@ function CompactCellDisplay({ value, col }: { value: unknown; col: br.BRColumn }
 
   // MultiSelect — colored badges
   if (colType === 'MultiSelect') {
-    const items = String(value).split(',').map(s => s.trim()).filter(Boolean);
+    let items: string[] = [];
+    if (Array.isArray(value)) items = (value as unknown[]).map(v => String(v));
+    else if (typeof value === 'string' && value) {
+      if (value.trim().startsWith('[')) {
+        try { const p = JSON.parse(value); items = Array.isArray(p) ? p.map(String) : []; } catch { items = value.split(',').map(s => s.trim()); }
+      } else items = value.split(',').map(s => s.trim());
+    }
+    items = items.filter(Boolean);
     return (
       <div className="flex flex-wrap gap-0.5">
         {items.map((item, i) => {
@@ -1019,11 +1026,11 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       const raw = typeof currentValue === 'number' ? currentValue : (/^\d{10,}$/.test(String(currentValue)) ? parseInt(String(currentValue), 10) : String(currentValue));
       const d = new Date(raw as number | string);
       if (!isNaN(d.getTime())) {
-        if (colType === 'Date') {
-          setEditValue(d.toISOString().slice(0, 10)); // YYYY-MM-DD
-        } else {
-          setEditValue(d.toISOString().slice(0, 16)); // YYYY-MM-DDTHH:MM
-        }
+        // Use local components — toISOString shifts to UTC and eats the user's
+        // selected hour (bug: Shanghai 14:00 → UTC 06:00).
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const local = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        setEditValue(colType === 'Date' ? local.slice(0, 10) : local);
         return;
       }
     }
@@ -4829,9 +4836,24 @@ function CellDisplay({ value, col, onDeleteAttachment }: { value: unknown; col: 
     );
   }
 
-  // MultiSelect
+  // MultiSelect — value may be an already-decoded array, a JSON string, or CSV.
   if (colType === 'MultiSelect') {
-    const items = str.split(',').map(s => s.trim()).filter(Boolean);
+    let items: string[] = [];
+    if (Array.isArray(value)) {
+      items = (value as unknown[]).map(v => String(v));
+    } else if (typeof value === 'string' && value) {
+      if (value.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(value);
+          items = Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+          items = value.split(',').map(s => s.trim()).filter(Boolean);
+        }
+      } else {
+        items = value.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    items = items.filter(Boolean);
     return (
       <div className="flex flex-wrap gap-0.5 py-1">
         {items.map((item, i) => {
@@ -4879,13 +4901,17 @@ function CellDisplay({ value, col, onDeleteAttachment }: { value: unknown; col: 
 
   // Date / DateTime / CreatedTime / LastModifiedTime
   if (colType === 'Date' || colType === 'DateTime' || colType === 'CreatedTime' || colType === 'LastModifiedTime') {
-    // Backend now stores Date/DateTime as numeric ms. Normalize to an ISO-ish string first.
+    // Backend now stores Date/DateTime as numeric ms. Render in the user's
+    // local timezone — toISOString would shift "14:00 Shanghai" to "06:00 UTC".
     let normalized = str;
     if (typeof value === 'number' || /^\d{10,}$/.test(str)) {
       const ms = typeof value === 'number' ? value : parseInt(str, 10);
       if (!isNaN(ms)) {
         const d = new Date(ms);
-        if (!isNaN(d.getTime())) normalized = d.toISOString();
+        if (!isNaN(d.getTime())) {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          normalized = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
       }
     }
     const dateMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
