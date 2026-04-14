@@ -77,9 +77,15 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         col.relatedTableId = f.options.target_table_id;
         col.relationType = f.options.cardinality === 'one' ? 'oo' : 'mm';
       }
-      if (f.options.precision != null) {
-        col.meta = { precision: f.options.precision };
-      }
+      // Expose the full options bag as `meta` for the frontend so round-trips
+      // preserve currency_code, date_format, max, precision, etc. Strip keys
+      // that already live on top-level fields (target_table_id, cardinality,
+      // paired_field_id).
+      const metaCopy = { ...f.options };
+      delete metaCopy.target_table_id;
+      delete metaCopy.cardinality;
+      delete metaCopy.paired_field_id;
+      if (Object.keys(metaCopy).length) col.meta = metaCopy;
     }
     if (selectOptionsByField && (f.uidt === 'SingleSelect' || f.uidt === 'MultiSelect')) {
       const opts = selectOptionsByField.get(f.id) || [];
@@ -303,10 +309,15 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       if (req.body.position != null) patch.position = req.body.position;
       if (req.body.meta !== undefined) {
         const metaObj = typeof req.body.meta === 'string' ? JSON.parse(req.body.meta) : req.body.meta;
-        const optsPatch = {};
-        if (metaObj.precision != null) optsPatch.precision = metaObj.precision;
-        if (metaObj.decimals != null) optsPatch.precision = metaObj.decimals;
-        if (Object.keys(optsPatch).length) patch.options = optsPatch;
+        // Pass the full meta object through as field options so the frontend
+        // can round-trip currency_code, date_format, max, precision, etc.
+        if (metaObj && typeof metaObj === 'object') {
+          // Normalize legacy `decimals` → `precision` for Decimal fields.
+          if (metaObj.decimals != null && metaObj.precision == null) {
+            metaObj.precision = metaObj.decimals;
+          }
+          patch.options = metaObj;
+        }
       }
 
       // I5: uidt change is forbidden for everyone (agent or human).
@@ -735,17 +746,21 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     for (const f of fields) {
       if (!(f.id in row)) continue;
       const val = row[f.id];
+      let emitVal;
       if ((f.uidt === 'Links' || f.uidt === 'LinkToAnotherRecord') && Array.isArray(val)) {
         const opts = typeof f.options === 'string' ? (() => { try { return JSON.parse(f.options); } catch { return {}; } })() : (f.options || {});
         const targetTableId = opts.target_table_id;
         if (targetTableId && linkResolver) {
-          out[f.title] = linkResolver.resolve(targetTableId, val);
+          emitVal = linkResolver.resolve(targetTableId, val);
         } else {
-          out[f.title] = val.map(rid => ({ Id: rid, id: rid, value: '' }));
+          emitVal = val.map(rid => ({ Id: rid, id: rid, value: '' }));
         }
       } else {
-        out[f.title] = val;
+        emitVal = val;
       }
+      out[f.id] = emitVal;
+      // Keep title as alias; column_id is the stable key that survives duplicates.
+      if (!(f.title in out)) out[f.title] = emitVal;
     }
     return out;
   }

@@ -48,11 +48,8 @@ function coerce(uidt, value) {
       if (s && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) throw validationError(`invalid email: ${s}`);
       return s;
     }
-    case 'URL': {
-      const s = String(value);
-      if (s && !/^https?:\/\//.test(s)) throw validationError(`invalid URL: ${s}`);
-      return s;
-    }
+    case 'URL':
+      return String(value);
     case 'Number':
     case 'Decimal':
     case 'Percent':
@@ -93,6 +90,13 @@ function coerce(uidt, value) {
     case 'Attachment':
       if (!Array.isArray(value)) throw validationError('Attachment value must be array of metadata objects');
       return JSON.stringify(value);
+    case 'JSON':
+      if (typeof value === 'string') {
+        try { JSON.parse(value); return value; } catch { throw validationError(`invalid JSON: ${value}`); }
+      }
+      return JSON.stringify(value);
+    case 'User':
+      return String(value);
     default:
       throw validationError(`coerce: unsupported uidt ${uidt}`);
   }

@@ -44,6 +44,8 @@ const UIDT_PHYSICAL_TYPE = {
   Percent: 'REAL',
   Duration: 'INTEGER',
   Currency: 'REAL',
+  JSON: 'TEXT',
+  User: 'TEXT',
 };
 
 const LINK_UIDTS = new Set(['LinkToAnotherRecord', 'Links']);
