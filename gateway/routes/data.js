@@ -1048,43 +1048,37 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     });
   });
 
-  // View columns (field visibility/width per view)
+  // View columns (field visibility/width/order per view) — table-engine backed
   app.get('/api/data/views/:view_id/columns', authenticateAgent, async (req, res) => {
-    const viewId = req.params.view_id;
-    const rows = db.prepare('SELECT column_id, width, show, sort_order FROM view_column_settings WHERE view_id = ?').all(viewId);
-    const list = rows.map(r => ({
-      fk_column_id: r.column_id,
-      show: r.show === 1,
-      width: r.width ? String(r.width) : null,
-      order: r.sort_order,
-    }));
-    res.json({ list });
+    try {
+      const rows = tableEngine.view.listColumns(req.params.view_id) || [];
+      const list = rows.map(r => ({
+        fk_column_id: r.field_id,
+        show: r.visible === 1 || r.visible === true,
+        width: r.width != null ? String(r.width) : null,
+        order: r.position,
+      }));
+      res.json({ list });
+    } catch (e) {
+      console.error('[gateway] list view columns failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
+    }
   });
 
   app.patch('/api/data/views/:view_id/columns/:col_id', authenticateAgent, async (req, res) => {
     const { view_id, col_id } = req.params;
     const { show, width, order } = req.body;
-
-    const existing = db.prepare('SELECT 1 FROM view_column_settings WHERE view_id = ? AND column_id = ?').get(view_id, col_id);
-    if (existing) {
-      const sets = [];
-      const vals = [];
-      if (show !== undefined) { sets.push('show = ?'); vals.push(show ? 1 : 0); }
-      if (width !== undefined) { sets.push('width = ?'); vals.push(typeof width === 'string' ? parseInt(width, 10) || null : width); }
-      if (order !== undefined) { sets.push('sort_order = ?'); vals.push(order); }
-      sets.push('updated_at = ?'); vals.push(Date.now());
-      vals.push(view_id, col_id);
-      db.prepare(`UPDATE view_column_settings SET ${sets.join(', ')} WHERE view_id = ? AND column_id = ?`).run(...vals);
-    } else {
-      db.prepare('INSERT INTO view_column_settings (view_id, column_id, width, show, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
-        view_id, col_id,
-        width !== undefined ? (typeof width === 'string' ? parseInt(width, 10) || null : width) : null,
-        show !== undefined ? (show ? 1 : 0) : 1,
-        order || null,
-        Date.now()
-      );
+    try {
+      const patch = {};
+      if (show !== undefined) patch.visible = show ? 1 : 0;
+      if (width !== undefined) patch.width = typeof width === 'string' ? (parseInt(width, 10) || null) : width;
+      if (order !== undefined) patch.position = order;
+      tableEngine.view.setColumn(view_id, col_id, patch);
+      res.json({ updated: true });
+    } catch (e) {
+      console.error('[gateway] patch view column failed:', e);
+      res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
     }
-    res.json({ updated: true });
   });
 
   // ── Links (Family F) — table-engine backed ─────────────────
