@@ -177,6 +177,19 @@ export function createSchema(db) {
       const physType = UIDT_PHYSICAL_TYPE[uidt];
       const physName = physicalTableName(tableId);
       db.exec(`ALTER TABLE ${quoteIdent(physName)} ADD COLUMN ${quoteIdent(physCol)} ${physType}`);
+
+      // AutoNumber: backfill existing rows in created_at ASC order so the
+      // first-created row gets 1, the second 2, etc. Matches top-to-bottom
+      // default ordering in the UI.
+      if (uidt === 'AutoNumber') {
+        const existing = db.prepare(
+          `SELECT id FROM ${quoteIdent(physName)} ORDER BY created_at ASC, rowid ASC`
+        ).all();
+        const upd = db.prepare(
+          `UPDATE ${quoteIdent(physName)} SET ${quoteIdent(physCol)} = ? WHERE id = ?`
+        );
+        existing.forEach((r, i) => upd.run(i + 1, r.id));
+      }
     }
 
     return fieldId;

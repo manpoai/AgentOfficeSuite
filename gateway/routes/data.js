@@ -89,7 +89,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   }
 
   function mapViewRow(v, idx) {
-    const VIEW_TYPE_NUM = { grid: 3, kanban: 2, gallery: 1, form: 4 };
+    const VIEW_TYPE_NUM = { form: 1, gallery: 2, grid: 3, kanban: 4 };
     return {
       view_id: v.id,
       title: v.title,
@@ -227,9 +227,12 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
 
     try {
       const fieldOptions = {};
-      if (req.body.relatedTableId || req.body.target_table_id) {
-        fieldOptions.target_table_id = req.body.relatedTableId || req.body.target_table_id;
+      const targetTableId = req.body.childId || req.body.relatedTableId || req.body.target_table_id;
+      if (targetTableId) {
+        fieldOptions.target_table_id = targetTableId;
         if (req.body.relationType === 'oo') fieldOptions.cardinality = 'one';
+        if (req.body.relationType === 'mm') fieldOptions.cardinality = 'many';
+        if (req.body.relationType === 'bt') fieldOptions.cardinality = 'one';
       }
       if (meta) {
         const metaObj = typeof meta === 'string' ? JSON.parse(meta) : meta;
@@ -380,11 +383,11 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   //   view: { view_id, title, type, is_default, order, fk_grp_col_id?, fk_cover_image_col_id? }
   //   filter: { filter_id, fk_column_id, comparison_op, value, logical_op, order }
   //   sort: { sort_id, fk_column_id, direction, order }
-  // type is a number (legacy Baserow numeric code). Family A defines:
-  //   grid:3, kanban:2, gallery:1, form:4
+  // type is a number mapping agreed with frontend (shell/lib/api/tables.ts):
+  //   form:1, gallery:2, grid:3, kanban:4
 
-  const VIEW_TYPE_NUM = { grid: 3, kanban: 2, gallery: 1, form: 4 };
-  const NUM_TO_VIEW_TYPE = { 3: 'grid', 2: 'kanban', 1: 'gallery', 4: 'form' };
+  const VIEW_TYPE_NUM = { form: 1, gallery: 2, grid: 3, kanban: 4 };
+  const NUM_TO_VIEW_TYPE = { 1: 'form', 2: 'gallery', 3: 'grid', 4: 'kanban' };
   const VIEW_TYPES_VALID = new Set(['grid', 'kanban', 'gallery', 'form']);
 
   // Front-end comparison_op → tableEngine OPERATORS key. Mirrors WHERE_OP_TO_ENGINE.
@@ -667,7 +670,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   // into title-keyed wire row. Always includes `id`, `created_at`, `updated_at`.
   function rowIdsToTitles(row, fields) {
     if (!row) return null;
-    const out = { id: row.id };
+    const out = { id: row.id, Id: row.id };
     if (row.created_at != null) out.created_at = new Date(row.created_at).toISOString();
     if (row.updated_at != null) out.updated_at = new Date(row.updated_at).toISOString();
     if (row.created_by != null) out.created_by = row.created_by;

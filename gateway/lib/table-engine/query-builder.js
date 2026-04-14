@@ -116,9 +116,9 @@ export function buildSelectQuery({
       const dir = (s.direction || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
       parts.push(`${quoteIdent(field.physical_column)} ${dir}`);
     }
-    orderClause = parts.length > 0 ? `ORDER BY ${parts.join(', ')}, rowid DESC` : 'ORDER BY created_at DESC, rowid DESC';
+    orderClause = parts.length > 0 ? `ORDER BY ${parts.join(', ')}, rowid ASC` : 'ORDER BY created_at ASC, rowid ASC';
   } else {
-    orderClause = 'ORDER BY created_at DESC, rowid DESC';
+    orderClause = 'ORDER BY created_at ASC, rowid ASC';
   }
 
   // ── assemble ──

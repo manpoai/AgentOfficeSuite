@@ -241,7 +241,7 @@ export function createRowIo(db, { linkApi = null, schemaApi = null } = {}) {
 
   function listRows(tableId, { limit = 100, offset = 0 } = {}) {
     const physName = physicalTableName(tableId);
-    const rows = db.prepare(`SELECT * FROM ${quoteIdent(physName)} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(limit, offset);
+    const rows = db.prepare(`SELECT * FROM ${quoteIdent(physName)} ORDER BY created_at ASC, rowid ASC LIMIT ? OFFSET ?`).all(limit, offset);
     return rows.map(r => mapRow(tableId, r));
   }
 
