@@ -996,12 +996,18 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   // Insert row
   app.post('/api/data/:table_id/rows', authenticateAgent, async (req, res) => {
     const tableId = req.params.table_id;
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
+    }
     try {
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       const created = tableEngine.insertRow(tableId, idData, { actor: actorName(req) });
       const typed = tableEngine.readRow(tableId, created.id);
       res.status(201).json(rowIdsToTitles(typed, fields, makeLinkResolver()));
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
+      }
     } catch (e) {
       if (e.code === 'VALIDATION_ERROR') {
         if (/table not found|row not found/.test(e.message)) return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
@@ -1016,12 +1022,18 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
   app.patch('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
     const tableId = req.params.table_id;
     const rowId = req.params.row_id;
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
+    }
     try {
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       tableEngine.updateRow(tableId, rowId, idData, { actor: actorName(req) });
       const typed = tableEngine.readRow(tableId, rowId);
       res.json(rowIdsToTitles(typed, fields, makeLinkResolver()));
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
+      }
     } catch (e) {
       if (e.code === 'VALIDATION_ERROR') {
         if (/table not found|row not found/.test(e.message)) return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
@@ -1070,11 +1082,18 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
 
   // Delete row
   app.delete('/api/data/:table_id/rows/:row_id', authenticateAgent, async (req, res) => {
+    const tableId = req.params.table_id;
+    if (isAgentRequest(req)) {
+      await createTableSnapshot(tableId, 'pre_agent_edit', actorName(req), null).catch(() => {});
+    }
     try {
-      const existing = tableEngine.readRow(req.params.table_id, req.params.row_id);
+      const existing = tableEngine.readRow(tableId, req.params.row_id);
       if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
-      tableEngine.deleteRow(req.params.table_id, req.params.row_id);
+      tableEngine.deleteRow(tableId, req.params.row_id);
       res.json({ deleted: true });
+      if (isAgentRequest(req)) {
+        createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
+      }
     } catch (e) {
       if (e.code === 'VALIDATION_ERROR' && /table not found/.test(e.message)) {
         return res.status(404).json({ error: 'NOT_FOUND', detail: e.message });
