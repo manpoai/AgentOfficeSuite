@@ -3213,7 +3213,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
                           className={cn(
                             'px-2 relative',
                             isLastFrozen ? 'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[2px] after:bg-border' : 'border-r border-border',
-                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.title) || (attachmentDropdown?.rowId === rowId && attachmentDropdown?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
+                            (selectDropdown?.rowId === rowId && selectDropdown?.col === col.title) || (userPicker?.rowId === rowId && userPicker?.col === col.title) || (datePicker?.rowId === rowId && datePicker?.col === col.column_id) || (attachmentDropdown?.rowId === rowId && attachmentDropdown?.col === col.title) ? 'overflow-visible' : 'overflow-hidden',
                             isEditing && 'ring-2 ring-sidebar-primary ring-inset bg-card',
                             !mobilePreview && (!isReadonly || col.type === 'Links' || col.type === 'Attachment' || col.type === 'User' || col.type === 'Collaborator') && !isEditing && 'cursor-pointer',
                             mobilePreview && 'cursor-pointer',
