@@ -12,7 +12,7 @@ import {
   UserCheck, DollarSign, Percent, Star,
 } from 'lucide-react';
 
-// ── Column types (matching Baserow field type values) ──
+// ── Column types ──
 
 export type ColumnType =
   | 'SingleLineText'

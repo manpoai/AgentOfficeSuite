@@ -426,7 +426,7 @@ function runMigrations(db) {
   try { db.exec('ALTER TABLE content_snapshots ADD COLUMN description_params TEXT'); } catch { /* already exists */ }
   try { db.exec("ALTER TABLE actors ADD COLUMN preferred_language TEXT DEFAULT 'en'"); } catch { /* already exists */ }
 
-  // Phase 4: table engine metadata (replaces Baserow)
+  // Phase 4: table engine metadata
   try {
     runTableEngineMigrations(db);
   } catch (e) { console.error('[gateway] table-engine migrations failed:', e.message); throw e; }

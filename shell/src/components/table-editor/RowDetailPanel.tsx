@@ -33,7 +33,7 @@ function attachmentUrl(a: { signedPath?: string; path?: string }): string {
   const p = a.signedPath || a.path || '';
   if (!p) return '';
   if (p.startsWith('/api/')) return p;
-  // Proxy all URLs (including http://localhost Baserow URLs) through gateway
+  // Proxy all URLs through gateway
   return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
 }
 

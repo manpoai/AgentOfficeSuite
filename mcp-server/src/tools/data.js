@@ -3,7 +3,7 @@ import { z } from 'zod';
 export function registerDataTools(server, gw) {
   server.tool(
     'list_tables',
-    'List all Baserow tables in the ASuite workspace. Returns table IDs and titles.',
+    'List all database tables in the AOSE workspace. Returns table IDs and titles.',
     {},
     async () => {
       const result = await gw.get('/data/tables');
@@ -15,7 +15,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'describe_table',
-    'Get the schema of a Baserow table — column names, types, and constraints. Use this before query_rows to understand what columns exist.',
+    'Get the schema of a database table — column names, types, and constraints. Use this before query_rows to understand what columns exist.',
     {
       table_id: z.string().describe('Table ID (from list_tables)'),
     },
@@ -27,7 +27,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'query_rows',
-    'Query rows from a Baserow table. Supports filtering with where clauses and sorting.',
+    'Query rows from a database table. Supports filtering with where clauses and sorting.',
     {
       table_id: z.string().describe('Table ID to query'),
       where: z.string().optional().describe('Filter expression, e.g. "(Status,eq,Active)" or "(Agent,eq,zylos-thinker)"'),
@@ -46,7 +46,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'insert_row',
-    'Insert a new row into a Baserow table. Pass column values as key-value pairs.',
+    'Insert a new row into a database table. Pass column values as key-value pairs.',
     {
       table_id: z.string().describe('Table ID to insert into'),
       data: z.record(z.any()).describe('Row data as {column_title: value} object'),
@@ -59,7 +59,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'update_row',
-    'Update an existing row in a Baserow table.',
+    'Update an existing row in a database table.',
     {
       table_id: z.string().describe('Table ID'),
       row_id: z.string().describe('Row ID to update'),
@@ -73,7 +73,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'delete_row',
-    'Delete a row from a Baserow table.',
+    'Delete a row from a database table.',
     {
       table_id: z.string().describe('Table ID'),
       row_id: z.string().describe('Row ID to delete'),

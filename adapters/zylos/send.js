@@ -89,7 +89,7 @@ async function main() {
       process.exit(1);
     }
   } else if (parsed.channelId.startsWith('task:')) {
-    // Plane task comment reply
+    // Task comment reply
     const taskId = parsed.channelId.slice(5);
     const data = await sendRequest(`${GATEWAY_URL}/api/tasks/${taskId}/comments`, { text });
     if (data.comment_id) {

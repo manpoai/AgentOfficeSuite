@@ -39,7 +39,7 @@ const { authenticateAny, authenticateAdmin, authenticateAgent } = createAuthMidd
 // ─── Content sync ────────────────────────────────
 const { contentItemsUpsert, syncContentItems } = createContentSync(db);
 
-// ─── Table engine (SQLite-backed, replaces Baserow) ──
+// ─── Table engine (SQLite-backed) ──
 const tableEngine = createTableEngine(db);
 
 // ─── App ─────────────────────────────────────────

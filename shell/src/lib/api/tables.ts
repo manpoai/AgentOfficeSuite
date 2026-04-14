@@ -1,7 +1,5 @@
 /**
  * Tables API client — calls the Gateway tableEngine via /api/gateway/data/* proxy.
- * (File was previously named baserow.ts; the backend has been fully migrated
- * to SQLite tableEngine in P4. BR* type prefixes are a separate rename pass.)
  */
 
 const BASE = '/api/gateway/data';
@@ -15,7 +13,7 @@ async function brFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
   const res = await fetch(`${BASE}${path}`, { ...init, headers });
-  if (!res.ok) throw new Error(`Baserow API ${path}: ${res.status}`);
+  if (!res.ok) throw new Error(`Tables API ${path}: ${res.status}`);
   return res.json();
 }
 

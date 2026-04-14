@@ -236,7 +236,7 @@ export async function listCommentedRows(tableId: string): Promise<{ row_id: stri
 
 export interface ContentItem {
   id: string;          // 'doc:<uuid>' or 'table:<uuid>'
-  raw_id: string;      // original Outline doc ID or Baserow table ID
+  raw_id: string;      // original doc or table ID
   type: 'doc' | 'table' | 'presentation' | 'diagram';
   title: string;
   icon: string | null;

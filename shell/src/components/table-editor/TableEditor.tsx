@@ -80,7 +80,7 @@ function getOptionColor(color?: string, idx?: number) {
 // ── Read-only column types ──
 const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 
-/** Resolve NocoDB attachment path to a proxied URL */
+/** Resolve attachment path to a proxied URL */
 function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
   const p = a.signedPath || a.path || '';
   if (!p) return '';
@@ -88,7 +88,7 @@ function ncAttachmentUrl(a: { signedPath?: string; path?: string }): string {
   if (p.startsWith('http://') || p.startsWith('https://')) return p;
   // Already proxied
   if (p.startsWith('/api/')) return p;
-  // NocoDB relative path — use query-param route to avoid Next.js file-extension routing issues
+  // Relative attachment path — use query-param route to avoid Next.js file-extension routing issues
   return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
 }
 
@@ -368,7 +368,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const [numFormat, setNumFormat] = useState<{ decimals: number; thousands: boolean; prefix: string; suffix: string }>({ decimals: 0, thousands: false, prefix: '', suffix: '' });
   const [currencySymbol, setCurrencySymbol] = useState('$');
   const [decimalPrecision, setDecimalPrecision] = useState(2);
-  const [durationFormat, setDurationFormat] = useState(0); // NocoDB duration format index
+  const [durationFormat, setDurationFormat] = useState(0); // Duration format index
   const [ratingMax, setRatingMax] = useState(5);
   const [ratingIcon, setRatingIcon] = useState('star');
   const [dateFormat, setDateFormat] = useState('YYYY-MM-DD');
@@ -577,7 +577,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     enabled: !!activeViewId,
   });
 
-  // Build NocoDB where clause from view filters: (field,op,value)~and(field2,op2,value2)
+  // Build where clause from view filters: (field,op,value)~and(field2,op2,value2)
   const whereParam = useMemo(() => {
     if (!viewFilters?.length || !meta?.columns) return undefined;
     const parts = viewFilters.map(f => {
@@ -612,8 +612,8 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     return parts.length > 0 ? parts.join(',') : 'Id';
   }, [viewSorts, meta?.columns, sortParam]);
 
-  // Always query from table (not view) — NocoDB view-scoped queries strip columns hidden
-  // in NocoDB's native view settings, which breaks Kanban grouping and card field display.
+  // Always query from table (not view) — view-scoped queries strip columns hidden
+  // in native view settings, which breaks Kanban grouping and card field display.
   // Shell manages column visibility independently via Gateway view_column_settings.
   // Filters and sorts from the view are applied as query params.
   const { data: rowsData, isLoading, isFetching } = useQuery({
@@ -1048,7 +1048,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
     });
     try {
-      // NocoDB/PostgreSQL requires boolean values, not integers (1/0 causes type error)
+      // Backend requires boolean values, not integers (1/0 causes type error)
       await br.updateRow(tableId, rowId, { [col]: newVal });
     } catch (e) {
       console.error('Toggle failed:', e);
@@ -1144,7 +1144,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       const uploadRes = await fetch('/api/gateway/data/upload', { method: 'POST', body: formData });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
       const uploaded = await uploadRes.json(); // array of { path, title, mimetype, size }
-      // Get existing attachments (NocoDB stores as array, not JSON string)
+      // Get existing attachments (stored as array, not JSON string)
       const row = rows.find(r => (r.Id as number) === rowId);
       let existing: unknown[] = [];
       if (row?.[colTitle]) {
@@ -1155,7 +1155,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
         }
       }
       const merged = [...existing, ...uploaded];
-      // NocoDB expects array, not JSON string for Attachment columns
+      // Backend expects array, not JSON string for Attachment columns
       await br.updateRow(tableId, rowId, { [colTitle]: merged });
       refresh();
       // Re-open attachment dropdown to show updated list
@@ -2209,7 +2209,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       )}
       </>}{/* end view tabs conditional */}
 
-      {/* Toolbar bar — NocoDB style, view-type aware — hidden during history preview and mobile preview */}
+      {/* Toolbar bar — view-type aware — hidden during history preview and mobile preview */}
       {!previewSnapshot && !mobilePreview && (() => {
         const activeView = views.find(v => v.view_id === activeViewId);
         const viewType = activeView?.type || 3;
@@ -2958,7 +2958,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
             onSubmit={async (data) => { await br.insertRow(tableId, data); refresh(); }}
           />
         );
-        // Calendar view (frontend-only, NocoDB doesn't support it)
+        // Calendar view (frontend-only)
         if (viewType === 5) return (
           <CalendarView
             rows={rows}
