@@ -1,9 +1,0 @@
-{
-  "gateway_url": "http://localhost:4000",
-  "agent_token": "3c6d1ec20613e026211c57d9c6957b6739bf7aa155d0da79f2d2995012b355c4",
-  "agent_name": "openclaw-claw",
-  "platform": "openclaw",
-  "openclaw_gateway_url": "ws://127.0.0.1:18789/gateway",
-  "openclaw_auth_token": "67e9b296985a68d43c6db20abf331824a0b02a95148f517a",
-  "openclaw_session_key": "agent:main:main"
-}

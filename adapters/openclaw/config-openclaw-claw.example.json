@@ -1,0 +1,9 @@
+{
+  "gateway_url": "http://localhost:4000",
+  "agent_token": "<AOSE_AGENT_TOKEN_FROM_SELF_REGISTER>",
+  "agent_name": "<your-agent-name>",
+  "platform": "openclaw",
+  "openclaw_gateway_url": "ws://127.0.0.1:18789/",
+  "openclaw_auth_token": "<FROM_~/.openclaw/openclaw.json_gateway.auth.token>",
+  "openclaw_session_key": "agent:main:main"
+}

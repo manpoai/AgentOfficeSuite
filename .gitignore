@@ -89,3 +89,8 @@ desktop.ini
 # Coverage and test artifacts
 coverage/
 *.lcov
+
+# Adapter runtime config (contains agent_token, openclaw_auth_token)
+adapters/**/config-*.json
+!adapters/**/config-*.example.json
+adapters/**/.last-event-ts-*
