@@ -112,7 +112,13 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     const updates = ['updated_at = ?', 'updated_by = ?'];
     const params = [now, agentName];
     if (title !== undefined) { updates.push('title = ?'); params.push(title); }
-    if (content_markdown !== undefined) { updates.push('text = ?'); params.push(content_markdown); }
+    if (content_markdown !== undefined) {
+      updates.push('text = ?'); params.push(content_markdown);
+      // Clear stale ProseMirror JSON so the editor falls back to parsing the
+      // fresh markdown on next load. Editor.tsx prefers data_json when present;
+      // leaving the old tree in place would silently hide the agent's write.
+      updates.push('data_json = ?'); params.push(null);
+    }
     params.push(req.params.doc_id);
 
     // Agent edit: create pre/post snapshots when content changes
@@ -150,6 +156,22 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (title !== undefined) {
       db.prepare('UPDATE content_items SET title = ?, updated_at = ? WHERE raw_id = ? AND type = ?')
         .run(title, now, req.params.doc_id, 'doc');
+    }
+
+    // Notify any open editor so it refetches. Without this the human only sees
+    // the write after a manual reload.
+    if (humanClients && pushHumanEvent) {
+      try {
+        const humans = db.prepare("SELECT id FROM actors WHERE type = 'human'").all();
+        for (const h of humans) {
+          pushHumanEvent(h.id, {
+            event: 'content.changed',
+            data: { action: 'updated', type: 'doc', id: req.params.doc_id, title: title !== undefined ? title : doc.title },
+          });
+        }
+      } catch (e) {
+        console.error(`[docs] pushHumanEvent error: ${e.message}`);
+      }
     }
 
     res.json({ doc_id: req.params.doc_id, updated_at: new Date(now).getTime() });

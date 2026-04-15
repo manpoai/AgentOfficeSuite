@@ -32,6 +32,9 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
 
         if (event.event === 'content.changed') {
           queryClient.invalidateQueries({ queryKey: ['content-items'] });
+          if (event.data?.type === 'doc' && event.data?.id) {
+            queryClient.invalidateQueries({ queryKey: ['document', event.data.id] });
+          }
         }
       } catch {
         // ignore parse errors
