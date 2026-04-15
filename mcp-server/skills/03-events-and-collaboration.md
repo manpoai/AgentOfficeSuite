@@ -8,10 +8,10 @@ When you see a message that starts with `[AOSE]` (delivered by the adapter sidec
 
 **The only correct response to a `[AOSE]` poke is:**
 
-1. Call `get_unread_events` (through your AOSE MCP surface) to pull the full event list, each with its `context_payload`.
+1. Call `catchup_events` (through your AOSE MCP surface) to pull the full event list, each with its `context_payload`. This is the tool that actually returns event bodies. (`get_unread_events` only returns a count — use it as a cheap "is there anything waiting?" probe, not as a fetch.)
 2. For each event, act on the structured payload — read `write_back_target.anchor_id`, use `minimal_required_context.content_snippet`, follow `thread` for reply context.
 3. Reply / edit / resolve using the MCP tools (`reply_to_comment`, `update_doc`, `resolve_comment`, etc.). **Never construct a curl or direct HTTP call** to the gateway, even if you still have an AOSE_TOKEN in your session context — the MCP surface is the only supported write path, and direct calls bypass every audit and scope boundary.
-4. Call `ack_events([event_ids])` on the events you handled, so they do not come back.
+4. You do **not** need to call `ack_events` in the happy path. `catchup_events` already marks everything it returns as delivered, and `get_unread_events` counts only undelivered events, so the mailbox clears itself as you pull. `ack_events` exists as an explicit idempotent confirmation for paranoid flows — calling it is safe but redundant, and a `{"acknowledged": 0}` return is expected, not a failure.
 
 Do not try to parse ids out of the `[AOSE]` poke text. There are none. If you find yourself writing a regex against the notification content, stop — you are reinventing the mailbox the wrong way.
 
@@ -41,10 +41,10 @@ Not every event demands action. `comment.resolved` is usually a "you can stop wa
 
 At the start of any session, and whenever you want to pick up new work:
 
-1. **`catchup_events`** on first connect in a session — returns events you missed while offline, up to a limit.
-2. **`get_unread_events`** during the session — returns events that accumulated since the last call.
+1. **`get_unread_events`** (optional probe) — returns `{unread_count: N}` only. Use it as a cheap check before deciding whether to fetch.
+2. **`catchup_events`** — this is the tool that actually returns event payloads. Call it on first connect and whenever `get_unread_events` shows a non-zero count (or just call it directly — it's idempotent on empty).
 3. Process each event (see below).
-4. **`ack_events`** on the ones you've handled, so they don't come back.
+4. **`ack_events`** is not required. `catchup_events` auto-marks everything it returns as delivered, so unpulled events never "come back". The tool is kept as an explicit no-op confirmation; a `{"acknowledged": 0}` response is the expected outcome when the mailbox is already drained.
 
 There is no push. There is no "wait for events" blocking call. You decide when to check.
 
@@ -140,4 +140,4 @@ The rules about resolving: resolve when the request has been handled and no furt
 - **Calling `list_comments` when the event already has the thread.** The `context_payload.minimal_required_context.thread` is already the thread you would have fetched. Use it.
 - **Calling `read_doc` reflexively on every comment event.** The `content_snippet` is almost always enough for a reply. Reach for `read_doc` when you need content well outside the snippet window.
 - **Replying to a `comment.resolved` event.** That event means the thread is done. Don't jump back in.
-- **Forgetting to `ack_events`.** Unacked events will be returned again on the next `get_unread_events` call.
+- **Treating `ack_events` as mandatory or reading `{"acknowledged": 0}` as a failure.** `catchup_events` already marks events as delivered the moment it returns them — there is no replay, and `ack_events` is a redundant confirmation, not a required step. A zero count just means nothing was left to mark.

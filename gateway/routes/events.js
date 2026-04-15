@@ -104,13 +104,29 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     res.json({ unread_count: count.count });
   });
 
-  // Acknowledge events
+  // Acknowledge events (idempotent no-op in the happy path)
+  //
+  // Note: `/api/me/catchup` already marks events as delivered=1 the moment it
+  // returns them (see above). So by the time an agent calls ack after a
+  // successful catchup, there is nothing left to mark and `newly_marked` will
+  // be 0. That is the expected outcome, not a failure. We also report the
+  // total number of events in scope so agents can confirm the gateway saw
+  // their cursor range, and an explicit note so a zero count isn't misread.
   app.post('/api/me/events/ack', authenticateAgent, (req, res) => {
     const { cursor } = req.body;
     if (!cursor) return res.status(400).json({ error: 'MISSING_CURSOR', message: 'cursor (timestamp) required' });
+    const cursorTs = parseInt(cursor);
     const result = db.prepare('UPDATE events SET delivered = 1 WHERE agent_id = ? AND occurred_at <= ? AND delivered = 0')
-      .run(req.agent.id, parseInt(cursor));
-    res.json({ acknowledged: result.changes });
+      .run(req.agent.id, cursorTs);
+    const total = db.prepare('SELECT COUNT(*) as count FROM events WHERE agent_id = ? AND occurred_at <= ?')
+      .get(req.agent.id, cursorTs);
+    res.json({
+      ok: true,
+      acknowledged: result.changes,          // kept for backwards compat
+      newly_marked: result.changes,
+      events_in_range: total.count,
+      note: 'catchup_events already marks events delivered as it returns them; ack_events is a redundant confirmation. newly_marked=0 with events_in_range>0 means everything in this cursor range was already delivered — this is the expected happy path, not a failure.',
+    });
   });
 
   // ─── Thread Context ─────────────────────────────
