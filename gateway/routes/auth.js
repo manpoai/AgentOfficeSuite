@@ -669,11 +669,17 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     if (!agent) return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     if (agent.deleted_at) return res.status(400).json({ error: 'ALREADY_DELETED', message: 'Agent is already deleted' });
     const now = Date.now();
-    db.prepare('UPDATE actors SET deleted_at = ?, online = 0, updated_at = ? WHERE id = ?').run(now, now, agent.id);
-    const offboardingPrompt = buildOffboardingPrompt(agent.platform, agent.username);
+    const originalName = agent.username;
+    // Release the name so the same name can be re-registered later. The
+    // mangled form keeps the row uniquely addressable for audit while
+    // freeing `username` for self-register's uniqueness check.
+    const releasedName = `${originalName}.deleted.${now}`;
+    db.prepare('UPDATE actors SET username = ?, deleted_at = ?, online = 0, updated_at = ? WHERE id = ?')
+      .run(releasedName, now, now, agent.id);
+    const offboardingPrompt = buildOffboardingPrompt(agent.platform, originalName);
     res.json({
       agent_id: agent.id,
-      name: agent.username,
+      name: originalName,
       status: 'deleted',
       platform: agent.platform || null,
       offboarding_prompt: offboardingPrompt,
