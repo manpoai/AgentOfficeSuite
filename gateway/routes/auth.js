@@ -275,21 +275,48 @@ Important: the gateway_url field is the AOSE deployment BASE (for example "https
 
 Set the file permissions to 600 (chmod 600 ~/.aose/adapter-<your-agent-name>.json) so only you can read it — it contains secrets.
 
-Step 6 — Start the adapter sidecar
-Run the following shell command to start the adapter as a background process:
+Step 6 — Start the adapter sidecar under pm2
+The adapter MUST run continuously: it holds your SSE connection to AOSE and the per-agent MCP socket that Step 7 wires OpenClaw to. Do NOT start it with \`nohup ... &\` — on macOS that does not survive your current OpenClaw chat session ending, and the sidecar will be killed by SIGTERM the moment the session that launched it goes away. Use pm2 instead, which detaches into its own daemon and outlives the session that registered the process.
 
-nohup npx -y aose-adapter --config ~/.aose/adapter-<your-agent-name>.json > ~/.aose/adapter-<your-agent-name>.log 2>&1 &
+First, install aose-adapter globally so pm2 has a stable bin path to invoke (pm2 + npx is fragile):
 
-Wait 3 seconds, then read the first 30 lines of ~/.aose/adapter-<your-agent-name>.log. You should see lines like:
+  npm install -g aose-adapter
+
+Verify:
+  which aose-adapter
+should print something like /usr/local/bin/aose-adapter or ~/.npm-global/bin/aose-adapter. Save that path as ADAPTER_BIN.
+
+Then start the sidecar under pm2:
+
+  pm2 start <ADAPTER_BIN> --name aose-adapter-<your-agent-name> -- --config ~/.aose/adapter-<your-agent-name>.json
+  pm2 save
+
+(If you do not have pm2: \`npm install -g pm2\` first.)
+
+Wait 3 seconds, then check that the sidecar is alive AND the socket is up:
+
+  pm2 list | grep aose-adapter-<your-agent-name>
+  → status should be \`online\`, restarts should be 0
+  pm2 logs aose-adapter-<your-agent-name> --lines 30 --nostream
+
+You should see lines like:
   [adapter] Starting — agent: ..., platform: openclaw, gateway: ...
-  [adapter] SSE connected
+  [adapter] MCP socket endpoint ready at /Users/<you>/.aose/sockets/<your-agent-name>.sock
+  [adapter] skills cached to /Users/<you>/.aose-mcp/skills (12 files)
   [openclaw] Gateway connected and authenticated
+  [adapter] SSE connected
 
-If instead you see "missing scope: operator.write", your local OpenClaw gateway is not configured to allow insecure auth. Open ~/.openclaw/openclaw.json and confirm gateway.controlUi.allowInsecureAuth is set to true; if not, add it and restart OpenClaw. Then retry this step.
+Then verify the unix socket file actually exists (this is the contract Step 7 depends on):
 
-If you see an EADDR or connection-refused error, your OpenClaw gateway may not be running on 127.0.0.1:18789 — verify with: lsof -nP -iTCP:18789 -sTCP:LISTEN
+  ls -la ~/.aose/sockets/<your-agent-name>.sock
+  → should print one srw------- entry. If it is missing, the socket setup failed even if pm2 reports online. Re-read pm2 logs for the failure cause and STOP.
 
-To make the adapter survive reboots, register it with a process manager (pm2, launchd, or systemd) pointing at the same command. The adapter must run continuously for AOSE to push events to you.
+Diagnostic notes:
+- "missing scope: operator.write" → your local OpenClaw gateway needs gateway.controlUi.allowInsecureAuth: true in ~/.openclaw/openclaw.json. Add it, restart OpenClaw, then \`pm2 restart aose-adapter-<your-agent-name>\`.
+- "Cannot find package 'aose-mcp'" → your aose-adapter install is broken (older version or local link without deps). Run \`npm install -g aose-adapter@latest\` and \`pm2 restart aose-adapter-<your-agent-name>\`.
+- ECONNREFUSED to 127.0.0.1:18789 → OpenClaw gateway is not running. Verify with \`lsof -nP -iTCP:18789 -sTCP:LISTEN\`.
+
+To survive a host reboot, run \`pm2 startup\` once (it prints a sudo command you should run), then \`pm2 save\` again. pm2 will then bring the adapter back automatically on boot.
 
 Step 7 — Configure the MCP server (socket path)
 On OpenClaw your MCP servers live in a single global config (\`mcp.servers\` inside \`~/.openclaw/openclaw.json\` or wherever \$OPENCLAW_CONFIG_PATH points). That config has no per-agent scoping, so multiple AOSE agents on the same OpenClaw host MUST each get their own \`mcp.servers\` entry, keyed by agent name. The adapter sidecar you started in Step 6 already exposes a per-agent unix socket at \`~/.aose/sockets/<your-agent-name>.sock\` that speaks MCP — your job here is just to point OpenClaw at it.
