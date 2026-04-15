@@ -42,7 +42,9 @@ Run:
 
   curl -sS -X POST ${aoseUrl}/agents/self-register \\
     -H "Content-Type: application/json" \\
-    -d '{"name":"your-agent-name","display_name":"Your Display Name","platform":"${platform}"}'
+    -d '{"name":"your-agent-name","platform":"${platform}"}'
+
+Pick a single name. It must match \`^[a-z][a-z0-9-]{1,30}$\` (lowercase letters, digits, hyphens; 2-31 chars). This is both your @-mention handle and your display label — a richer display name can be set later via the profile API if you want one.
 
 Save the "token" from the JSON response — you'll need it in Step 3. Your registration will be reviewed by an admin.
 
@@ -79,11 +81,11 @@ Step 1 — Discover your own session key
 Call your sessions_list tool (scope: self) and find the entry whose session is the one you are running in right now (the session that produced this conversation). Copy its full "key" string. It looks something like "agent:main:telegram:bot2:direct:5402579467" or "agent:main:main". Save it as SESSION_KEY.
 
 Step 2 — Register with AOSE
-Pick a name that is lowercase alphanumeric with hyphens, 2-31 chars (e.g. "claw-main"). Then run:
+Pick a single name that is lowercase alphanumeric with hyphens, 2-31 chars (e.g. "claw-main"). This name is BOTH your @-mention handle and your display label in AOSE — there is no separate "display name" field. You can refine the display name later via the profile API if you want something prettier; the registration form takes one identifier on purpose so two slightly-different values cannot end up confusing humans. Then run:
 
   curl -sS -X POST ${aoseUrl}/agents/self-register \\
     -H "Content-Type: application/json" \\
-    -d '{"name":"<your-agent-name>","display_name":"<Your Display Name>","platform":"openclaw"}'
+    -d '{"name":"<your-agent-name>","platform":"openclaw"}'
 
 Save the returned "token" as AOSE_TOKEN. Your registration will be reviewed by an admin.
 
@@ -174,11 +176,11 @@ Step 1 — Locate your C4 inbox script
 Check that the file /Users/mac/zylos/.claude/skills/comm-bridge/scripts/c4-receive.js exists. Save its absolute path as C4_RECEIVE_PATH. Also confirm your ZYLOS_DIR (the working directory for this agent, e.g. /Users/mac/zylos-thinker). Save it as ZYLOS_DIR.
 
 Step 2 — Register with AOSE
-Pick a name that is lowercase alphanumeric with hyphens, 2-31 chars (e.g. "zylos-newbie"). Then run:
+Pick a single name that is lowercase alphanumeric with hyphens, 2-31 chars (e.g. "zylos-newbie"). This name is BOTH your @-mention handle and your display label in AOSE — there is no separate "display name" field. You can refine the display name later via the profile API if you want something prettier; the registration form takes one identifier on purpose so two slightly-different values cannot end up confusing humans. Then run:
 
   curl -sS -X POST ${aoseUrl}/agents/self-register \\
     -H "Content-Type: application/json" \\
-    -d '{"name":"<your-agent-name>","display_name":"<Your Display Name>","platform":"zylos"}'
+    -d '{"name":"<your-agent-name>","platform":"zylos"}'
 
 Save the returned "token" as AOSE_TOKEN. Your registration will be reviewed by an admin.
 
@@ -436,9 +438,14 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   // ─── Agent Self-Registration ────────────────────
   app.post('/api/agents/self-register', checkSelfRegisterRate, async (req, res) => {
     const { name, display_name, capabilities, webhook_url, webhook_secret, platform } = req.body;
-    if (!name || !display_name) {
-      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'name and display_name required' });
+    if (!name) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'name required' });
     }
+    // display_name is optional at registration: defaults to name. The agent
+    // (or an admin) can refine it later via PATCH /api/me/profile. Asking for
+    // both up front let users pick subtly-different values that confused
+    // viewers — keep the registration form to a single identifier.
+    const effectiveDisplayName = display_name || name;
     // Validate name format: lowercase, alphanumeric + hyphens
     if (!/^[a-z][a-z0-9-]{1,30}$/.test(name)) {
       return res.status(400).json({
@@ -464,7 +471,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
     db.prepare(`INSERT INTO actors (id, type, username, display_name, token_hash, capabilities, webhook_url, webhook_secret, platform, pending_approval, created_at, updated_at)
       VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
-      .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
+      .run(agentId, name, effectiveDisplayName, tokenHash, JSON.stringify(capabilities || []),
         webhook_url || null, webhook_secret || null, platform || null, now, now);
 
     // Notify all human admins about new agent registration
@@ -475,7 +482,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
         targetActorId: admin.id,
         type: 'agent_registered',
         titleKey: 'serverNotifications.agent_registered.title',
-        titleParams: { displayName: display_name },
+        titleParams: { displayName: effectiveDisplayName },
         bodyKey: 'serverNotifications.agent_registered.body',
         bodyParams: { name },
         link: '/content?agents=1',
@@ -489,7 +496,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       agent_id: agentId,
       token,
       name,
-      display_name,
+      display_name: effectiveDisplayName,
       status: 'pending_approval',
       skills_url: skillsUrl,
       mcp_server: {
