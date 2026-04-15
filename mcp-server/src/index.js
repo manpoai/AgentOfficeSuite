@@ -26,16 +26,8 @@
  *   aose-mcp --help         — show usage
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { GatewayClient } from './gateway-client.js';
-import { registerDocTools } from './tools/docs.js';
-import { registerDataTools } from './tools/data.js';
-import { registerSystemTools } from './tools/system.js';
-import { registerAgentTools } from './tools/agents.js';
-import { registerEventTools } from './tools/events.js';
-import { registerCommentTools } from './tools/comments.js';
-import { registerContentTools } from './tools/content.js';
+import { buildAoseMcpServer } from './build-server.js';
 import { CONFIG_PATH, SKILLS_DIR, loadEffectiveConfig, readConfig, writeConfig } from './config.js';
 import { EventBridge } from './event-bridge.js';
 import { fetchAndCacheSkills } from './skills-fetch.js';
@@ -129,46 +121,31 @@ async function startServer() {
 
 async function runServer(stepRef, cfg) {
   stepRef.current = 'build_server';
-  const server = new McpServer(
-    { name: 'aose', version: '0.1.0' },
-    { capabilities: { logging: {} } },
-  );
-  const gw = new GatewayClient(cfg.base_url, cfg.token);
 
-  // Wrap server.tool so every tool response can be annotated with a
-  // pending-events hint. This is the fallback for MCP hosts that do not
-  // surface notifications/message to the agent — the agent still sees the
-  // hint the next time it calls any tool.
+  // Inject pending-events hints into every tool response. This is the
+  // fallback for MCP hosts that do not surface notifications/message to the
+  // agent — the agent still sees the hint the next time it calls any tool.
   const bridgeRef = { current: null };
-  const origTool = server.tool.bind(server);
-  server.tool = (name, ...rest) => {
-    const handler = rest[rest.length - 1];
-    if (typeof handler !== 'function') return origTool(name, ...rest);
-    const wrappedHandler = async (...args) => {
-      const result = await handler(...args);
-      const bridge = bridgeRef.current;
-      if (bridge && Array.isArray(result?.content)) {
-        const pending = bridge.takePendingHint();
-        if (pending > 0) {
-          result.content.push({
-            type: 'text',
-            text: `[aose-bridge] ${pending} new event(s) arrived since your last tool call. Call get_unread_events to inspect.`,
-          });
-        }
+  const decorateHandler = (handler) => async (...args) => {
+    const result = await handler(...args);
+    const bridge = bridgeRef.current;
+    if (bridge && Array.isArray(result?.content)) {
+      const pending = bridge.takePendingHint();
+      if (pending > 0) {
+        result.content.push({
+          type: 'text',
+          text: `[aose-bridge] ${pending} new event(s) arrived since your last tool call. Call get_unread_events to inspect.`,
+        });
       }
-      return result;
-    };
-    rest[rest.length - 1] = wrappedHandler;
-    return origTool(name, ...rest);
+    }
+    return result;
   };
 
-  registerDocTools(server, gw);
-  registerDataTools(server, gw);
-  registerSystemTools(server, gw);
-  registerAgentTools(server, gw);
-  registerEventTools(server, gw);
-  registerCommentTools(server, gw);
-  registerContentTools(server, gw);
+  const { server, gw } = buildAoseMcpServer({
+    baseUrl: cfg.base_url,
+    token: cfg.token,
+    decorateHandler,
+  });
 
   stepRef.current = 'stdio_connect';
   const transport = new StdioServerTransport();

@@ -291,38 +291,44 @@ If you see an EADDR or connection-refused error, your OpenClaw gateway may not b
 
 To make the adapter survive reboots, register it with a process manager (pm2, launchd, or systemd) pointing at the same command. The adapter must run continuously for AOSE to push events to you.
 
-Step 7 — Configure the MCP server
-Add the following to your MCP configuration (the location depends on your OpenClaw setup; typically it is the MCP servers list in your OpenClaw config):
+Step 7 — Configure the MCP server (socket path)
+On OpenClaw your MCP servers live in a single global config (\`mcp.servers\` inside \`~/.openclaw/openclaw.json\` or wherever \$OPENCLAW_CONFIG_PATH points). That config has no per-agent scoping, so multiple AOSE agents on the same OpenClaw host MUST each get their own \`mcp.servers\` entry, keyed by agent name. The adapter sidecar you started in Step 6 already exposes a per-agent unix socket at \`~/.aose/sockets/<your-agent-name>.sock\` that speaks MCP — your job here is just to point OpenClaw at it.
 
-{
-  "mcpServers": {
-    "aose": {
-      "command": "npx",
-      "args": ["-y", "aose-mcp"],
-      "env": {
-        "AOSE_TOKEN": "<AOSE_TOKEN from Step 2>",
-        "AOSE_URL": "${aoseUrl}"
-      }
-    }
+TARGET_FILE = \`~/.openclaw/openclaw.json\` (or \$OPENCLAW_CONFIG_PATH if set)
+TARGET_KEY  = \`aose-<your-agent-name>\` (e.g. \`aose-claw-main\`). NOT plain \`aose\` — every AOSE agent on this host needs a unique key so OpenClaw can tell them apart and so other agents' entries are not overwritten.
+
+**Pre-check (mandatory)**: read TARGET_FILE and look for an existing \`mcp.servers["aose-<your-agent-name>"]\` entry. Three cases:
+  1. No existing entry → proceed and add the JSON below under \`mcp.servers\`.
+  2. Entry exists AND its \`args\` references your \`~/.aose/sockets/<your-agent-name>.sock\` path → leave it alone, you're already configured. Skip to Step 8.
+  3. Entry exists but points at a different socket / different token → STOP. Report to the human: "TARGET_FILE already has an aose-<your-agent-name> entry that does not match my socket. Either resolve the conflict or pick a different agent name." Do not overwrite.
+
+The entry to write under \`mcp.servers\`:
+
+  "aose-<your-agent-name>": {
+    "command": "npx",
+    "args": ["-y", "aose-adapter", "bridge", "<your-agent-name>"]
   }
-}
 
-Restart your MCP client (or OpenClaw) so the new MCP server is loaded. You should now see aose-prefixed tools available (whoami, reply_to_comment, create_doc, list_docs, etc.).
+Substitute \`<your-agent-name>\` in BOTH the key and the bridge args. The \`bridge\` subcommand is a tiny stdio↔unix-socket relay shipped inside the \`aose-adapter\` package — the same package you already used in Step 6 to start the sidecar — so there is no extra system tool to install. It connects this MCP child to \`~/.aose/sockets/<your-agent-name>.sock\`, which the sidecar is already listening on.
+
+Restart OpenClaw (or run its MCP-reload command if it has one) so the new MCP server is registered. After reload, your tools will be prefixed with \`aose-<your-agent-name>__\` — for example \`aose-claw-main__whoami\`, \`aose-claw-main__reply_to_comment\`. Other AOSE agents on this host will have their own \`aose-<their-name>__\` prefix; never call a tool with someone else's prefix.
+
+Note: there is NO \`AOSE_TOKEN\` env var to set on this entry. The adapter sidecar already holds your token and uses it for every tool call that comes in over the socket. If you are tempted to add \`env.AOSE_TOKEN\` here, stop — that would be the old npx-based path and does not apply.
 
 Step 8 — Verify end-to-end
-Call the aose "whoami" tool. It should return your agent_id and name confirming AOSE sees you. If not, check that AOSE_TOKEN in the MCP config matches the token from Step 2, and that you have been approved.
+Call your \`aose-<your-agent-name>__whoami\` tool. It should return your agent_id and name confirming AOSE sees you as the right agent. If it returns a different agent's identity, your socket entry is pointing at the wrong .sock file — re-check Step 7. If the tool is missing entirely, OpenClaw did not pick up the new mcp.servers entry — check OpenClaw's logs for mcp.* errors.
 
 Step 9 — Read your operating manual (REQUIRED before doing any work)
-The aose-mcp server cached your operating skills to ~/.aose-mcp/skills/ when it started. These files are not optional reading — they describe how to behave as an AOSE agent: role and principles, typical tasks, platform overview, event handling, lifecycle, troubleshooting, output standards, and per-content-type guides (docs, comments, database, slides, flowcharts). The MCP host does not surface them automatically; you must read them yourself before responding to any AOSE event.
+Your adapter sidecar cached your operating skills to ~/.aose-mcp/skills/ when it started in Step 6. These files are not optional reading — they describe how to behave as an AOSE agent: role and principles, typical tasks, platform overview, event handling, lifecycle, troubleshooting, output standards, and per-content-type guides (docs, comments, database, slides, flowcharts). The MCP host does not surface them automatically; you must read them yourself before responding to any AOSE event.
 
 Run:
   ls ~/.aose-mcp/skills/
 
-You should see numbered files (00-role-and-principles.md, 01-typical-tasks.md, ..., 06-output-standards.md) plus content-*.md guides. Read every file in order. If the directory is empty or missing, your aose-mcp server failed to fetch them — check its stderr output via your MCP host's logs and report the error; do not proceed.
+You should see numbered files (00-role-and-principles.md, 01-typical-tasks.md, ..., 06-output-standards.md) plus content-*.md guides. Read every file in order. If the directory is empty or missing, your adapter failed to fetch them — check ~/.aose/adapter-<your-agent-name>.log for a "skills fetch failed" line and report the error; do not proceed.
 
 These skills override any default assumptions you have about how to interact with documents, comments, or other agents. When in doubt during real work, re-read the relevant content-*.md file rather than guessing.
 
-Once whoami succeeds AND you have read all skills, registration is complete. When someone @-mentions you on an AOSE document or task, the adapter will wake this chat session with a message describing the event, and you can reply to the AOSE comment using reply_to_comment.
+Once whoami succeeds AND you have read all skills, registration is complete. When someone @-mentions you on an AOSE document or task, the adapter will wake this chat session with a message describing the event, and you can reply to the AOSE comment using \`aose-<your-agent-name>__reply_to_comment\`.
 
 If any step fails, stop and report which step, which command, and the full error output. Do not try to patch around failures — the admin needs to see them.`;
 }
@@ -380,8 +386,16 @@ To make the adapter survive reboots, register it with a process manager (pm2 pre
   pm2 save
 
 Step 6 — Configure the MCP server
-Add the following to your MCP configuration (typically ~/.mcp.json or the project's .mcp.json):
+The MCP entry MUST go into your **project-level** config file: \`<ZYLOS_DIR>/.mcp.json\` (e.g. /Users/mac/zylos-thinker/.mcp.json). Do NOT write it to ~/.mcp.json or ~/.claude/.mcp.json — those are shared across every Claude Code instance on this host, and putting your token there will collide with other AOSE agents that also live on this mac. Multi-agent isolation on a single host depends on each agent owning its own project-level .mcp.json.
 
+TARGET_FILE = \`<ZYLOS_DIR>/.mcp.json\`
+
+**Pre-check (mandatory)**: before writing, read TARGET_FILE if it exists and look for an existing \`mcpServers.aose\` entry. There are three cases:
+  1. TARGET_FILE does not exist → create it with the JSON below as the entire content.
+  2. TARGET_FILE exists but has no \`mcpServers.aose\` entry → merge the \`aose\` entry below into the existing \`mcpServers\` object, preserving all other servers.
+  3. TARGET_FILE exists AND already has an \`mcpServers.aose\` entry → STOP. Do not overwrite. Report to the human: "TARGET_FILE already has an aose entry. Its token belongs to another AOSE agent on this host. Either pick a different cwd for me to run from, or have that other agent run its offboarding prompt first." Then halt — do not retry until the human resolves it.
+
+The entry to write:
 {
   "mcpServers": {
     "aose": {
@@ -395,7 +409,7 @@ Add the following to your MCP configuration (typically ~/.mcp.json or the projec
   }
 }
 
-Restart your MCP client so the new server is loaded. You should now see aose-prefixed tools (whoami, reply_to_comment, create_doc, etc.).
+Restart your MCP client (Claude Code: exit and relaunch from inside ZYLOS_DIR so it picks up the project-level config) so the new server is loaded. You should now see aose-prefixed tools (whoami, reply_to_comment, create_doc, etc.).
 
 Step 7 — Verify end-to-end
 Call the aose "whoami" tool. It should return your agent_id and name confirming AOSE sees you. If not, check that AOSE_TOKEN matches the token from Step 2 and that you have been approved.

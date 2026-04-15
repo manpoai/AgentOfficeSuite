@@ -34,6 +34,19 @@ import { translateEvent } from './event-translator.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// ─── `aose-adapter bridge <agent-name>` ─────────────
+// Tiny stdio↔unix-socket relay so MCP hosts with global mcp.servers config
+// (OpenClaw etc.) can spawn this command and reach the per-agent MCP socket
+// the adapter sidecar exposes. Replaces the older `ncat -U` recipe so users
+// don't need to install nmap or netcat-openbsd. Delegated to a separate
+// file so the sidecar's top-level await chain doesn't run in bridge mode.
+if (process.argv[2] === 'bridge') {
+  await import('./bridge.js');
+  // bridge.js installs a 'close' handler that exits the process. Block
+  // forever here so the sidecar code below never runs in bridge mode.
+  await new Promise(() => {});
+}
+
 // ─── Parse CLI args ──────────────────────────────
 function parseArgs(argv) {
   const out = {};
@@ -109,6 +122,53 @@ function saveLastEventTs(ts) {
 // ─── Load platform plugin ────────────────────────
 const platformPlugin = await import(`./platforms/${PLATFORM}.js`);
 platformPlugin.init(config);
+
+// ─── MCP server surface (Case B platforms only) ──
+// Platforms whose host MCP config is global rather than per-agent (currently:
+// openclaw) need the adapter sidecar to also expose a per-agent MCP endpoint
+// over a unix domain socket. The host's mcp.servers entry points at this
+// socket via `ncat -U`, so each agent on the same host gets its own MCP
+// process bound to its own AOSE token. See feedback memory rule
+// "AOSE adapter responsibility — identity carrier, scope depends on host".
+const HOSTS_NEEDING_MCP_SURFACE = new Set(['openclaw']);
+let socketMcp = null;
+if (HOSTS_NEEDING_MCP_SURFACE.has(PLATFORM)) {
+  try {
+    const { startSocketMcpServer } = await import('aose-mcp/socket');
+    const socketPath = path.join(os.homedir(), '.aose', 'sockets', `${AGENT_NAME}.sock`);
+    socketMcp = await startSocketMcpServer({
+      socketPath,
+      baseUrl: GATEWAY_URL,
+      token: AGENT_TOKEN,
+    });
+    console.log(`[adapter] MCP socket endpoint ready at ${socketPath}`);
+
+    // Cache skills to ~/.aose-mcp/skills/. Non-fatal: if the gateway is
+    // slow or unreachable the socket is already up and the agent can
+    // still reach AOSE — it just won't have fresh skills cached this run.
+    try {
+      const { fetchAndCacheSkills } = await import('aose-mcp/skills-fetch');
+      const { dir, files } = await fetchAndCacheSkills(GATEWAY_URL);
+      console.log(`[adapter] skills cached to ${dir} (${files.length} files)`);
+    } catch (e) {
+      console.error(`[adapter] skills fetch failed (non-fatal): ${e.message}`);
+    }
+  } catch (e) {
+    console.error(`[adapter] Failed to start MCP socket endpoint: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+// Cleanup on signal so the .sock file doesn't linger across restarts.
+const shutdown = async (sig) => {
+  console.log(`[adapter] Received ${sig}, shutting down`);
+  if (socketMcp) {
+    try { await socketMcp.close(); } catch (e) { console.error(`[adapter] socket close failed: ${e.message}`); }
+  }
+  process.exit(0);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 // ─── Event handler ───────────────────────────────
 async function handleEvent(event) {
