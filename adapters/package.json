@@ -1,6 +1,6 @@
 {
   "name": "aose-adapter",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "AOSE adapter sidecar — bridges AOSE events to a local agent runtime (zylos, openclaw, ...)",
   "type": "module",
   "bin": {

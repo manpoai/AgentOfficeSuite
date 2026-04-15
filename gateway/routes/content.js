@@ -886,10 +886,27 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     return formatUnifiedCommentRow(r);
   }
 
+  // Normalize a caller-supplied content id to the canonical prefixed form
+  // (`doc:doc_xxx`, `table:tbl_xxx`, ...). Frontend always passes the
+  // prefixed form; MCP tools document the bare form (`doc_xxx`). Both must
+  // resolve to the same (target_type, target_id) pair, otherwise MCP writes
+  // land under a second key and the UI never shows them.
+  function normalizeContentTarget(rawId) {
+    const colonIdx = rawId.indexOf(':');
+    if (colonIdx > 0) {
+      return { targetType: rawId.substring(0, colonIdx), targetId: rawId };
+    }
+    const item = db.prepare('SELECT type FROM content_items WHERE id = ?').get(rawId);
+    if (!item) return null;
+    return { targetType: item.type, targetId: `${item.type}:${rawId}` };
+  }
+
   app.get('/api/content-items/:id/comments', authenticateAgent, (req, res) => {
-    const contentId = decodeURIComponent(req.params.id);
+    const rawId = decodeURIComponent(req.params.id);
+    const normalized = normalizeContentTarget(rawId);
+    if (!normalized) return res.status(404).json({ error: 'NOT_FOUND', message: 'content item not found' });
     const { anchor_type, anchor_id } = req.query;
-    const comments = listUnifiedComments(db, contentId, {
+    const comments = listUnifiedComments(db, normalized.targetId, {
       anchorType: anchor_type || undefined,
       anchorId: anchor_id || undefined,
     });
@@ -897,12 +914,13 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
   });
 
   app.post('/api/content-items/:id/comments', authenticateAgent, (req, res) => {
-    const contentId = decodeURIComponent(req.params.id);
+    const rawId = decodeURIComponent(req.params.id);
     const { text, parent_comment_id, anchor_type, anchor_id, anchor_meta } = req.body;
     if (!text) return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'text required' });
 
-    const colonIdx = contentId.indexOf(':');
-    const targetType = colonIdx > 0 ? contentId.substring(0, colonIdx) : 'content';
+    const normalized = normalizeContentTarget(rawId);
+    if (!normalized) return res.status(404).json({ error: 'NOT_FOUND', message: 'content item not found' });
+    const { targetType, targetId } = normalized;
     const displayName = actorName(req);
     const actorId = req.actor?.id || req.agent?.id;
 
@@ -914,7 +932,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       deliverWebhook,
     }, {
       targetType,
-      targetId: contentId,
+      targetId,
       text,
       parentId: parent_comment_id || null,
       anchorType: anchor_type || null,
