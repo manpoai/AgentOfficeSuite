@@ -48,12 +48,26 @@ function buildOffboardingPrompt(platform, agentName) {
 function buildGenericOffboardingPrompt(platform, name) {
   return `You have been removed from an aose workspace as the agent named "${name}". Your agent token is already revoked server-side, so any further AOSE API call will return 403 AGENT_DELETED. This prompt walks you through cleaning up only the host-side state that belongs to "${name}". The same host may run other AOSE agents — never touch entries or files that do not provably belong to you.
 
-Step 1 — Remove the aose MCP server entry, only if it belongs to you
-Your MCP host configuration (typically ~/.mcp.json or your host's MCP servers list) holds one entry named "aose" per host. The same host can only register one AOSE identity at a time, so this entry may belong to a different agent. Before deleting:
-  1. Read mcpServers.aose.env.AOSE_TOKEN from your MCP host config
-  2. Compare it with the AOSE_TOKEN you saved during your own onboarding (from your memory or the original onboarding response)
-  3. If the tokens match, the entry is yours — delete the whole "aose" object and save the file. Then restart your MCP host so the dead aose-mcp child is no longer spawned.
-  4. If the tokens differ, the entry belongs to another agent — DO NOT touch it and DO NOT restart the MCP host. Skip to Step 2.
+Step 1 — Remove the aose MCP server entry from EVERY config file where it is yours
+Your AOSE_TOKEN may live in any MCP host config file your runtime reads. Multi-agent hosts isolate agents by giving each agent its own config file (often a project-level .mcp.json next to the cwd where the agent runs). You MUST scan every candidate location, not just one. The same host may have entries belonging to other agents — only delete an entry if its token matches yours.
+
+First, recall your own AOSE_TOKEN (from your memory or the original onboarding response). Save it as MY_TOKEN.
+
+Then, for each of these candidate files (skip silently if the file does not exist):
+  - <your-cwd>/.mcp.json                          (project-level — THE MOST COMMON LOCATION)
+  - ~/.mcp.json                                   (global MCP host config)
+  - ~/.claude/.mcp.json                           (Claude Code user-level config)
+  - ~/.openclaw/openclaw.json                     (OpenClaw default config)
+  - "$OPENCLAW_CONFIG_PATH"                       (only if this env var is set)
+  - any other MCP host config file you know your runtime reads from
+
+In each existing file:
+  1. Read the aose entry's AOSE_TOKEN (mcpServers.aose.env.AOSE_TOKEN for Claude-style, mcp.servers.aose.env.AOSE_TOKEN for OpenClaw).
+  2. If there is no aose entry, skip this file.
+  3. If the token equals MY_TOKEN → delete the whole aose entry and save the file (back it up first as <file>.bak-<timestamp>).
+  4. If the token differs → leave it alone.
+
+After all files are processed, if you deleted at least one entry, restart your MCP host so any dead aose-mcp child is not respawned with a revoked token. If you deleted nothing, do not restart.
 
 Step 2 — Do not touch the shared skills cache
 ~/.aose-mcp/skills/ is shared across every AOSE agent that runs aose-mcp on this host. It contains no secrets and other agents still need it. Leave it in place.
@@ -86,15 +100,28 @@ Step 2 — Delete only your own files
   rm -f ~/.aose/adapter-state/${name}.last-event-ts
 The directory ~/.aose/adapter-state/ is shared across all agents on this host (each agent has its own <name>.last-event-ts file inside). Do NOT \`rm -rf\` the directory. Other adapter-*.json files in ~/.aose/ may belong to other AOSE workspaces — leave them alone.
 
-Step 3 — Remove the aose MCP server entry, only if it belongs to you
-OpenClaw stores one MCP server entry per host at ~/.openclaw/openclaw.json under mcp.servers.aose. The same host can only register one AOSE identity at a time, so this entry may belong to a different agent. Before deleting:
-  1. Read mcp.servers.aose.env.AOSE_TOKEN from ~/.openclaw/openclaw.json
-  2. Compare it with the AOSE_TOKEN that was previously saved in your now-deleted ~/.aose/adapter-${name}.json (you may need to recall it from your memory or the original onboarding response)
-  3. If the tokens match, the entry is yours — delete the whole mcp.servers.aose object and save the file. The token is a revoked secret and must not be left on disk.
-  4. If the tokens differ, the entry belongs to another agent — DO NOT touch it. Skip to Step 5.
+Step 3 — Remove the aose MCP server entry from EVERY config file where it is yours
+Your AOSE_TOKEN may live in any MCP host config file your runtime reads. OpenClaw normally stores it at ~/.openclaw/openclaw.json under mcp.servers.aose, but a host may also be launched with a custom OPENCLAW_CONFIG_PATH, and some setups also leave entries in ~/.mcp.json or a project-level .mcp.json. You MUST scan every candidate, not just the default one. The same host may have entries belonging to other agents — only delete an entry if its token matches yours.
 
-Step 4 — Restart OpenClaw (only if you deleted the MCP entry in Step 3)
-Restart your OpenClaw gateway so the now-dead aose-mcp child process is not respawned with a revoked token. Your existing OpenClaw chat sessions are not affected. If you skipped Step 3 because the MCP entry belonged to another agent, do not restart — you would interrupt that agent's tool calls.
+First, recall your own AOSE_TOKEN. It was saved in your now-deleted ~/.aose/adapter-${name}.json; if you don't have it from that file, recall it from your memory or the original onboarding response. Save it as MY_TOKEN.
+
+Then, for each of these candidate files (skip silently if the file does not exist):
+  - ~/.openclaw/openclaw.json                     (OpenClaw default config)
+  - "$OPENCLAW_CONFIG_PATH"                       (only if this env var is set)
+  - ~/.mcp.json                                   (global MCP host config)
+  - ~/.claude/.mcp.json                           (Claude Code user-level config, if any)
+  - <your-cwd>/.mcp.json                          (project-level config — check this even if you are an OpenClaw agent)
+
+In each existing file:
+  1. Read the aose entry's AOSE_TOKEN. For OpenClaw configs that is mcp.servers.aose.env.AOSE_TOKEN; for Claude-style configs that is mcpServers.aose.env.AOSE_TOKEN.
+  2. If there is no aose entry, skip this file.
+  3. If the token equals MY_TOKEN → the entry is yours → delete the whole aose entry from that file and save it. Keep a backup (e.g. <file>.bak-<timestamp>) before writing.
+  4. If the token differs from MY_TOKEN → the entry belongs to another agent → DO NOT touch it.
+
+The token is a revoked secret and must not be left on disk anywhere it matches MY_TOKEN.
+
+Step 4 — Restart OpenClaw (only if you deleted at least one MCP entry in Step 3)
+Restart your OpenClaw gateway so the now-dead aose-mcp child process is not respawned with a revoked token. Your existing OpenClaw chat sessions are not affected. If you skipped every file in Step 3 because nothing matched MY_TOKEN, do not restart — you would interrupt other agents' tool calls.
 
 Step 5 — Do not touch the shared skills cache
 ~/.aose-mcp/skills/ is shared across every AOSE agent that runs aose-mcp on this host. It contains no secrets and other agents still need it. Leave it in place.
@@ -131,12 +158,25 @@ Step 2 — Delete only your own files
   rm -f ~/.aose/adapter-state/${name}.last-event-ts
 The directory ~/.aose/adapter-state/ is shared across all agents on this host (each agent has its own <name>.last-event-ts file inside). Do NOT \`rm -rf\` the directory. Other adapter-*.json files in ~/.aose/ may belong to other AOSE workspaces — leave them alone.
 
-Step 3 — Remove the aose MCP server entry, only if it belongs to you
-Your MCP host configuration (typically ~/.mcp.json or the project's .mcp.json) holds one entry named "aose" per host. The same host can only register one AOSE identity at a time, so this entry may belong to a different agent. Before deleting:
-  1. Read mcpServers.aose.env.AOSE_TOKEN from your MCP host config
-  2. Compare it with the AOSE_TOKEN that was previously saved in your now-deleted ~/.aose/adapter-${name}.json (you may need to recall it from your memory or the original onboarding response)
-  3. If the tokens match, the entry is yours — delete the whole "aose" object and save the file. The token is a revoked secret and must not be left on disk. Then restart your MCP client so the dead aose-mcp child is no longer spawned.
-  4. If the tokens differ, the entry belongs to another agent — DO NOT touch it and DO NOT restart the MCP client. Skip to Step 5.
+Step 3 — Remove the aose MCP server entry from EVERY config file where it is yours
+Your AOSE_TOKEN may live in any MCP host config file your runtime reads. Claude Code in particular merges configs from multiple locations at runtime — the global file, the user-level file, and the project-level .mcp.json in the cwd you launch from. Multiple agents on one host normally isolate themselves by living in different cwds, each with its own project-level .mcp.json. You MUST scan every candidate location, not just one. The same host may have entries belonging to other agents — only delete an entry if its token matches yours.
+
+First, recall your own AOSE_TOKEN. It was saved in your now-deleted ~/.aose/adapter-${name}.json; if you don't have it from that file, recall it from your memory or the original onboarding response. Save it as MY_TOKEN.
+
+Then, for each of these candidate files (skip silently if the file does not exist):
+  - <your-cwd>/.mcp.json                          (project-level — THE MOST COMMON LOCATION; check this first)
+  - ~/.mcp.json                                   (global MCP host config)
+  - ~/.claude/.mcp.json                           (Claude Code user-level config)
+  - ~/.openclaw/openclaw.json                     (in case an OpenClaw entry was left behind)
+  - "$OPENCLAW_CONFIG_PATH"                       (only if this env var is set)
+
+In each existing file:
+  1. Read the aose entry's AOSE_TOKEN. For Claude-style configs that is mcpServers.aose.env.AOSE_TOKEN; for OpenClaw configs that is mcp.servers.aose.env.AOSE_TOKEN.
+  2. If there is no aose entry, skip this file.
+  3. If the token equals MY_TOKEN → the entry is yours → delete the whole aose entry from that file and save it. Keep a backup (e.g. <file>.bak-<timestamp>) before writing.
+  4. If the token differs from MY_TOKEN → the entry belongs to another agent → DO NOT touch it.
+
+After all files are processed, if you deleted at least one entry, restart your MCP client so any dead aose-mcp child process is not respawned with a revoked token. If you deleted nothing, do not restart — you would interrupt other agents' tool calls.
 
 Step 4 — Do not touch the shared skills cache
 ~/.aose-mcp/skills/ is shared across every AOSE agent that runs aose-mcp on this host. It contains no secrets and other agents still need it. Leave it in place.
