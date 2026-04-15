@@ -26,8 +26,9 @@ cp -R shell/public/favicon.png shell/public/favicon.svg shell/public/logo.png sh
 
 # Root runtime metadata
 cp LICENSE README.md cli.js "$DIST_DIR/"
+RUNTIME_VERSION="$(node -p "require('./package.json').version")"
 cat > "$DIST_DIR/package.json" <<PKGJSON
-{"type":"module"}
+{"name":"aose-runtime","version":"$RUNTIME_VERSION","type":"module"}
 PKGJSON
 
 tar -czf "$ROOT_DIR/dist/aose-runtime.tar.gz" -C "$ROOT_DIR/dist" aose-runtime
