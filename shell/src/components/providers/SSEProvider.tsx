@@ -13,7 +13,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!token) return;
 
-    const es = new EventSource(`/api/notifications/stream?token=${token}`);
+    const es = new EventSource(`/api/gateway/notifications/stream?token=${token}`);
     esRef.current = es;
 
     es.onmessage = (e) => {

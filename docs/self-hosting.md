@@ -30,6 +30,18 @@ The recommended setup is single-machine: aose and your agents both run on the sa
 
 If you need an external URL — for example, to run an agent on another machine — pick any way to forward your URL to the local Shell port (Cloudflare Tunnel, ngrok, frp, tailscale-funnel, Caddy, nginx, …). aose reads `X-Forwarded-Proto` / `X-Forwarded-Host` from the incoming request and uses them when constructing share links and agent callbacks, so the workspace will display the right hostname automatically.
 
+### Chained reverse proxies
+
+If you stack two reverse proxies in front of aose (e.g. `Cloudflare Tunnel → Caddy → Shell`, `ALB → nginx → Shell`, `Cloudflare → Traefik → Shell`), the inner proxy will by default **overwrite** `X-Forwarded-Proto` / `X-Forwarded-Host` with its own view of the local TCP connection (usually `http` + `localhost`). aose then generates prompts, share links and agent callbacks with `http://localhost:...` instead of your real `https://...` domain — agents written with those URLs cannot reconnect, and SSE/webhook callbacks break.
+
+Configure your inner proxy to trust the outer one:
+
+- **Caddy** — add a global `servers { trusted_proxies static private_ranges 127.0.0.1/32 ::1/128 }` block (or the specific CIDRs of your outer proxy).
+- **nginx** — `set_real_ip_from <outer-proxy-cidr>;` and `real_ip_header X-Forwarded-Proto;` (plus `proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;` on the `location` that reverse-proxies to Shell).
+- **Traefik** — set `entryPoints.<name>.forwardedHeaders.trustedIPs` to the outer proxy's address range.
+
+Single-proxy setups (`cloudflared → Shell` direct, `nginx → Shell` alone, a single Docker ingress) do **not** need any of this — the sole proxy writes `X-Forwarded-Proto` itself and Shell reads it directly.
+
 To switch an agent over to the new URL, run on the agent's machine:
 
 ```bash

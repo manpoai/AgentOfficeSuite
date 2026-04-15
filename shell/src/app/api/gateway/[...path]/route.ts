@@ -45,8 +45,8 @@ async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
   const clientAuth = req.headers.get('authorization');
   const headers: Record<string, string> = {
     'Authorization': clientAuth || `Bearer ${GW_TOKEN}`,
-    'X-Forwarded-Host': req.headers.get('host') || '',
-    'X-Forwarded-Proto': req.nextUrl.protocol.replace(':', '') || 'https',
+    'X-Forwarded-Host': req.headers.get('x-forwarded-host') || req.headers.get('host') || '',
+    'X-Forwarded-Proto': req.headers.get('x-forwarded-proto') || req.nextUrl.protocol.replace(':', '') || 'https',
   };
 
   const ct = req.headers.get('content-type') || '';
