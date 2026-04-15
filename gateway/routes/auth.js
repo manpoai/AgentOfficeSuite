@@ -765,13 +765,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
         }
       }
     }
-    let onboardingPrompt = '';
-    try {
-      const promptPath = path.join(GATEWAY_DIR, '..', 'mcp-server', 'onboarding-prompt.md');
-      onboardingPrompt = substitute(fs.readFileSync(promptPath, 'utf8'));
-      files['onboarding-prompt.md'] = onboardingPrompt;
-    } catch {}
-    res.json({ skills: files, onboarding_prompt: onboardingPrompt });
+    res.json({ skills: files });
   });
 
   // Admin: reset an agent's token

@@ -134,8 +134,8 @@ export async function resetAgentToken(agentId: string): Promise<{ token: string 
   return gwFetch(`/admin/agents/${agentId}/reset-token`, { method: 'POST' });
 }
 
-/** Get agent skills info including onboarding prompt */
-export async function getAgentSkills(): Promise<{ onboarding_prompt?: string; [key: string]: unknown }> {
+/** Get the cached agent skills package (filename → markdown content) */
+export async function getAgentSkills(): Promise<{ skills: Record<string, string> }> {
   return gwFetch('/agent-skills');
 }
 
