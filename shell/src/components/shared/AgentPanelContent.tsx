@@ -9,6 +9,17 @@ import { useT } from '@/lib/i18n';
 import * as gw from '@/lib/api/gateway';
 import { resolveAvatarUrl } from '@/lib/api/gateway';
 
+const PLATFORM_LABELS: Record<string, string> = {
+  zylos: 'Zylos',
+  openclaw: 'OpenClaw',
+  'claude-code': 'Claude Code',
+  codex: 'Codex CLI',
+};
+
+function platformLabel(name: string) {
+  return PLATFORM_LABELS[name] || name;
+}
+
 function PlatformIcon({ name }: { name: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
@@ -195,7 +206,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
                 className="flex flex-col items-center gap-2 p-3 rounded-lg border border-black/10 dark:border-border hover:border-sidebar-primary hover:bg-sidebar-primary/5 transition-colors"
               >
                 <PlatformIcon name={p} />
-                <span className="text-xs font-medium">{p}</span>
+                <span className="text-xs font-medium">{platformLabel(p)}</span>
               </button>
             ))}
           </div>
@@ -208,7 +219,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <button onClick={() => setSelectedPlatform(null)} className="text-xs text-muted-foreground hover:text-foreground">←</button>
-              <span className="text-xs font-medium text-foreground">{selectedPlatform} — {t('actions.sendToAgent')}</span>
+              <span className="text-xs font-medium text-foreground">{platformLabel(selectedPlatform)} — {t('actions.sendToAgent')}</span>
             </div>
             <button onClick={() => navigator.clipboard.writeText(promptText)} className="flex items-center gap-1 px-2 py-0.5 text-xs text-sidebar-primary hover:bg-sidebar-primary/10 rounded transition-colors">
               <Copy className="h-3 w-3" />{t('actions.copyPrompt')}
@@ -231,7 +242,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
                 <span className="text-sm font-medium text-foreground truncate block">{agent.display_name || agent.name}</span>
                 <span className="text-xs text-foreground/50">
                   {agent.name}
-                  {agent.platform && <span className="ml-1.5 px-1.5 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{agent.platform}</span>}
+                  {agent.platform && <span className="ml-1.5 px-1.5 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{platformLabel(agent.platform)}</span>}
                 </span>
               </div>
               <button onClick={async () => { try { await gw.rejectAgent(agent.agent_id || agent.name); queryClient.invalidateQueries({ queryKey: ['admin-agents'] }); } catch {} }} className="w-8 h-8 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0 hover:bg-red-100 transition-colors">
@@ -281,7 +292,7 @@ export function AgentPanelContent({ variant }: AgentPanelContentProps) {
                   )}
                   <span className="text-xs text-foreground/50">
                     {agent.name}
-                    {agent.platform && <span className="ml-1.5 px-1.5 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{agent.platform}</span>}
+                    {agent.platform && <span className="ml-1.5 px-1.5 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{platformLabel(agent.platform)}</span>}
                     {!agent.online && agent.last_seen_at && (
                       <span className="text-[10px] text-foreground/30 ml-1">{formatRelativeTime(agent.last_seen_at)}</span>
                     )}
