@@ -31,6 +31,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import EventSource from 'eventsource';
 import { translateEvent } from './event-translator.js';
+import { startAutoUpdate, stopAutoUpdate } from './auto-update.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -162,6 +163,7 @@ if (HOSTS_NEEDING_MCP_SURFACE.has(PLATFORM)) {
 // Cleanup on signal so the .sock file doesn't linger across restarts.
 const shutdown = async (sig) => {
   console.log(`[adapter] Received ${sig}, shutting down`);
+  stopAutoUpdate();
   if (socketMcp) {
     try { await socketMcp.close(); } catch (e) { console.error(`[adapter] socket close failed: ${e.message}`); }
   }
@@ -262,3 +264,4 @@ function connectSSE() {
 console.log(`[adapter] Starting — agent: ${AGENT_NAME}, platform: ${PLATFORM}, gateway: ${GATEWAY_URL}`);
 await catchup();
 connectSSE();
+startAutoUpdate(AGENT_NAME);
