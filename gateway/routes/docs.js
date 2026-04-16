@@ -5,6 +5,8 @@ import { createUnifiedComment } from '../lib/comment-service.js';
 import { createSnapshot, isAgentRequest } from '../lib/snapshot-helper.js';
 import { insertNotification } from '../lib/notifications.js';
 import { restoreDocFromSnapshot, extractTextFromProseMirror } from '../lib/doc-restore-helper.js';
+import { parseMarkdownFragment } from '../lib/pm-parser.js';
+import { ensureTopLevelBlockIds, listTopLevelBlocks, replaceTopLevelBlock } from '../lib/doc-block-ops.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
@@ -175,6 +177,150 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     }
 
     res.json({ doc_id: req.params.doc_id, updated_at: new Date(now).getTime() });
+  });
+
+  // ─── Block-level doc editing ────────────────────────────────────────────────
+
+  // GET /api/docs/:doc_id/outline — list top-level blocks with blockIds and previews
+  app.get('/api/docs/:doc_id/outline', authenticateAgent, (req, res) => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL').get(req.params.doc_id);
+    if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    let docJson = null;
+    if (doc.data_json) {
+      try { docJson = JSON.parse(doc.data_json); } catch { /* ignore */ }
+    }
+    if (!docJson) {
+      docJson = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+    }
+
+    const { doc: annotated, changed } = ensureTopLevelBlockIds(docJson);
+
+    if (changed) {
+      db.prepare('UPDATE documents SET data_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(annotated), new Date().toISOString(), req.params.doc_id);
+    }
+
+    const blocks = listTopLevelBlocks(annotated);
+    res.json({ doc_id: req.params.doc_id, blocks });
+  });
+
+  // GET /api/docs/:doc_id/blocks?block_ids=id1,id2 — read specific blocks by ID
+  app.get('/api/docs/:doc_id/blocks', authenticateAgent, (req, res) => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL').get(req.params.doc_id);
+    if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    const blockIds = req.query.block_ids
+      ? req.query.block_ids.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+
+    let docJson = null;
+    if (doc.data_json) {
+      try { docJson = JSON.parse(doc.data_json); } catch { /* ignore */ }
+    }
+    if (!docJson) {
+      docJson = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+    }
+
+    const { doc: annotated } = ensureTopLevelBlockIds(docJson);
+    const allBlocks = listTopLevelBlocks(annotated);
+
+    const result = blockIds.length > 0
+      ? allBlocks.filter(b => blockIds.includes(b.block_id))
+      : allBlocks;
+
+    const content = annotated.content || [];
+    const blockMap = new Map(content.map(n => [n?.attrs?.blockId, n]));
+    const blocks = result.map(b => ({
+      ...b,
+      node: blockMap.get(b.block_id) || null,
+    }));
+
+    res.json({ doc_id: req.params.doc_id, blocks });
+  });
+
+  // PATCH /api/docs/:doc_id/blocks/:block_id — replace a single block with new markdown
+  app.patch('/api/docs/:doc_id/blocks/:block_id', authenticateAgent, (req, res) => {
+    const { content_markdown } = req.body;
+    if (content_markdown === undefined) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'content_markdown required' });
+    }
+
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL').get(req.params.doc_id);
+    if (!doc) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    let docJson = null;
+    if (doc.data_json) {
+      try { docJson = JSON.parse(doc.data_json); } catch { /* ignore */ }
+    }
+    if (!docJson) {
+      docJson = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
+    }
+
+    const { doc: annotated } = ensureTopLevelBlockIds(docJson);
+
+    const parsed = parseMarkdownFragment(content_markdown);
+    const replacementNode = Array.isArray(parsed) ? parsed[0] : parsed;
+
+    let result;
+    try {
+      result = replaceTopLevelBlock(annotated, req.params.block_id, replacementNode.toJSON());
+    } catch (e) {
+      if (e.code === 'BLOCK_NOT_FOUND') {
+        return res.status(404).json({ error: 'BLOCK_NOT_FOUND', message: `block ${req.params.block_id} not found in document` });
+      }
+      throw e;
+    }
+
+    const now = new Date().toISOString();
+    const agentName = actorName(req);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'doc',
+        contentId: req.params.doc_id,
+        data: annotated,
+        triggerType: 'pre_agent_edit',
+        actorId: agentName,
+        title: doc.title,
+      });
+    }
+
+    db.prepare('UPDATE documents SET data_json = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+      .run(JSON.stringify(result.doc), now, agentName, req.params.doc_id);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'doc',
+        contentId: req.params.doc_id,
+        data: result.doc,
+        triggerType: 'post_agent_edit',
+        actorId: agentName,
+        title: doc.title,
+        description: req.body.revision_description || null,
+      });
+    }
+
+    if (humanClients && pushHumanEvent) {
+      try {
+        const humans = db.prepare("SELECT id FROM actors WHERE type = 'human'").all();
+        for (const h of humans) {
+          pushHumanEvent(h.id, {
+            event: 'content.changed',
+            data: { action: 'updated', type: 'doc', id: req.params.doc_id, title: doc.title },
+          });
+        }
+      } catch (e) {
+        console.error(`[docs] pushHumanEvent error: ${e.message}`);
+      }
+    }
+
+    res.json({
+      doc_id: req.params.doc_id,
+      block_id: req.params.block_id,
+      block_index: result.index,
+      updated_at: new Date(now).getTime(),
+    });
   });
 
   // ─── Agent-facing comment endpoints ─────────────────────────────────────────
