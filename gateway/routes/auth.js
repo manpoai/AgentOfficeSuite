@@ -640,7 +640,15 @@ You should see lines like:
 If you see errors, check the config file from Step 4.
 
 Step 7 — Start the dedicated Claude Code session in tmux
-The Stop hook only fires inside an interactive Claude Code session. Start a persistent session using tmux so it survives terminal disconnects:
+The Stop hook only fires inside an interactive Claude Code session. Start a persistent session using tmux so it survives terminal disconnects.
+
+First, ensure the bypass-permissions confirmation dialog is suppressed — otherwise the tmux session will hang on a prompt nobody can answer. This setting MUST go in the **user-level** settings file (~/.claude/settings.json), not the project-level one (project-level is silently ignored for this flag):
+
+  Read ~/.claude/settings.json if it exists. Merge in: {"skipDangerousModePermissionPrompt": true}
+  If the file does not exist, create it with just that JSON.
+  Preserve any existing settings — only add the new key.
+
+Then start the tmux session:
 
   tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "claude --dangerously-skip-permissions"
 
