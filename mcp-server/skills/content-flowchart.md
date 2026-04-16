@@ -40,21 +40,30 @@ The human describes a process: "create a flowchart for the order approval workfl
 
 The human says "change the 'Reject' step to 'Request Changes'" or comments on a specific node.
 
-1. Read the current cells array (or use the event payload's anchor).
-2. Find the cell by ID.
-3. Replace only that cell; leave the rest untouched.
-4. Write the cells back.
-5. Report what changed.
+1. Call `read_diagram(diagram_id)` to get the current cells (or use the event payload's anchor if it already contains the node ID).
+2. Identify the target cell by its `id`.
+3. Call `update_node(diagram_id, node_id, patch)` or `update_edge(diagram_id, edge_id, patch)` — only the target cell changes.
+4. Report what changed.
+
+Do **not** write back the entire cells array to change one node. The dedicated tools ensure all other cells are untouched.
 
 ### Pattern 3: Extend an existing flowchart
 
 The human says "add an error handling branch after the validation step."
 
-1. Read the diagram.
-2. Compute new node(s) with coordinates that fit the existing layout.
-3. Add new edge(s) connecting them.
-4. Write back.
-5. Report the addition.
+1. Call `read_diagram(diagram_id)` to understand the current structure and existing node positions.
+2. Compute coordinates for new nodes that fit the layout (leave enough gap, don't overlap).
+3. Call `add_node(diagram_id, spec)` for each new node.
+4. Call `add_edge(diagram_id, spec)` for each new edge.
+5. Report the addition (node count added, how it connects to existing nodes).
+
+New nodes get fresh IDs returned by the tool. Use those IDs in the edge `source` / `target` fields.
+
+### Pattern 4: Re-layout after structural changes
+
+After adding many nodes whose positions are cluttered, call `auto_layout(diagram_id)` to recompute positions.
+
+**Warning:** `auto_layout` overwrites all node positions, including positions set by human drag-and-drop. Only call it when the human explicitly asks or when you're creating a brand-new diagram. Never call it silently when only adding one or two nodes.
 
 ## Node Structure
 
@@ -217,7 +226,9 @@ Start → Fork ──→ Task A ──→ Join → End
 ## Anti-Patterns
 
 - **Don't reach for a flowchart when prose or a list will do.** A straight sequence of 5 steps is a list.
-- **Don't rebuild the diagram to change one node.** Update the cell you need, leave the rest.
+- **Don't rebuild the diagram to change one node.** Use `update_node` or `update_edge` — not a full `update_diagram`. The targeted tools leave all other cells untouched.
+- **Don't call `auto_layout` silently.** It overwrites every human-set position in the diagram. Only call it when explicitly requested or when creating a fresh diagram.
+- **Don't delete a node without considering its edges.** Deleting a node via `delete_node` removes connected edges automatically — don't manually remove the edges first or you'll get a double-operation error.
 - **Don't embed a mermaid diagram in a doc AND create a standalone flowchart for the same content.** Pick one home.
 - **Don't use a flowchart for a pure hierarchy.** Trees belong in nested lists unless there are non-tree edges.
 - **Don't use random shapes for variety.** The shape is information; breaking convention confuses the reader.

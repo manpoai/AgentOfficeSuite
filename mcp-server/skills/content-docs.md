@@ -44,22 +44,45 @@ Response to the human: one sentence naming the doc and summarizing the structure
 A human commented on a specific passage asking for a change. The event gave you `content_snippet`, `anchor`, and `write_back_target`.
 
 1. Read the `content_snippet` to confirm you understand the passage.
-2. Compute the edited text.
-3. Call `update_doc` with the anchor-targeted change.
+2. Call `read_doc_outline` to find the block containing the passage.
+3. Call `doc_replace_block` with the updated content to replace only that block.
 4. Reply to the comment confirming what changed, then `resolve_comment`.
 
-You do **not** need to call `read_doc` first. The snippet is the context.
+You do **not** need to call `read_doc` for a targeted edit. The snippet + outline is enough.
 
-### Pattern 3: Full-document update
+### Pattern 3: Targeted section edit
 
-The human wants a larger restructure — "reorganize this doc", "add a section on X". This one you *do* need the full content for.
+The human wants to change a specific section — "update the risks section", "expand the summary". Use block-level tools.
+
+1. `read_doc_outline({ doc_id })` to get the list of top-level blocks with their IDs and text previews.
+2. Identify the target block by its `text_preview`.
+3. If you need the full content of that block: `read_doc_blocks({ doc_id, block_ids: [<id>] })`.
+4. `doc_replace_block({ doc_id, block_id, content_markdown })` to write only that block.
+5. Report what you changed in one sentence.
+
+Other blocks — including any human-added comments anchored to them — are completely untouched.
+
+### Pattern 4: Add a section at the end
+
+The human says "add a conclusion section" or "append a section on X".
+
+1. `doc_append_section({ doc_id, heading: "Conclusion", body_markdown: "..." })`.
+2. Report done.
+
+No need to read the document first.
+
+### Pattern 5: Full-document restructure (escape hatch)
+
+The human wants a wholesale restructure — "reorganize everything", "rewrite from scratch". This is the only case where `update_doc` (full replacement) is appropriate.
 
 1. `read_doc({ doc_id })` to get the current Markdown.
 2. Compute the new full Markdown.
-3. `update_doc({ doc_id, content_markdown: <new>, revision_description: "<what changed>" })`.
+3. `update_doc({ doc_id, content_markdown: <new> })`.
 4. Report what you changed in one sentence.
 
-Always provide a `revision_description`. Humans use the revision history to understand what each edit did.
+Use this sparingly. A full replacement destroys the diff history for every unrelated block.
+
+Always prefer block-level edits (Patterns 2–4) over full replacement (Pattern 5).
 
 ## Supported Markdown Elements
 
@@ -139,10 +162,10 @@ Link to other aose content items from within a doc. Creates a clickable referenc
 
 ## Anti-Patterns
 
-- **Don't `read_doc` when you already have `content_snippet`.** Comment events deliver the relevant passage. For targeted edits, that snippet + `write_back_target` is enough. Only call `read_doc` when you genuinely need content beyond the snippet window.
+- **Don't `read_doc` when you already have `content_snippet`.** Comment events deliver the relevant passage. For targeted edits, that snippet + `read_doc_outline` is enough. Only call `read_doc` when you genuinely need content well beyond the snippet window.
+- **Don't use `update_doc` (full replacement) when a block-level tool will do.** `doc_replace_block`, `doc_insert_block_after`, `doc_append_section`, and `doc_delete_block` exist specifically to avoid full rewrites. Full replacement destroys history for every unrelated block and risks overwriting concurrent human edits.
 - **Don't `list_docs` to "see what's there" before every task.** If the human named the doc, go straight to it. `list_docs` is for search, not orientation.
-- **Don't re-`read_doc` after an `update_doc` to confirm the change.** The update call's return value is the confirmation. Trust it unless it errored.
+- **Don't re-read the doc after a block edit to confirm the change.** The tool's return value is the confirmation. Trust it unless it errored.
 - **Don't rewrite the whole doc when a section edit will do.** Surgical updates produce readable revision diffs. Full rewrites look the same as "everything changed" in history, even if only one paragraph actually changed.
 - **Don't leave `title` as `"Untitled"` or `"New Document"`.** A real title is the baseline. See `06-output-standards.md`.
 - **Don't use a document as a database.** A Markdown table with 30 rows and no way to filter is a failed design — move it to a real table.
-- **Don't skip `revision_description` on updates.** "Fixed typo in section 3" is cheap to write and permanently useful in history.

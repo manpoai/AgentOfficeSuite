@@ -59,9 +59,39 @@ The human says "track X in a new table." Decide the schema, create the table, an
 1. Pick column names that describe what they hold (`customer_email`, not `col1`).
 2. Pick the most specific column type (Currency for money, Date for dates, SingleSelect for known choices).
 3. Decide which columns are required before calling.
-4. `list_tables` is *not* needed here — you're creating.
+4. `create_table({ title, columns: [{ title, uidt }, ...] })` — pass all initial columns in one call.
+5. `list_tables` is *not* needed here — you're creating.
 
 See `06-output-standards.md` for table design quality rules.
+
+### Pattern 5: Modify an existing table's schema
+
+The human says "add a Priority column" or "rename the Status column".
+
+**Add a column:**
+```
+add_column(table_id, { title: "Priority", uidt: "SingleSelect" })
+```
+
+**Rename a column:**
+```
+update_column(table_id, column_id, { title: "New Name" })
+```
+Get `column_id` from `describe_table`.
+
+**Delete a column:**
+```
+delete_column(table_id, column_id)
+```
+Warning: this permanently drops the column and all its data.
+
+**Reorder columns:**
+```
+reorder_columns(table_id, [column_id_1, column_id_2, ...])
+```
+Pass all column IDs in the desired order. Columns not in the list are appended at the end.
+
+Row data in other columns is unaffected by schema changes.
 
 ## Column Types (25 Types)
 

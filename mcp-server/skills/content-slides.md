@@ -39,11 +39,14 @@ The human asks for a deck on topic X. You decide the slide sequence, build each 
 
 The human says "fix slide 3" or comments on a specific slide.
 
-1. Read the current deck to get the existing slide structure (or use the event payload if one's available).
-2. Modify only the slide at the given index. Leave the rest alone.
-3. Write the deck back with the updated slide in place.
-4. Report which slide changed and what.
+1. Call `list_slides(deck_id)` to get slide IDs and their content previews.
+2. Identify the target slide by its `slide_id` (stable across reorders) or index.
+3. Call `read_slide(deck_id, slide_id)` to get the full slide content.
+4. Compute the updated elements.
+5. Call `update_slide(deck_id, slide_id, patch)` to write only that slide.
+6. Report which slide changed and what.
 
+Use the `slide_id` field, not the array index. Index-based access breaks when slides are reordered.
 Do **not** rebuild the whole deck to change one slide.
 
 ### Pattern 3: Add speaker notes to an existing deck
@@ -188,7 +191,9 @@ Every slide should have notes. A deck without notes is unfinished.
 ## Anti-Patterns
 
 - **Don't use slides when a document is the right format.** If the task is "write up X", write a doc. Slides are for narrative pacing in front of an audience.
-- **Don't rebuild the whole deck to change one slide.** Update only the slide(s) that need to change.
+- **Don't rebuild the whole deck to change one slide.** Use `update_slide(deck_id, slide_id, patch)` — not a full deck replace. The `slide_id` is stable and immune to reordering.
+- **Don't use array index as a stable reference.** Slide indexes shift when slides are inserted or reordered. Always use `slide_id` for targeted operations.
+- **Don't use `update_slide_element` on a slide you haven't read.** Call `read_slide` first to know the current element count and indexes.
 - **Don't skip speaker notes.** A slide with no notes is unfinished. Even a short note like "emphasize the 40% growth" is better than nothing.
 - **Don't use walls of text.** If a slide has more than ~6 lines or ~6 words per line, you're writing prose, not a slide. Move it to a doc.
 - **Don't introduce a new color on every slide.** Pick 2–3 colors and stick to them throughout the deck.
