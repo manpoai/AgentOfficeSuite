@@ -17,7 +17,7 @@ const LOGS_DIR = path.join(HOME_DIR, 'logs');
 const PID_FILE = path.join(HOME_DIR, 'service.pid');
 const GATEWAY_LOG = path.join(LOGS_DIR, 'gateway.log');
 const SHELL_LOG = path.join(LOGS_DIR, 'shell.log');
-const ARTIFACT_URL = process.env.AOSE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOfficeSuite/releases/download/v2.0.3/aose-runtime.tar.gz';
+const ARTIFACT_URL = process.env.AOSE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOfficeSuite/releases/download/v2.0.4/aose-runtime.tar.gz';
 
 const BOOTSTRAP_PKG = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
 const BOOTSTRAP_VERSION = BOOTSTRAP_PKG.version || 'unknown';

@@ -16,6 +16,9 @@ cd "$ROOT_DIR"
 mkdir -p "$DIST_DIR/gateway"
 cp -R gateway/server.js gateway/routes gateway/middleware gateway/lib gateway/locales gateway/init-db.sql gateway/package.json gateway/package-lock.json gateway/seed-data.json "$DIST_DIR/gateway/"
 
+# Copy agent skills into gateway so /api/agent-skills works in deployed runtime
+cp -R mcp-server/skills "$DIST_DIR/gateway/skills"
+
 # Copy shell runtime
 mkdir -p "$DIST_DIR/shell/.next"
 cp -R shell/.next/standalone "$DIST_DIR/shell/.next/"

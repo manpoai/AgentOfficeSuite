@@ -1695,9 +1695,14 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   app.get('/api/agent-skills', (req, res) => {
     const aoseUrl = getPublicBaseUrl(req);
     const substitute = (text) => text.replace(/\{AOSE_URL\}/g, aoseUrl);
-    const skillsDir = path.join(GATEWAY_DIR, '..', 'mcp-server', 'skills');
+    // Runtime artifact: gateway/skills/; dev: mcp-server/skills/
+    const candidateDirs = [
+      path.join(GATEWAY_DIR, 'skills'),
+      path.join(GATEWAY_DIR, '..', 'mcp-server', 'skills'),
+    ];
+    const skillsDir = candidateDirs.find(d => fs.existsSync(d));
     const files = {};
-    if (fs.existsSync(skillsDir)) {
+    if (skillsDir) {
       for (const f of fs.readdirSync(skillsDir)) {
         if (f.endsWith('.md')) {
           files[f] = substitute(fs.readFileSync(path.join(skillsDir, f), 'utf8'));
