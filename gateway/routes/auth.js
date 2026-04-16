@@ -642,13 +642,13 @@ If you see errors, check the config file from Step 4.
 Step 7 — Start the dedicated Claude Code session in tmux
 The Stop hook only fires inside an interactive Claude Code session. Start a persistent session using tmux so it survives terminal disconnects.
 
-First, ensure the bypass-permissions confirmation dialog is suppressed — otherwise the tmux session will hang on a prompt nobody can answer. This setting MUST go in the **user-level** settings file (~/.claude/settings.json), not the project-level one (project-level is silently ignored for this flag):
+IMPORTANT: \`--dangerously-skip-permissions\` shows a one-time security confirmation dialog. Because the tmux session is detached (no terminal attached), nobody can answer this dialog and the session will hang. The human must either:
 
-  Read ~/.claude/settings.json if it exists. Merge in: {"skipDangerousModePermissionPrompt": true}
-  If the file does not exist, create it with just that JSON.
-  Preserve any existing settings — only add the new key.
+  (a) After starting the tmux session below, run \`tmux attach -t aose-<your-agent-name>\`, press Enter to accept the dialog, then detach with Ctrl+B then D. This is a one-time action.
 
-Then start the tmux session:
+  (b) OR, if they prefer to skip this dialog permanently on this machine, add \`"skipDangerousModePermissionPrompt": true\` to their user-level ~/.claude/settings.json. Note: this affects ALL Claude Code instances on this host, not just the AOSE agent. This is the human's choice — do NOT write this setting automatically.
+
+Tell the human about both options and let them decide. Then start the tmux session:
 
   tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "claude --dangerously-skip-permissions"
 
