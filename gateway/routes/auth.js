@@ -642,13 +642,7 @@ If you see errors, check the config file from Step 4.
 Step 7 — Start the dedicated Claude Code session in tmux
 The Stop hook only fires inside an interactive Claude Code session. Start a persistent session using tmux so it survives terminal disconnects.
 
-IMPORTANT: \`--dangerously-skip-permissions\` shows a one-time security confirmation dialog. Because the tmux session is detached (no terminal attached), nobody can answer this dialog and the session will hang. The human must either:
-
-  (a) After starting the tmux session below, run \`tmux attach -t aose-<your-agent-name>\`, press Enter to accept the dialog, then detach with Ctrl+B then D. This is a one-time action.
-
-  (b) OR, if they prefer to skip this dialog permanently on this machine, add \`"skipDangerousModePermissionPrompt": true\` to their user-level ~/.claude/settings.json. Note: this affects ALL Claude Code instances on this host, not just the AOSE agent. This is the human's choice — do NOT write this setting automatically.
-
-Tell the human about both options and let them decide. Then start the tmux session:
+Start the tmux session:
 
   tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "claude --dangerously-skip-permissions"
 
@@ -717,6 +711,12 @@ These skills override any default assumptions you have about how to interact wit
   4. Call \`ack_events([event_ids])\` on the events you handled.
 
 Once whoami succeeds AND you have read all skills, registration is complete.
+
+**FINAL NOTE for the human**: The tmux session from Step 7 is running \`claude --dangerously-skip-permissions\`, which shows a one-time security confirmation dialog. Because the session started detached, you need to accept it manually once:
+
+  tmux attach -t aose-<your-agent-name>
+
+You will see the confirmation dialog — press Enter to accept. Then detach with Ctrl+B followed by D. This is a one-time action; after acceptance the agent session will be fully operational.
 
 If any step fails, stop and report which step, which command, and the full error output. Do not try to patch around failures — the admin needs to see them.`;
 }
