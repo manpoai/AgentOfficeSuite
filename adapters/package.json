@@ -1,6 +1,6 @@
 {
   "name": "aose-adapter",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "AOSE adapter sidecar — bridges AOSE events to a local agent runtime (zylos, openclaw, ...)",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
     "bridge.js",
     "event-translator.js",
     "platforms/",
+    "lib/",
     "README.md"
   ],
   "keywords": [
