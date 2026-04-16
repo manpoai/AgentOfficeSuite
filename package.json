@@ -1,6 +1,6 @@
 {
   "name": "aose-main",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "aose (Agent Office Suite) bootstrap package — one-command install for the runtime artifact.",
   "type": "module",
   "bin": {

@@ -59,11 +59,11 @@ export interface CommentPanelProps {
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
 
-function Avatar({ actor, actorId, avatarUrl, size = 32 }: { actor: string; actorId?: string | null; avatarUrl?: string | null; size?: number }) {
+function Avatar({ actor, actorId, avatarUrl, platform, size = 32 }: { actor: string; actorId?: string | null; avatarUrl?: string | null; platform?: string | null; size?: number }) {
   const isAgent = actorId?.startsWith('agt_') || actorId?.startsWith('agent_');
-  const initials = actor ? actor.slice(0, 2).toUpperCase() : '?';
   const style = { width: size, height: size, minWidth: size };
 
+  // 1. Use avatar_url from gateway (already JOINed from actors table)
   if (avatarUrl) {
     return (
       <img
@@ -74,6 +74,18 @@ function Avatar({ actor, actorId, avatarUrl, size = 32 }: { actor: string; actor
       />
     );
   }
+  // 2. Agent without avatar: use platform icon
+  if (isAgent && platform) {
+    return (
+      <img
+        src={`/icons/platform-${platform}.png`}
+        alt={actor}
+        className="rounded-full object-cover shrink-0"
+        style={style}
+      />
+    );
+  }
+  // 3. Agent without avatar or platform: Bot icon
   if (isAgent) {
     return (
       <div
@@ -276,7 +288,7 @@ function CommentItem({
         isReply && 'pt-3',
       )}
     >
-      <Avatar actor={comment.actor} actorId={comment.actor_id} avatarUrl={comment.actor_avatar_url} size={isReply ? 28 : 32} />
+      <Avatar actor={comment.actor} actorId={comment.actor_id} avatarUrl={comment.actor_avatar_url} platform={comment.actor_platform} size={isReply ? 28 : 32} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-2 min-w-0">

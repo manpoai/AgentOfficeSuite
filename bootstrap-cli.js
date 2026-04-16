@@ -17,7 +17,34 @@ const LOGS_DIR = path.join(HOME_DIR, 'logs');
 const PID_FILE = path.join(HOME_DIR, 'service.pid');
 const GATEWAY_LOG = path.join(LOGS_DIR, 'gateway.log');
 const SHELL_LOG = path.join(LOGS_DIR, 'shell.log');
-const ARTIFACT_URL = process.env.AOSE_ARTIFACT_URL || 'https://github.com/manpoai/AgentOfficeSuite/releases/download/v2.0.4/aose-runtime.tar.gz';
+const GITHUB_REPO = 'manpoai/AgentOfficeSuite';
+const FALLBACK_ARTIFACT_URL = `https://github.com/${GITHUB_REPO}/releases/download/v2.0.5/aose-runtime.tar.gz`;
+let ARTIFACT_URL = process.env.AOSE_ARTIFACT_URL || FALLBACK_ARTIFACT_URL;
+
+/** Fetch latest release artifact URL from GitHub API. Returns { url, version } or null. */
+function fetchLatestRelease() {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: 'api.github.com',
+      path: `/repos/${GITHUB_REPO}/releases/latest`,
+      headers: { 'User-Agent': 'aose-bootstrap', Accept: 'application/vnd.github+json' },
+    };
+    https.get(opts, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      let data = '';
+      res.on('data', (d) => { data += d; });
+      res.on('end', () => {
+        try {
+          const release = JSON.parse(data);
+          const asset = (release.assets || []).find(a => a.name === 'aose-runtime.tar.gz');
+          if (asset) {
+            resolve({ url: asset.browser_download_url, version: release.tag_name });
+          } else { resolve(null); }
+        } catch { resolve(null); }
+      });
+    }).on('error', () => resolve(null));
+  });
+}
 
 const BOOTSTRAP_PKG = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
 const BOOTSTRAP_VERSION = BOOTSTRAP_PKG.version || 'unknown';
@@ -283,7 +310,25 @@ function versionCommand() {
 
 async function updateCommand() {
   console.log('aose update');
-  console.log(`  Current runtime: ${readRuntimeVersion() || '(none)'}`);
+  const currentVersion = readRuntimeVersion() || '(none)';
+  console.log(`  Current runtime: ${currentVersion}`);
+
+  // Dynamically resolve latest release unless user overrides via env
+  if (!process.env.AOSE_ARTIFACT_URL) {
+    const latest = await fetchLatestRelease();
+    if (latest) {
+      ARTIFACT_URL = latest.url;
+      const latestVer = latest.version.replace(/^v/, '');
+      if (currentVersion === latestVer) {
+        console.log(`  Already on latest version (${latestVer}). Nothing to do.`);
+        return;
+      }
+      console.log(`  Latest release:  ${latest.version}`);
+    } else {
+      console.log('  Could not fetch latest release from GitHub, using fallback URL.');
+    }
+  }
+
   console.log(`  Source:          ${ARTIFACT_URL}`);
   if (!process.argv.includes('--yes') && !process.argv.includes('-y')) {
     process.stdout.write('Proceed? [y/N] ');
