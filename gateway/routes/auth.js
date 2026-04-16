@@ -147,10 +147,12 @@ Cleanup is complete. If you are re-invited to the workspace later, run the openc
 function buildClaudeCodeOffboardingPrompt(name) {
   return `You have been removed from an aose workspace as the agent named "${name}". Your agent token is already revoked server-side, so any further AOSE API call from your sidecar or aose-mcp will return 403 AGENT_DELETED. This prompt walks you through cleaning up only the host-side state that belongs to "${name}". The same host may run other AOSE agents — never touch files, processes, or MCP entries that do not provably belong to you.
 
-Step 1 — Stop your dedicated Claude Code process
-  pm2 delete aose-${name} 2>/dev/null || true
+Step 1 — Stop your dedicated Claude Code session
+  tmux kill-session -t aose-${name} 2>/dev/null || true
+  pm2 delete aose-${name}-starter 2>/dev/null || true
   pm2 save 2>/dev/null || true
-DO NOT run a broad pkill. Only stop the pm2 process named aose-${name}.
+  rm -f ~/.aose/start-aose-${name}.sh
+DO NOT kill other tmux sessions or pm2 processes. Only stop the session named aose-${name} and the starter named aose-${name}-starter.
 
 Step 2 — Stop your adapter sidecar
   pm2 delete aose-adapter-${name} 2>/dev/null || true
@@ -204,10 +206,12 @@ Cleanup is complete. If you are re-invited to the workspace later, run the claud
 function buildCodexOffboardingPrompt(name) {
   return `You have been removed from an aose workspace as the agent named "${name}". Your agent token is already revoked server-side, so any further AOSE API call from your sidecar or aose-mcp will return 403 AGENT_DELETED. This prompt walks you through cleaning up only the host-side state that belongs to "${name}". The same host may run other AOSE agents — never touch files, processes, or MCP entries that do not provably belong to you.
 
-Step 1 — Stop your dedicated Codex process
-  pm2 delete aose-${name} 2>/dev/null || true
+Step 1 — Stop your dedicated Codex session
+  tmux kill-session -t aose-${name} 2>/dev/null || true
+  pm2 delete aose-${name}-starter 2>/dev/null || true
   pm2 save 2>/dev/null || true
-DO NOT run a broad pkill. Only stop the pm2 process named aose-${name}.
+  rm -f ~/.aose/start-aose-${name}.sh
+DO NOT kill other tmux sessions or pm2 processes. Only stop the session named aose-${name} and the starter named aose-${name}-starter.
 
 Step 2 — Stop your adapter sidecar
   pm2 delete aose-adapter-${name} 2>/dev/null || true
@@ -482,7 +486,7 @@ function buildClaudeCodeOnboardingPrompt(aoseUrl) {
   const aoseBase = aoseUrl.replace(/\/api\/gateway$/, '').replace(/\/$/, '');
   return `Hi! You've been invited to join an aose workspace — a collaborative platform where humans and agents work together on documents, databases, and projects. This prompt will walk you through the full registration. Execute each step in order; do not skip any.
 
-You are running on Claude Code. AOSE supports Claude Code via a local sidecar ("aose-adapter") that manages a dedicated Claude Code process and wakes it via a Stop hook when AOSE events arrive. The sidecar writes to a file-based inbox; the Stop hook checks it and uses asyncRewake (exit 2 + stderr) to resume the session.
+You are running on Claude Code. AOSE supports Claude Code via a local sidecar ("aose-adapter") that pushes AOSE events into a file-based inbox. A Stop hook checks this inbox whenever your interactive Claude Code session finishes a turn — if a message is waiting, the hook uses asyncRewake (exit 2 + stderr) to wake the session and deliver the event. The sidecar runs under pm2; the Claude Code session runs inside tmux so it stays alive across terminal disconnects.
 
 IMPORTANT — HTTP tooling: For every HTTP call in this prompt, use \`curl\`. Do NOT use Python urllib/requests, Node http, or any language-level HTTP client. curl ships on macOS and Linux and verifies TLS against the OS trust store, so it works across every environment. Language HTTP clients frequently fail on CA-bundle issues (especially Homebrew Python) — skip that class of problem entirely by using curl.
 
@@ -587,13 +591,28 @@ You should see lines like:
 
 If you see errors, check the config file from Step 4.
 
-Step 7 — Start the dedicated Claude Code process under pm2
-The sidecar delivers events to your inbox, but you also need a persistent Claude Code process that the Stop hook can wake. Start it as a pm2 process:
+Step 7 — Start the dedicated Claude Code session in tmux
+The Stop hook only fires inside an interactive Claude Code session. Start a persistent session using tmux so it survives terminal disconnects:
 
-  pm2 start "claude --resume" --name aose-<your-agent-name> --cwd <AGENT_DIR>
+  tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "claude --dangerously-skip-permissions"
+
+Verify it is running:
+  tmux has-session -t aose-<your-agent-name> && echo "Session running"
+
+To make this survive reboots, create a wrapper script and register it with pm2. Write the following to ~/.aose/start-aose-<your-agent-name>.sh:
+
+\`\`\`bash
+#!/bin/bash
+tmux has-session -t aose-<your-agent-name> 2>/dev/null || \\
+  tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "claude --dangerously-skip-permissions"
+\`\`\`
+
+Then:
+  chmod +x ~/.aose/start-aose-<your-agent-name>.sh
+  pm2 start ~/.aose/start-aose-<your-agent-name>.sh --name aose-<your-agent-name>-starter --cron-restart="*/5 * * * *"
   pm2 save
 
-This ensures your agent process survives terminal close and reboots (run \`pm2 startup\` if you haven't already for boot persistence).
+Run \`pm2 startup\` if you haven't already to ensure pm2 itself starts on boot. The cron restart re-checks every 5 minutes — if the tmux session died, it gets recreated.
 
 Step 8 — Configure the MCP server
 The MCP entry MUST go into your **project-level** config file: \`<AGENT_DIR>/.mcp.json\`. Do NOT write it to ~/.mcp.json or ~/.claude/.mcp.json — those are shared across every Claude Code instance on this host, and putting your token there will collide with other AOSE agents. Multi-agent isolation on a single host depends on each agent owning its own project-level .mcp.json.
@@ -650,7 +669,7 @@ function buildCodexOnboardingPrompt(aoseUrl) {
   const aoseBase = aoseUrl.replace(/\/api\/gateway$/, '').replace(/\/$/, '');
   return `Hi! You've been invited to join an aose workspace — a collaborative platform where humans and agents work together on documents, databases, and projects. This prompt will walk you through the full registration. Execute each step in order; do not skip any.
 
-You are running on Codex CLI. AOSE supports Codex via a local sidecar ("aose-adapter") that manages a dedicated Codex process and wakes it via a Stop hook when AOSE events arrive. The sidecar writes to a file-based inbox; the Stop hook checks it and uses decision:block to keep the session alive when a message is waiting.
+You are running on Codex CLI. AOSE supports Codex via a local sidecar ("aose-adapter") that pushes AOSE events into a file-based inbox. A Stop hook checks this inbox whenever your interactive Codex session finishes a turn — if a message is waiting, the hook outputs decision:block to keep the session alive and deliver the event. The sidecar runs under pm2; the Codex session runs inside tmux so it stays alive across terminal disconnects.
 
 IMPORTANT — HTTP tooling: For every HTTP call in this prompt, use \`curl\`. Do NOT use Python urllib/requests, Node http, or any language-level HTTP client. curl ships on macOS and Linux and verifies TLS against the OS trust store, so it works across every environment. Language HTTP clients frequently fail on CA-bundle issues (especially Homebrew Python) — skip that class of problem entirely by using curl.
 
@@ -749,13 +768,28 @@ You should see lines like:
 
 If you see errors, check the config file from Step 4.
 
-Step 7 — Start the dedicated Codex process under pm2
-The sidecar delivers events to your inbox, but you also need a persistent Codex process that the Stop hook can wake. Start it as a pm2 process:
+Step 7 — Start the dedicated Codex session in tmux
+The Stop hook only fires inside an interactive Codex session. Start a persistent session using tmux so it survives terminal disconnects:
 
-  pm2 start "codex --resume" --name aose-<your-agent-name> --cwd <AGENT_DIR>
+  tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "codex"
+
+Verify it is running:
+  tmux has-session -t aose-<your-agent-name> && echo "Session running"
+
+To make this survive reboots, create a wrapper script and register it with pm2. Write the following to ~/.aose/start-aose-<your-agent-name>.sh:
+
+\`\`\`bash
+#!/bin/bash
+tmux has-session -t aose-<your-agent-name> 2>/dev/null || \\
+  tmux new-session -d -s aose-<your-agent-name> -c <AGENT_DIR> "codex"
+\`\`\`
+
+Then:
+  chmod +x ~/.aose/start-aose-<your-agent-name>.sh
+  pm2 start ~/.aose/start-aose-<your-agent-name>.sh --name aose-<your-agent-name>-starter --cron-restart="*/5 * * * *"
   pm2 save
 
-This ensures your agent process survives terminal close and reboots (run \`pm2 startup\` if you haven't already for boot persistence).
+Run \`pm2 startup\` if you haven't already to ensure pm2 itself starts on boot. The cron restart re-checks every 5 minutes — if the tmux session died, it gets recreated.
 
 Step 8 — Configure the MCP server
 The MCP entry MUST go into your **project-level** config file. For Codex, this is \`<AGENT_DIR>/.codex/config.toml\`. Do NOT put it in a global config — multi-agent isolation depends on each agent owning its own project-level config.
