@@ -57,10 +57,12 @@ export function registerDiagramTools(server, gw) {
         target: z.string().optional(),
         geometry: z.object({ x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional() }).optional(),
       })).describe('Full cells array (nodes + edges)'),
+      title: z.string().optional().describe('Update the diagram title'),
       revision_description: z.string().optional(),
     },
-    async ({ diagram_id, cells, revision_description }) => {
+    async ({ diagram_id, cells, title, revision_description }) => {
       const body = { data: { cells } };
+      if (title !== undefined) body.title = title;
       if (revision_description) body.revision_description = revision_description;
       const result = await gw.patch(`/diagrams/${diagram_id}`, body);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };

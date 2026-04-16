@@ -415,13 +415,25 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
   // ─── Diagram CRUD ────────────────────────────────
   app.post('/api/diagrams', authenticateAgent, (req, res) => {
+    const { title = '' } = req.body;
     const agentName = actorName(req) || 'unknown';
     const now = Date.now();
     const id = crypto.randomUUID();
     const defaultData = { cells: [], viewport: { x: 0, y: 0, zoom: 1 } };
     db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, JSON.stringify(defaultData), agentName, agentName, now, now);
-    res.json({ id, data: defaultData, created_by: agentName, created_at: now, updated_at: now });
+
+    const nodeId = `diagram:${id}`;
+    const isoNow = new Date().toISOString();
+    const actorId = req.actor?.id || req.agent?.id || null;
+    contentItemsUpsert.run(
+      nodeId, id, 'diagram', title || '',
+      null, req.body.parent_id || null, null,
+      agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+    res.status(201).json({ diagram_id: id, item });
   });
 
   app.get('/api/diagrams/:id', authenticateAgent, (req, res) => {
@@ -439,8 +451,20 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     if (!row) return res.status(404).json({ error: 'Diagram not found' });
     const agentName = actorName(req) || 'unknown';
     const now = Date.now();
-    let { data } = req.body;
-    if (!data) return res.status(400).json({ error: 'data is required' });
+    let { data, title } = req.body;
+
+    // Update title in content_items if provided
+    if (title !== undefined) {
+      const nodeId = `diagram:${req.params.id}`;
+      db.prepare('UPDATE content_items SET title = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+        .run(title, agentName, new Date().toISOString(), nodeId);
+    }
+
+    if (!data) {
+      // Title-only update
+      if (title !== undefined) return res.json({ saved: true, updated_at: now });
+      return res.status(400).json({ error: 'data or title is required' });
+    }
     if (data.cells && isAgentRequest(req)) {
       data = { ...data, cells: normalizeDiagramCells(data.cells) };
     }
