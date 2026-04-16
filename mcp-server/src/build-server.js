@@ -7,6 +7,8 @@ import { registerAgentTools } from './tools/agents.js';
 import { registerEventTools } from './tools/events.js';
 import { registerCommentTools } from './tools/comments.js';
 import { registerContentTools } from './tools/content.js';
+import { registerPresentationTools } from './tools/presentations.js';
+import { registerDiagramTools } from './tools/diagrams.js';
 
 /**
  * Build a fully-wired AOSE McpServer instance bound to the given base URL
@@ -45,6 +47,8 @@ export function buildAoseMcpServer({ baseUrl, token, name = 'aose', version = '0
   registerEventTools(server, gw);
   registerCommentTools(server, gw);
   registerContentTools(server, gw);
+  registerPresentationTools(server, gw);
+  registerDiagramTools(server, gw);
 
   return { server, gw };
 }
