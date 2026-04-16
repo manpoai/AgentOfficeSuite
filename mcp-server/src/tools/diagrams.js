@@ -55,7 +55,10 @@ export function registerDiagramTools(server, gw) {
         }).optional(),
         source: z.string().optional(),
         target: z.string().optional(),
-        geometry: z.object({ x: z.number().optional(), y: z.number().optional(), width: z.number().optional(), height: z.number().optional() }).optional(),
+        x: z.number().optional(),
+        y: z.number().optional(),
+        width: z.number().optional(),
+        height: z.number().optional(),
       })).describe('Full cells array (nodes + edges)'),
       title: z.string().optional().describe('Update the diagram title'),
       revision_description: z.string().optional(),
@@ -113,7 +116,7 @@ export function registerDiagramTools(server, gw) {
         layer.forEach((id, colIdx) => { posMap[id] = { x: offsetX + colIdx * H_GAP, y: START_Y + rowIdx * V_GAP }; });
       });
       const cells = [
-        ...nodes.map(n => ({ id: n.id, shape: 'flowchart-node', geometry: { x: posMap[n.id]?.x ?? START_X, y: posMap[n.id]?.y ?? START_Y, width: NODE_W, height: NODE_H }, data: { label: n.label, flowchartShape: n.shape || 'rounded-rect', bgColor: n.bgColor || '#ffffff', borderColor: n.borderColor || '#374151', textColor: n.textColor || '#1f2937', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal' } })),
+        ...nodes.map(n => ({ id: n.id, shape: 'flowchart-node', x: posMap[n.id]?.x ?? START_X, y: posMap[n.id]?.y ?? START_Y, width: NODE_W, height: NODE_H, data: { label: n.label, flowchartShape: n.shape || 'rounded-rect', bgColor: n.bgColor || '#ffffff', borderColor: n.borderColor || '#374151', textColor: n.textColor || '#1f2937', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal' } })),
         ...edges.map((e, i) => ({ id: `edge-${e.source}-${e.target}-${i}`, shape: 'edge', source: e.source, target: e.target, ...(e.label ? { labels: [{ attrs: { label: { text: e.label } } }] } : {}) })),
       ];
       const body = { data: { cells } };
@@ -256,7 +259,7 @@ export function registerDiagramTools(server, gw) {
       });
       const updatedCells = cells.map(c => {
         if (c.shape === 'edge' || !posMap[c.id]) return c;
-        return { ...c, geometry: { ...(c.geometry || {}), x: posMap[c.id].x, y: posMap[c.id].y, width: c.geometry?.width || NODE_W, height: c.geometry?.height || NODE_H } };
+        return { ...c, x: posMap[c.id].x, y: posMap[c.id].y, width: c.width || c.geometry?.width || NODE_W, height: c.height || c.geometry?.height || NODE_H, geometry: undefined };
       });
       const result = await gw.patch(`/diagrams/${diagram_id}`, { data: { cells: updatedCells, viewport: current.data?.viewport } });
       return { content: [{ type: 'text', text: JSON.stringify({ ...result, nodes_repositioned: nodes.length }) }] };

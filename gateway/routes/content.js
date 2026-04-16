@@ -508,7 +508,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     const { id, label, shape = 'rounded-rect', bgColor = '#ffffff', borderColor = '#374151', textColor = '#1f2937', x = 80, y = 80, width = 160, height = 60 } = req.body;
     if (!id) return res.status(400).json({ error: 'MISSING_ID', message: 'id is required' });
     if (data.cells.find(c => c.id === id)) return res.status(400).json({ error: 'DUPLICATE_ID', message: `node id ${id} already exists` });
-    const node = { id, shape: 'flowchart-node', geometry: { x, y, width, height }, data: { label: label || '', flowchartShape: shape, bgColor, borderColor, textColor, fontSize: 14, fontWeight: 'normal', fontStyle: 'normal' } };
+    const node = { id, shape: 'flowchart-node', x, y, width, height, data: { label: label || '', flowchartShape: shape, bgColor, borderColor, textColor, fontSize: 14, fontWeight: 'normal', fontStyle: 'normal' } };
     data.cells.push(node);
     db.prepare('UPDATE diagrams SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(data), actorName(req) || 'unknown', Date.now(), req.params.id);
     res.status(201).json({ node });
@@ -528,9 +528,10 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     if (bgColor !== undefined) node.data = { ...(node.data || {}), bgColor };
     if (borderColor !== undefined) node.data = { ...(node.data || {}), borderColor };
     if (textColor !== undefined) node.data = { ...(node.data || {}), textColor };
-    if (x !== undefined || y !== undefined || width !== undefined || height !== undefined) {
-      node.geometry = { ...(node.geometry || {}), ...(x !== undefined ? {x} : {}), ...(y !== undefined ? {y} : {}), ...(width !== undefined ? {width} : {}), ...(height !== undefined ? {height} : {}) };
-    }
+    if (x !== undefined) node.x = x;
+    if (y !== undefined) node.y = y;
+    if (width !== undefined) node.width = width;
+    if (height !== undefined) node.height = height;
     db.prepare('UPDATE diagrams SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(data), actorName(req) || 'unknown', Date.now(), req.params.id);
     res.json({ node });
   });
