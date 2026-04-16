@@ -9,6 +9,8 @@ import { registerCommentTools } from './tools/comments.js';
 import { registerContentTools } from './tools/content.js';
 import { registerPresentationTools } from './tools/presentations.js';
 import { registerDiagramTools } from './tools/diagrams.js';
+import { registerSearchTools } from './tools/search.js';
+import { registerRevisionTools } from './tools/revisions.js';
 
 /**
  * Build a fully-wired AOSE McpServer instance bound to the given base URL
@@ -49,6 +51,8 @@ export function buildAoseMcpServer({ baseUrl, token, name = 'aose', version = '0
   registerContentTools(server, gw);
   registerPresentationTools(server, gw);
   registerDiagramTools(server, gw);
+  registerSearchTools(server, gw);
+  registerRevisionTools(server, gw);
 
   return { server, gw };
 }
