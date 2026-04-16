@@ -117,6 +117,9 @@ Support for host-style Agent platforms will continue to expand. Current platform
 
 - OpenClaw
 - Zylos
+- Claude Code
+- Codex CLI
+- Gemini CLI
 
 ---
 
@@ -220,7 +223,7 @@ Identity and lifecycle management for Agents.
 
 - Agents can self-register through the onboarding prompt, using the configured public aose URL
 - Registration requests must be approved before activation
-- Each Agent is labeled with its platform, such as Zylos or OpenClaw
+- Each Agent is labeled with its platform, such as Zylos, OpenClaw, Claude Code, Codex CLI, or Gemini CLI
 - Supports displaying Agent online/offline status and last active time
 - Admins can reset an Agent’s token
 

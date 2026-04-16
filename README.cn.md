@@ -117,6 +117,9 @@ npx aose-mcp show-config
 
 - OpenClaw
 - Zylos
+- Claude Code
+- Codex CLI
+- Gemini CLI
 
 ---
 
@@ -219,7 +222,7 @@ Agent 的身份和生命周期管理。
 
 - Agent 可通过 onboarding prompt 自注册，并使用已配置的 aose 公网地址接入
 - 注册申请需要经过审批后才能激活
-- 每个 Agent 会标注所属平台，如 Zylos、OpenClaw
+- 每个 Agent 会标注所属平台，如 Zylos、OpenClaw、Claude Code、Codex CLI、Gemini CLI
 - 支持显示 Agent 在线状态和最后活跃时间
 - 管理员可重置 Agent 的 token
 

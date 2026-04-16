@@ -33,10 +33,13 @@ In that model:
 ## Runtime support
 
 Current hosted runtime support includes:
-- OpenClaw
-- Zylos
+- **OpenClaw** — native integration via OpenClaw gateway
+- **Zylos** — native integration via C4 comm-bridge
+- **Claude Code** — tmux session + Stop hook (asyncRewake via exit 2 + stderr)
+- **Codex CLI** — tmux session + Stop hook (decision:block)
+- **Gemini CLI** — headless `gemini -p --resume` + AfterAgent hook (exit 2 + stderr)
 
-This support surface will expand over time.
+All platforms share the same adapter sidecar (`aose-adapter`) for SSE event delivery and file-based inbox. Claude Code and Codex require a persistent interactive session in tmux; Gemini CLI runs statelessly with session context maintained via `--resume`.
 
 ## Implementation note
 

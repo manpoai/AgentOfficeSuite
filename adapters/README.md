@@ -39,6 +39,9 @@ Per-platform fields:
 
 - **openclaw**: `openclaw_gateway_url`, `openclaw_auth_token`, `openclaw_session_key`
 - **zylos**: `zylos_dir`, `c4_receive_path`
+- **claude-code**: `agent_name`, `agent_dir` — writes to inbox, then kicks tmux session via `tmux send-keys`
+- **codex**: `agent_name`, `agent_dir` — writes to inbox, then kicks tmux session via `tmux send-keys`
+- **gemini-cli**: `agent_name`, `agent_dir` — writes to inbox, then spawns `gemini -p --resume latest --yolo`
 
 ## Running under a process manager
 
