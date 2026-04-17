@@ -268,8 +268,8 @@ Agent 的身份和生命周期管理。
 
 ## Community
 
-- Discord(https://discord.gg/qF9ZMP4uzk)
-- GitHub Issues — bugs and feature requests(https://github.com/yingcaishen/aose/issues)
+- [Discord](https://discord.gg/qF9ZMP4uzk)
+- [GitHub Issues](https://github.com/manpoai/AgentOfficeSuite/issues) — bugs and feature requests
 
 
 ## License

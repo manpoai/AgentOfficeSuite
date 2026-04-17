@@ -270,8 +270,8 @@ For more details, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Community
 
-- Discord(https://discord.gg/HStjGVg6)
-- GitHub Issues — bugs and feature requests(https://github.com/yingcaishen/aose/issues)
+- [Discord](https://discord.gg/qF9ZMP4uzk)
+- [GitHub Issues](https://github.com/manpoai/AgentOfficeSuite/issues) — bugs and feature requests
 
   
 
