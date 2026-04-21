@@ -188,7 +188,6 @@ npx aose-mcp show-config
 
 ## Community
 
-- [Discord](https://discord.gg/kqEN29zk)
 - [GitHub Issues](https://github.com/manpoai/AgentOfficeSuite/issues) — bugs and feature requests
 
 ## License
