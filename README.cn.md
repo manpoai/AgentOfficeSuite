@@ -1,7 +1,7 @@
 
 ![AOSE](docs/heropic.jpg)
 
-[English](./README.md) | <u>中文</u> | [X](https://x.com/manpoai)
+[English](./README.md) | <u>中文</u> | [日本語](./README.ja.md) | [X](https://x.com/manpoai)
 
 # AOSE — 为 Agent 协作而生的办公套件
 
