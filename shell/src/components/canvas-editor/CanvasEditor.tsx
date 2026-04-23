@@ -12,6 +12,7 @@ import {
   PanelRight, PanelRightClose, Copy, ArrowUp, ArrowDown,
   Undo2, Redo2, X,
   Layers, ChevronDown, ChevronRight,
+  Pen, Spline,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -31,6 +32,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CanvasElementView, EditingOverlay, getClientPos } from './CanvasElement';
 import { VectorEditor } from './VectorEditor';
+import { PenTool } from './PenTool';
+import { LineDrawTool } from './LineDrawTool';
 import { extractPathD } from '@/components/shared/svg-path-utils';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 import { extractDesignTokens, updateDesignToken } from './projection';
@@ -41,7 +44,7 @@ import { DEFAULT_GRID, snapToGrid, renderGridPattern, type GridConfig } from '@/
 import type { CanvasData, CanvasPage, CanvasElement } from './types';
 import { createEmptyPage, DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from './types';
 
-type PendingInsert = { type: 'text' } | { type: 'line' } | { type: 'shape'; shapeType: ShapeType } | { type: 'frame' };
+type PendingInsert = { type: 'text' } | { type: 'line' } | { type: 'shape'; shapeType: ShapeType } | { type: 'frame' } | { type: 'pen' } | { type: 'line-draw' };
 
 interface CanvasEditorProps {
   canvasId: string;
@@ -137,6 +140,8 @@ function CanvasToolbar({ pendingInsert, onSetPending, onAddShape, onAddImage, gr
   const isTextPending = pendingInsert?.type === 'text';
   const isLinePending = pendingInsert?.type === 'line';
   const isShapePending = pendingInsert?.type === 'shape';
+  const isPenPending = pendingInsert?.type === 'pen';
+  const isLineDrawPending = pendingInsert?.type === 'line-draw';
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-card rounded border border-black/10 dark:border-white/10 px-3 h-10 shadow-[0px_0px_20px_0px_rgba(0,0,0,0.02)]"
       onMouseDown={e => e.stopPropagation()}>
@@ -154,6 +159,8 @@ function CanvasToolbar({ pendingInsert, onSetPending, onAddShape, onAddImage, gr
         )}
       </div>
       <ToolBtn icon={Minus} onClick={() => onSetPending(isLinePending ? null : { type: 'line' })} active={isLinePending} title="Line (click frame to place)" />
+      <ToolBtn icon={Spline} onClick={() => onSetPending(isLineDrawPending ? null : { type: 'line-draw' })} active={isLineDrawPending} title="Draw line (click & drag)" />
+      <ToolBtn icon={Pen} onClick={() => onSetPending(isPenPending ? null : { type: 'pen' })} active={isPenPending} title="Pen tool (click to add points)" />
       <ToolBtn icon={Type} onClick={() => onSetPending(isTextPending ? null : { type: 'text' })} active={isTextPending} title="Text (click frame to place)" />
       <ToolBtn icon={ImagePlus} onClick={onAddImage} title="Image" />
       <div className="w-px h-6 bg-black/10 dark:bg-white/10 mx-0.5" />
@@ -804,6 +811,7 @@ export function CanvasEditor({
       return;
     }
     if (pendingInsert && e.button === 0) {
+      if (pendingInsert.type === 'pen' || pendingInsert.type === 'line-draw') return;
       const { cx, cy } = screenToCanvas(e.clientX, e.clientY);
       if (!data) return;
       if (pendingInsert.type === 'frame') {
@@ -854,7 +862,7 @@ export function CanvasEditor({
   }, [pan, pendingInsert, screenToCanvas, findFrameAtPoint, data, updateData, updateFrame]);
 
   const handleFrameClick = useCallback((frameId: string, e: React.MouseEvent) => {
-    if (pendingInsert && pendingInsert.type !== 'frame') {
+    if (pendingInsert && pendingInsert.type !== 'frame' && pendingInsert.type !== 'pen' && pendingInsert.type !== 'line-draw') {
       const frame = data?.pages.find(p => p.page_id === frameId);
       if (!frame) return;
       const { cx, cy } = screenToCanvas(e.clientX, e.clientY);
@@ -1483,6 +1491,70 @@ export function CanvasEditor({
               );
             })()}
 
+            {/* Pen tool overlay */}
+            {pendingInsert?.type === 'pen' && (() => {
+              const frame = activeFrame;
+              const fx = frame?.frame_x ?? 0;
+              const fy = frame?.frame_y ?? 0;
+              const fw = frame?.width ?? DEFAULT_PAGE_WIDTH;
+              const fh = frame?.height ?? DEFAULT_PAGE_HEIGHT;
+              return (
+                <PenTool
+                  scale={scale}
+                  panX={pan.x}
+                  panY={pan.y}
+                  frameX={fx}
+                  frameY={fy}
+                  frameW={fw}
+                  frameH={fh}
+                  onComplete={(html, x, y, w, h) => {
+                    const el: CanvasElement = {
+                      id: `el-${crypto.randomUUID().slice(0, 8)}`,
+                      locked: false, z_index: 1, x, y, w, h, html,
+                    };
+                    if (frame) {
+                      updateFrame(frame.page_id, page => ({ ...page, elements: [...page.elements, el] }));
+                    } else {
+                      updateData(d => ({ ...d, elements: [...(d.elements ?? []), el] }));
+                    }
+                    setSelectedIds(new Set([el.id]));
+                    setPendingInsert(null);
+                  }}
+                  onCancel={() => setPendingInsert(null)}
+                />
+              );
+            })()}
+
+            {/* Line draw tool overlay */}
+            {pendingInsert?.type === 'line-draw' && (() => {
+              const frame = activeFrame;
+              const fx = frame?.frame_x ?? 0;
+              const fy = frame?.frame_y ?? 0;
+              return (
+                <LineDrawTool
+                  scale={scale}
+                  panX={pan.x}
+                  panY={pan.y}
+                  frameX={fx}
+                  frameY={fy}
+                  onComplete={(html, x, y, w, h) => {
+                    const el: CanvasElement = {
+                      id: `el-${crypto.randomUUID().slice(0, 8)}`,
+                      locked: false, z_index: 1, x, y, w, h, html,
+                    };
+                    if (frame) {
+                      updateFrame(frame.page_id, page => ({ ...page, elements: [...page.elements, el] }));
+                    } else {
+                      updateData(d => ({ ...d, elements: [...(d.elements ?? []), el] }));
+                    }
+                    setSelectedIds(new Set([el.id]));
+                    setPendingInsert(null);
+                  }}
+                  onCancel={() => setPendingInsert(null)}
+                />
+              );
+            })()}
+
             {/* Empty state */}
             {data.pages.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -1505,9 +1577,19 @@ export function CanvasEditor({
             )}
 
             {/* Pending insert hint */}
-            {pendingInsert && (
+            {pendingInsert && pendingInsert.type !== 'pen' && pendingInsert.type !== 'line-draw' && (
               <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium shadow-lg">
                 Click on {pendingInsert.type === 'frame' ? 'canvas' : 'a frame'} to place — Esc to cancel
+              </div>
+            )}
+            {pendingInsert?.type === 'pen' && (
+              <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium shadow-lg">
+                Click to add points, click first point to close — Enter to finish, Esc to cancel
+              </div>
+            )}
+            {pendingInsert?.type === 'line-draw' && (
+              <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium shadow-lg">
+                Click & drag to draw a line — hold Shift for angle snap, Esc to cancel
               </div>
             )}
 
