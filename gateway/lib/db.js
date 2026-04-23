@@ -143,6 +143,30 @@ function runMigrations(db) {
     )`);
   } catch { /* already exists */ }
 
+  // Migrate: create canvases table
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS canvases (
+      id TEXT PRIMARY KEY,
+      data_json TEXT NOT NULL DEFAULT '{"pages":[]}',
+      created_by TEXT,
+      updated_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`);
+  } catch { /* already exists */ }
+
+  // Migrate: create videos table
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS videos (
+      id TEXT PRIMARY KEY,
+      data_json TEXT NOT NULL DEFAULT '{"elements":[],"settings":{"width":1920,"height":1080,"fps":30,"background_color":"#000000"}}',
+      created_by TEXT,
+      updated_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`);
+  } catch { /* already exists */ }
+
   // Migrate: create documents table
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS documents (

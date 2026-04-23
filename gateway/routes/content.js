@@ -652,6 +652,215 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     res.json({ deleted: true });
   });
 
+  // ─── Canvas CRUD ─────────────────────────────────
+  app.post('/api/canvases', authenticateAgent, (req, res) => {
+    const { title = '' } = req.body;
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const agentName = actorName(req);
+    const firstPageId = crypto.randomUUID();
+    const defaultData = JSON.stringify({
+      pages: [{
+        page_id: firstPageId,
+        title: 'Page 1',
+        width: req.body.width || 1920,
+        height: req.body.height || 1080,
+        head_html: '',
+        elements: [],
+      }],
+    });
+
+    db.prepare(`INSERT INTO canvases (id, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+    const nodeId = `canvas:${id}`;
+    const isoNow = new Date().toISOString();
+    const canvasActorId = req.actor?.id || req.agent?.id || null;
+    contentItemsUpsert.run(
+      nodeId, id, 'canvas', title || '',
+      null, req.body.parent_id || null, null,
+      agentName, agentName, isoNow, isoNow, null, canvasActorId, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+
+    if (isAgentRequest(req)) {
+      try {
+        const humanActors = db.prepare("SELECT id FROM actors WHERE type = 'human'").all();
+        for (const actor of humanActors) {
+          const { id: notifId } = insertNotification(db, { genId }, {
+            actorId: agentName, targetActorId: actor.id, type: 'content_created',
+            titleKey: 'serverNotifications.content_created.title', titleParams: { title: title || '' },
+            bodyKey: 'serverNotifications.content_created.body', bodyParams: { agent: agentName, kind: '@:serverNotifications.kinds.canvas', title: title || nodeId },
+            link: `/content?id=${nodeId}`, meta: { content_id: nodeId, type: 'canvas' },
+          });
+          pushHumanEvent(actor.id, { event: 'notification.created', data: { id: notifId, type: 'content_created', content_id: nodeId, title } });
+          pushHumanEvent(actor.id, { event: 'content.changed', data: { action: 'created', type: 'canvas', id: nodeId, title } });
+        }
+      } catch (e) { console.warn('[content] canvas notification failed:', e.message); }
+    }
+
+    res.status(201).json({ canvas_id: id, item });
+  });
+
+  app.get('/api/canvases/:id', authenticateAgent, (req, res) => {
+    const canvas = db.prepare('SELECT * FROM canvases WHERE id = ?').get(req.params.id);
+    if (!canvas) return res.status(404).json({ error: 'NOT_FOUND' });
+    const data = JSON.parse(canvas.data_json);
+    res.json({
+      id: canvas.id,
+      data,
+      created_by: canvas.created_by,
+      updated_by: canvas.updated_by,
+      created_at: canvas.created_at,
+      updated_at: canvas.updated_at,
+    });
+  });
+
+  app.patch('/api/canvases/:id', authenticateAgent, (req, res) => {
+    const canvas = db.prepare('SELECT * FROM canvases WHERE id = ?').get(req.params.id);
+    if (!canvas) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ error: 'MISSING_DATA' });
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'canvas',
+        contentId: 'canvas:' + req.params.id,
+        data: JSON.parse(canvas.data_json),
+        triggerType: 'pre_agent_edit',
+        actorId: actorName(req),
+        title: null,
+      });
+    }
+
+    const now = Date.now();
+    const agentName = actorName(req);
+    db.prepare('UPDATE canvases SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(data), agentName, now, req.params.id);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'canvas',
+        contentId: 'canvas:' + req.params.id,
+        data: data,
+        triggerType: 'post_agent_edit',
+        actorId: actorName(req),
+        title: null,
+        description: req.body.revision_description || null,
+      });
+    }
+
+    res.json({ saved: true, updated_at: now });
+  });
+
+  // ─── Videos ─────────────────────────────────────
+  app.post('/api/videos', authenticateAgent, (req, res) => {
+    const { title = '' } = req.body;
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const agentName = actorName(req);
+    const defaultData = JSON.stringify({
+      scenes: [{
+        scene_id: crypto.randomUUID(),
+        title: 'Scene 1',
+        duration: 5,
+        elements: [],
+      }],
+      settings: {
+        width: req.body.width || 1920,
+        height: req.body.height || 1080,
+        fps: 30,
+        duration: 10,
+      },
+    });
+
+    db.prepare(`INSERT INTO videos (id, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+
+    const nodeId = `video:${id}`;
+    const isoNow = new Date().toISOString();
+    const videoActorId = req.actor?.id || req.agent?.id || null;
+    contentItemsUpsert.run(
+      nodeId, id, 'video', title || '',
+      null, req.body.parent_id || null, null,
+      agentName, agentName, isoNow, isoNow, null, videoActorId, Date.now()
+    );
+
+    const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+
+    if (isAgentRequest(req)) {
+      try {
+        const humanActors = db.prepare("SELECT id FROM actors WHERE type = 'human'").all();
+        for (const actor of humanActors) {
+          const { id: notifId } = insertNotification(db, { genId }, {
+            actorId: agentName, targetActorId: actor.id, type: 'content_created',
+            titleKey: 'serverNotifications.content_created.title', titleParams: { title: title || '' },
+            bodyKey: 'serverNotifications.content_created.body', bodyParams: { agent: agentName, kind: '@:serverNotifications.kinds.video', title: title || nodeId },
+            link: `/content?id=${nodeId}`, meta: { content_id: nodeId, type: 'video' },
+          });
+          pushHumanEvent(actor.id, { event: 'notification.created', data: { id: notifId, type: 'content_created', content_id: nodeId, title } });
+          pushHumanEvent(actor.id, { event: 'content.changed', data: { action: 'created', type: 'video', id: nodeId, title } });
+        }
+      } catch (e) { console.warn('[content] video notification failed:', e.message); }
+    }
+
+    res.status(201).json({ video_id: id, item });
+  });
+
+  app.get('/api/videos/:id', authenticateAgent, (req, res) => {
+    const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(req.params.id);
+    if (!video) return res.status(404).json({ error: 'NOT_FOUND' });
+    const data = JSON.parse(video.data_json);
+    res.json({
+      id: video.id,
+      data,
+      created_by: video.created_by,
+      updated_by: video.updated_by,
+      created_at: video.created_at,
+      updated_at: video.updated_at,
+    });
+  });
+
+  app.patch('/api/videos/:id', authenticateAgent, (req, res) => {
+    const video = db.prepare('SELECT * FROM videos WHERE id = ?').get(req.params.id);
+    if (!video) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    const { data } = req.body;
+    if (!data) return res.status(400).json({ error: 'MISSING_DATA' });
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'video',
+        contentId: 'video:' + req.params.id,
+        data: JSON.parse(video.data_json),
+        triggerType: 'pre_agent_edit',
+        actorId: actorName(req),
+        title: null,
+      });
+    }
+
+    const now = Date.now();
+    const agentName = actorName(req);
+    db.prepare('UPDATE videos SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(data), agentName, now, req.params.id);
+
+    if (isAgentRequest(req)) {
+      createSnapshot(db, { genId }, {
+        contentType: 'video',
+        contentId: 'video:' + req.params.id,
+        data: data,
+        triggerType: 'post_agent_edit',
+        actorId: actorName(req),
+        title: null,
+        description: req.body.revision_description || null,
+      });
+    }
+
+    res.json({ saved: true, updated_at: now });
+  });
+
   // ─── Content Items ─────────────────────────────
   app.get('/api/content-items', authenticateAgent, (req, res) => {
     if (req.query.deleted === 'true') {
@@ -686,8 +895,8 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
   app.post('/api/content-items', authenticateAgent, async (req, res) => {
     const { type, title = '', parent_id = null, collection_id, columns } = req.body;
-    if (!type || !['doc', 'table', 'board', 'presentation', 'spreadsheet', 'diagram'].includes(type)) {
-      return res.status(400).json({ error: 'INVALID_TYPE', message: 'type must be "doc", "table", "board", "presentation", "spreadsheet", or "diagram"' });
+    if (!type || !['doc', 'table', 'board', 'presentation', 'spreadsheet', 'diagram', 'canvas', 'video'].includes(type)) {
+      return res.status(400).json({ error: 'INVALID_TYPE', message: 'type must be "doc", "table", "board", "presentation", "spreadsheet", "diagram", "canvas", or "video"' });
     }
 
     const now = new Date().toISOString();
@@ -941,6 +1150,57 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
         ? { id: nodeId, raw_id: id, type: 'diagram', title: title || '' }
         : db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
       if (!req.body.embedded) notifyContentCreated(nodeId, title);
+      return res.status(201).json({ item });
+    }
+
+    if (type === 'canvas') {
+      const id = crypto.randomUUID();
+      const nowTs = Date.now();
+      const isoNow = new Date().toISOString();
+      const firstPageId = crypto.randomUUID();
+      const defaultData = JSON.stringify({
+        pages: [{
+          page_id: firstPageId, title: 'Page 1',
+          width: 1920, height: 1080, head_html: '', elements: [],
+        }],
+      });
+
+      db.prepare(`INSERT INTO canvases (id, data_json, created_by, updated_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, nowTs, nowTs);
+
+      const nodeId = `canvas:${id}`;
+      contentItemsUpsert.run(
+        nodeId, id, 'canvas', title || '',
+        null, parent_id, null,
+        agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
+      );
+
+      const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+      notifyContentCreated(nodeId, title);
+      return res.status(201).json({ item });
+    }
+
+    if (type === 'video') {
+      const id = crypto.randomUUID();
+      const nowTs = Date.now();
+      const isoNow = new Date().toISOString();
+      const defaultData = JSON.stringify({
+        elements: [],
+        settings: { width: 1920, height: 1080, fps: 30, background_color: '#000000' },
+      });
+
+      db.prepare(`INSERT INTO videos (id, data_json, created_by, updated_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, nowTs, nowTs);
+
+      const nodeId = `video:${id}`;
+      contentItemsUpsert.run(
+        nodeId, id, 'video', title || '',
+        null, parent_id, null,
+        agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
+      );
+
+      const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
+      notifyContentCreated(nodeId, title);
       return res.status(201).json({ item });
     }
   });

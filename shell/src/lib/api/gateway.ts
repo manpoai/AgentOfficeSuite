@@ -252,7 +252,7 @@ export async function listCommentedRows(tableId: string): Promise<{ row_id: stri
 export interface ContentItem {
   id: string;          // 'doc:<uuid>' or 'table:<uuid>'
   raw_id: string;      // original doc or table ID
-  type: 'doc' | 'table' | 'presentation' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   title: string;
   icon: string | null;
   parent_id: string | null;
@@ -284,7 +284,7 @@ export async function listDeletedContentItems(): Promise<ContentItem[]> {
 }
 
 export async function createContentItem(opts: {
-  type: 'doc' | 'table' | 'presentation' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   title: string;
   parent_id?: string | null;
   collection_id?: string;
@@ -469,6 +469,109 @@ export async function getDiagram(diagramId: string): Promise<{
 
 export async function saveDiagram(diagramId: string, data: { cells: any[]; viewport?: any }): Promise<{ saved: boolean; updated_at: number }> {
   return gwFetch(`/diagrams/${diagramId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Canvases ─────────────────────────────────────
+export interface CanvasElement {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  html: string;
+  locked?: boolean;
+  z_index?: number;
+}
+
+export interface CanvasPage {
+  page_id: string;
+  title?: string;
+  width: number;
+  height: number;
+  head_html?: string;
+  background_color?: string;
+  background_image?: string;
+  elements: CanvasElement[];
+  frame_x?: number;
+  frame_y?: number;
+}
+
+export interface CanvasData {
+  pages: CanvasPage[];
+}
+
+export async function getCanvas(canvasId: string): Promise<{
+  id: string;
+  data: CanvasData;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+}> {
+  return gwFetch(`/canvases/${canvasId}`);
+}
+
+export async function saveCanvas(canvasId: string, data: CanvasData): Promise<{ saved: boolean; updated_at: number }> {
+  return gwFetch(`/canvases/${canvasId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data }),
+  });
+}
+
+// ─── Videos ─────────────────────────────────────────
+
+export interface VideoElement {
+  id: string;
+  type: 'text' | 'shape' | 'image';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  html: string;
+  start: number;
+  duration: number;
+  keyframes?: VideoKeyframe[];
+  z_index?: number;
+  locked?: boolean;
+  name?: string;
+}
+
+export interface VideoKeyframe {
+  time: number;
+  props: Partial<{ x: number; y: number; w: number; h: number; opacity: number; scale: number; rotation: number }>;
+  easing?: string;
+}
+
+export interface VideoSettings {
+  width: number;
+  height: number;
+  fps: number;
+  background_color?: string;
+}
+
+export interface VideoData {
+  elements: VideoElement[];
+  settings: VideoSettings;
+}
+
+export async function getVideo(videoId: string): Promise<{
+  id: string;
+  data: VideoData;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: number;
+  updated_at: number;
+}> {
+  return gwFetch(`/videos/${videoId}`);
+}
+
+export async function saveVideo(videoId: string, data: VideoData): Promise<{ saved: boolean; updated_at: number }> {
+  return gwFetch(`/videos/${videoId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data }),

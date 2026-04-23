@@ -172,6 +172,7 @@
     "typeTable": "データベース",
     "typePresentation": "スライド",
     "typeDiagram": "フローチャート",
+    "typeCanvas": "キャンバス",
     "justNow": "たった今",
     "minutesAgo": "分前",
     "hoursAgo": "時間前",
@@ -995,6 +996,8 @@
     "table": "データベース",
     "slides": "スライド",
     "flowchart": "フローチャート",
+    "canvas": "キャンバス",
+    "video": "ビデオ",
     "agent": "エージェント"
   },
   "actions": {
@@ -1002,6 +1005,8 @@
     "newTable": "新規データベース",
     "newSlides": "新規スライド",
     "newFlowchart": "新規フローチャート",
+    "newCanvas": "新規キャンバス",
+    "newVideo": "新規ビデオ",
     "newAgent": "新規エージェント",
     "openNewTab": "新しいタブで開く",
     "rename": "名前を変更",
@@ -1162,7 +1167,9 @@
       "table": "データベース",
       "presentation": "スライド",
       "board": "ボード",
-      "spreadsheet": "データベース"
+      "spreadsheet": "データベース",
+      "canvas": "キャンバス",
+      "video": "ビデオ"
     },
     "defaults": {
       "newContent": "新しいコンテンツ",

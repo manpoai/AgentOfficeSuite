@@ -40,7 +40,7 @@ import {
 } from '@/lib/api/gateway';
 
 export interface CommentPanelProps {
-  targetType: 'doc' | 'table' | 'presentation' | 'diagram';
+  targetType: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   targetId: string;
   rowId?: string;
   anchorType?: string;

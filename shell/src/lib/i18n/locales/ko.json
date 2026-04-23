@@ -172,6 +172,7 @@
     "typeTable": "데이터베이스",
     "typePresentation": "슬라이드",
     "typeDiagram": "플로차트",
+    "typeCanvas": "캔버스",
     "justNow": "방금 전",
     "minutesAgo": "분 전",
     "hoursAgo": "시간 전",
@@ -995,6 +996,8 @@
     "table": "데이터베이스",
     "slides": "슬라이드",
     "flowchart": "플로차트",
+    "canvas": "캔버스",
+    "video": "비디오",
     "agent": "에이전트"
   },
   "actions": {
@@ -1002,6 +1005,8 @@
     "newTable": "새 데이터베이스",
     "newSlides": "새 슬라이드",
     "newFlowchart": "새 플로차트",
+    "newCanvas": "새 캔버스",
+    "newVideo": "새 비디오",
     "newAgent": "새 에이전트",
     "openNewTab": "새 탭에서 열기",
     "rename": "이름 변경",
@@ -1162,7 +1167,9 @@
       "table": "데이터베이스",
       "presentation": "슬라이드",
       "board": "보드",
-      "spreadsheet": "데이터베이스"
+      "spreadsheet": "데이터베이스",
+      "canvas": "캔버스",
+      "video": "비디오"
     },
     "defaults": {
       "newContent": "새 콘텐츠",

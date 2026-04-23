@@ -1,4 +1,4 @@
-import { FileText, Table2, Presentation, Workflow, Users } from 'lucide-react';
+import { FileText, Table2, Presentation, Workflow, Users, LayoutDashboard, Video } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export interface EntityNameDef {
@@ -38,6 +38,20 @@ export const ENTITY_NAMES: Record<string, EntityNameDef> = {
     icon: Workflow,
     type: 'diagram',
   },
+  canvas: {
+    singular: 'Canvas',
+    singularKey: 'entities.canvas',
+    createLabelKey: 'actions.newCanvas',
+    icon: LayoutDashboard,
+    type: 'canvas',
+  },
+  video: {
+    singular: 'Video',
+    singularKey: 'entities.video',
+    createLabelKey: 'actions.newVideo',
+    icon: Video,
+    type: 'video',
+  },
   agent: {
     singular: 'Agent',
     singularKey: 'entities.agent',
@@ -47,5 +61,5 @@ export const ENTITY_NAMES: Record<string, EntityNameDef> = {
   },
 };
 
-export const CREATABLE_TYPES = ['doc', 'table', 'presentation', 'diagram'] as const;
+export const CREATABLE_TYPES = ['doc', 'table', 'presentation', 'diagram', 'canvas', 'video'] as const;
 export type CreatableType = typeof CREATABLE_TYPES[number];

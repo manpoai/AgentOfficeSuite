@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as docApi from '@/lib/api/documents';
 import type { Document as DocType } from '@/lib/api/documents';
-import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, Workflow, Pencil } from 'lucide-react';
+import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, Workflow, Pencil, LayoutDashboard } from 'lucide-react';
 import { CREATE_CONTENT_ITEMS } from '@/actions/create-content.actions';
 import { ENTITY_NAMES, CREATABLE_TYPES } from '@/actions/entity-names';
 import { SwipeBack } from '@/components/shared/SwipeBack';
@@ -35,6 +35,16 @@ const TableEditor = dynamic(
 
 const PresentationEditor = dynamic(
   () => import('@/components/presentation-editor/PresentationEditor').then(m => ({ default: m.PresentationEditor })),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
+
+const CanvasEditor = dynamic(
+  () => import('@/components/canvas-editor/CanvasEditor').then(m => ({ default: m.CanvasEditor })),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
+
+const VideoEditor = dynamic(
+  () => import('@/components/video-editor/VideoEditor').then(m => ({ default: m.VideoEditor })),
   { ssr: false, loading: () => <EditorSkeleton /> }
 );
 import * as gw from '@/lib/api/gateway';
@@ -78,7 +88,7 @@ type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | 
 type ContentNode = {
   id: string;         // doc:<id> or table:<id>
   rawId: string;      // original id without prefix
-  type: 'doc' | 'table' | 'presentation' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas';
   title: string;
   emoji?: string;
   createdAt: number;
@@ -88,7 +98,7 @@ type ContentNode = {
   unresolvedCommentCount?: number;
 };
 
-type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'presentation'; id: string } | { type: 'diagram'; id: string } | null;
+type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'presentation'; id: string } | { type: 'diagram'; id: string } | { type: 'canvas'; id: string } | { type: 'video'; id: string } | null;
 
 /** Tree ordering stored in localStorage */
 interface TreeState {
@@ -157,6 +167,8 @@ function parseContentId(id: string): Selection | null {
   if (id.startsWith('table:')) return { type: 'table', id: id.slice(6) };
   if (id.startsWith('presentation:')) return { type: 'presentation', id: id.slice(13) };
   if (id.startsWith('diagram:')) return { type: 'diagram', id: id.slice(8) };
+  if (id.startsWith('canvas:')) return { type: 'canvas', id: id.slice(7) };
+  if (id.startsWith('video:')) return { type: 'video', id: id.slice(6) };
   return null;
 }
 
@@ -385,6 +397,8 @@ export default function ContentPage() {
   const selectedTableId = selection?.type === 'table' ? selection.id : null;
   const selectedPresentationId = selection?.type === 'presentation' ? selection.id : null;
   const selectedDiagramId = selection?.type === 'diagram' ? selection.id : null;
+  const selectedCanvasId = selection?.type === 'canvas' ? selection.id : null;
+  const selectedVideoId = selection?.type === 'video' ? selection.id : null;
 
   const { data: selectedDoc } = useQuery({
     queryKey: ['document', selectedDocId],
@@ -401,8 +415,8 @@ export default function ContentPage() {
       map.set(item.id, {
         id: item.id,
         rawId: item.raw_id,
-        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : t('content.untitledPresentation')),
+        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas',
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : item.type === 'canvas' ? 'Untitled Canvas' : t('content.untitledPresentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
@@ -628,7 +642,7 @@ export default function ContentPage() {
     window.dispatchEvent(new CustomEvent('flush-diagram-save'));
     window.dispatchEvent(new CustomEvent('flush-doc-save'));
     // Try all possible node types
-    for (const prefix of ['doc', 'table', 'presentation', 'diagram']) {
+    for (const prefix of ['doc', 'table', 'presentation', 'diagram', 'canvas', 'video']) {
       const nodeId = `${prefix}:${rawId}`;
       const node = effectiveNodes.get(nodeId);
       if (node) {
@@ -644,7 +658,7 @@ export default function ContentPage() {
   // Auto-expand selected item and all its ancestors on load
   useEffect(() => {
     if (!selection) return;
-    const nodeId = selection.type === 'doc' ? `doc:${selection.id}` : `table:${selection.id}`;
+    const nodeId = `${selection.type}:${selection.id}`;
     const toExpand: string[] = [];
 
     // Expand the selected node's children if any
@@ -831,10 +845,64 @@ export default function ContentPage() {
     }
   };
 
+  const handleCreateCanvas = async (parentNodeId?: string) => {
+    if (creating) return;
+    window.dispatchEvent(new CustomEvent('flush-diagram-save'));
+    window.dispatchEvent(new CustomEvent('flush-doc-save'));
+    setCreating(true);
+    try {
+      const item = await gw.createContentItem({
+        type: 'canvas',
+        title: '',
+        parent_id: parentNodeId || null,
+      });
+      if (parentNodeId) {
+        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      const sel = { type: 'canvas' as const, id: item.raw_id };
+      setSelection(sel);
+      syncSelectionToURL(sel);
+      setMobileView('detail');
+    } catch (e) {
+      showError(t('errors.createCanvasFailed') || 'Failed to create canvas', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCreateVideo = async (parentNodeId?: string) => {
+    if (creating) return;
+    window.dispatchEvent(new CustomEvent('flush-diagram-save'));
+    window.dispatchEvent(new CustomEvent('flush-doc-save'));
+    setCreating(true);
+    try {
+      const item = await gw.createContentItem({
+        type: 'video',
+        title: '',
+        parent_id: parentNodeId || null,
+      });
+      if (parentNodeId) {
+        setExpandedIds(prev => new Set(prev).add(parentNodeId));
+      }
+      await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      const sel = { type: 'video' as const, id: item.raw_id };
+      setSelection(sel);
+      syncSelectionToURL(sel);
+      setMobileView('detail');
+    } catch (e) {
+      showError(t('errors.createVideoFailed') || 'Failed to create video', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const handleCreateByType = (type: CreatableType, parentNodeId?: string) => {
     if (type === 'doc') return handleCreateDoc(parentNodeId);
     if (type === 'table') return handleCreateTable(parentNodeId);
     if (type === 'presentation') return handleCreatePresentation(parentNodeId);
+    if (type === 'canvas') return handleCreateCanvas(parentNodeId);
+    if (type === 'video') return handleCreateVideo(parentNodeId);
     return handleCreateDiagram(parentNodeId);
   };
 
@@ -1394,7 +1462,7 @@ export default function ContentPage() {
                   <DragOverlay dropAnimation={null}>
                     {dragActiveNode && (
                       <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
-                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'canvas' ? <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
                         <span className="truncate">{dragActiveNode.title}</span>
                       </div>
                     )}
@@ -1580,6 +1648,74 @@ export default function ContentPage() {
             isPinned={effectiveNodes.get(`diagram:${selectedDiagramId}`)?.pinned ?? false}
             onTogglePin={() => handleTogglePin(`diagram:${selectedDiagramId}`)}
           />
+        ) : selectedCanvasId ? (
+          <CanvasEditor
+            key={selectedCanvasId}
+            canvasId={selectedCanvasId}
+            breadcrumb={(() => {
+              const path: { id: string; title: string }[] = [];
+              let nodeId: string | null = `canvas:${selectedCanvasId}`;
+              while (nodeId) {
+                const node = effectiveNodes.get(nodeId);
+                if (!node) break;
+                path.unshift({ id: node.rawId, title: node.title });
+                nodeId = node.parentId;
+              }
+              return path;
+            })()}
+            onBack={handleMobileBack}
+            onDeleted={() => {
+              setSelection(null); syncSelectionToURL(null); setMobileView('list');
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }}
+            onCopyLink={() => {
+              navigator.clipboard.writeText(buildContentLink({ type: 'canvas', id: selectedCanvasId }));
+            }}
+            docListVisible={docListVisible}
+            onToggleDocList={() => setDocListVisible(v => !v)}
+            onNavigate={navigateToBreadcrumb}
+            focusCommentId={focusCommentId}
+            showComments={showComments}
+            onShowComments={onShowComments}
+            onCloseComments={onCloseComments}
+            onToggleComments={onToggleComments}
+            isPinned={effectiveNodes.get(`canvas:${selectedCanvasId}`)?.pinned ?? false}
+            onTogglePin={() => handleTogglePin(`canvas:${selectedCanvasId}`)}
+          />
+        ) : selectedVideoId ? (
+          <VideoEditor
+            key={selectedVideoId}
+            videoId={selectedVideoId}
+            breadcrumb={(() => {
+              const path: { id: string; title: string }[] = [];
+              let nodeId: string | null = `video:${selectedVideoId}`;
+              while (nodeId) {
+                const node = effectiveNodes.get(nodeId);
+                if (!node) break;
+                path.unshift({ id: node.rawId, title: node.title });
+                nodeId = node.parentId;
+              }
+              return path;
+            })()}
+            onBack={handleMobileBack}
+            onDeleted={() => {
+              setSelection(null); syncSelectionToURL(null); setMobileView('list');
+              queryClient.invalidateQueries({ queryKey: ['content-items'] });
+            }}
+            onCopyLink={() => {
+              navigator.clipboard.writeText(buildContentLink({ type: 'video', id: selectedVideoId }));
+            }}
+            docListVisible={docListVisible}
+            onToggleDocList={() => setDocListVisible(v => !v)}
+            onNavigate={navigateToBreadcrumb}
+            focusCommentId={focusCommentId}
+            showComments={showComments}
+            onShowComments={onShowComments}
+            onCloseComments={onCloseComments}
+            onToggleComments={onToggleComments}
+            isPinned={effectiveNodes.get(`video:${selectedVideoId}`)?.pinned ?? false}
+            onTogglePin={() => handleTogglePin(`video:${selectedVideoId}`)}
+          />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-2 bg-card md:rounded-lg md:shadow-[0px_0px_20px_0px_rgba(0,0,0,0.08)] md:overflow-hidden">
             <div className="flex gap-3 mb-2">
@@ -1587,6 +1723,7 @@ export default function ContentPage() {
               <Table2 className="h-8 w-8 opacity-20" />
               <Presentation className="h-8 w-8 opacity-20" />
               <Workflow className="h-8 w-8 opacity-20" />
+              <LayoutDashboard className="h-8 w-8 opacity-20" />
             </div>
             <p className="text-sm">{t('content.selectHint')}</p>
             <p className="text-xs text-muted-foreground/50">{t('content.createHint')}</p>
@@ -1894,7 +2031,7 @@ function DraggableTreeNode({
   isExpanded: boolean;
   onToggle: () => void;
   depth: number;
-  onCreateChild: (type: 'doc' | 'table' | 'presentation' | 'diagram') => void;
+  onCreateChild: (type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas') => void;
   onRequestDelete: (nodeId: string) => void;
   onTogglePin: (nodeId: string) => void;
   creating?: boolean;
@@ -2066,6 +2203,8 @@ function DraggableTreeNode({
               ? <Presentation className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : node.type === 'diagram'
               ? <Workflow className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+              : node.type === 'canvas'
+              ? <LayoutDashboard className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : <FileText className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
             }
           </button>

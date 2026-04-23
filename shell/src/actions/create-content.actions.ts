@@ -1,4 +1,4 @@
-import { ENTITY_NAMES, type CreatableType } from './entity-names';
+import { ENTITY_NAMES, CREATABLE_TYPES, type CreatableType } from './entity-names';
 import type { TFunc } from './types';
 
 export interface CreateContentItemDef {
@@ -7,7 +7,7 @@ export interface CreateContentItemDef {
   icon: typeof ENTITY_NAMES[CreatableType]['icon'];
 }
 
-export const CREATE_CONTENT_ITEMS: CreateContentItemDef[] = (['doc', 'table', 'presentation', 'diagram'] as const).map((type) => ({
+export const CREATE_CONTENT_ITEMS: CreateContentItemDef[] = CREATABLE_TYPES.map((type) => ({
   type,
   label: (t: TFunc) => t(ENTITY_NAMES[type].createLabelKey),
   icon: ENTITY_NAMES[type].icon,

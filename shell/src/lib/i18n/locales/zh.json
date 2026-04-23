@@ -162,6 +162,7 @@
     "typeTable": "数据库",
     "typePresentation": "幻灯片",
     "typeDiagram": "流程图",
+    "typeCanvas": "画布",
     "justNow": "刚刚",
     "minutesAgo": "分钟前",
     "hoursAgo": "小时前",
@@ -995,6 +996,8 @@
     "table": "数据库",
     "slides": "幻灯片",
     "flowchart": "流程图",
+    "canvas": "画布",
+    "video": "视频",
     "agent": "Agent"
   },
   "actions": {
@@ -1002,6 +1005,8 @@
     "newTable": "新建数据库",
     "newSlides": "新建幻灯片",
     "newFlowchart": "新建流程图",
+    "newCanvas": "新建画布",
+    "newVideo": "新建视频",
     "newAgent": "新建 Agent",
     "openNewTab": "在新标签页打开",
     "rename": "重命名",
@@ -1162,7 +1167,9 @@
       "table": "数据库",
       "presentation": "幻灯片",
       "board": "看板",
-      "spreadsheet": "数据库"
+      "spreadsheet": "数据库",
+      "canvas": "画布",
+      "video": "视频"
     },
     "defaults": {
       "newContent": "新内容",

@@ -5,7 +5,7 @@ export function registerContentTools(server, gw) {
     'list_content_items',
     'List all content items in the workspace (docs, tables, presentations, diagrams). Returns title, type, owner, and metadata.',
     {
-      type: z.enum(['doc', 'table', 'presentation', 'diagram']).optional().describe('Filter by content type (omit for all)'),
+      type: z.enum(['doc', 'table', 'presentation', 'diagram', 'canvas']).optional().describe('Filter by content type (omit for all)'),
     },
     async ({ type }) => {
       const params = type ? `?type=${type}` : '';
@@ -19,7 +19,7 @@ export function registerContentTools(server, gw) {
     'List direct children of a content item. If parent_id is omitted, lists root-level items. Returns title, type, and metadata for each child.',
     {
       parent_id: z.string().optional().describe('Parent content item ID (omit for root-level items)'),
-      type: z.enum(['doc', 'table', 'presentation', 'diagram']).optional().describe('Filter by content type'),
+      type: z.enum(['doc', 'table', 'presentation', 'diagram', 'canvas']).optional().describe('Filter by content type'),
     },
     async ({ parent_id, type }) => {
       // Gateway GET /content-items returns ALL items. We filter client-side.

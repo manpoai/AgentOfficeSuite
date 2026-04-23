@@ -163,6 +163,7 @@
     "typeTable": "database",
     "typePresentation": "slides",
     "typeDiagram": "flowchart",
+    "typeCanvas": "canvas",
     "link": "Link",
     "justNow": "Just now",
     "minutesAgo": "min ago",
@@ -995,6 +996,8 @@
     "table": "Database",
     "slides": "Slides",
     "flowchart": "Flowchart",
+    "canvas": "Canvas",
+    "video": "Video",
     "agent": "Agent"
   },
   "actions": {
@@ -1002,6 +1005,8 @@
     "newTable": "New Table",
     "newSlides": "New Slides",
     "newFlowchart": "New Flowchart",
+    "newCanvas": "New Canvas",
+    "newVideo": "New Video",
     "newAgent": "New Agent",
     "openNewTab": "Open in new tab",
     "rename": "Rename",
@@ -1162,7 +1167,9 @@
       "table": "database",
       "presentation": "slides",
       "board": "board",
-      "spreadsheet": "database"
+      "spreadsheet": "database",
+      "canvas": "canvas",
+      "video": "video"
     },
     "defaults": {
       "newContent": "New content",

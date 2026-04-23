@@ -26,7 +26,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 export type ContentNode = {
   id: string;         // doc:<id> or table:<id>
   rawId: string;      // original id without prefix
-  type: 'doc' | 'table' | 'presentation' | 'diagram';
+  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   title: string;
   emoji?: string;
   createdAt: number;
@@ -35,7 +35,7 @@ export type ContentNode = {
   pinned?: boolean;
 };
 
-export type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'presentation'; id: string } | { type: 'diagram'; id: string } | null;
+export type Selection = { type: 'doc'; id: string } | { type: 'table'; id: string } | { type: 'presentation'; id: string } | { type: 'diagram'; id: string } | { type: 'canvas'; id: string } | { type: 'video'; id: string } | null;
 
 /** Tree ordering stored in localStorage */
 export interface TreeState {
@@ -356,8 +356,8 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
       map.set(item.id, {
         id: item.id,
         rawId: item.raw_id,
-        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : t('content.untitledPresentation')),
+        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas',
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : item.type === 'canvas' ? 'Untitled Canvas' : item.type === 'video' ? 'Untitled Video' : t('content.untitledPresentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
@@ -558,7 +558,7 @@ export function useContentTree(isMobilePage: boolean): UseContentTreeReturn {
 
   // Navigate to a breadcrumb item by rawId
   const navigateToBreadcrumb = useCallback((rawId: string) => {
-    for (const prefix of ['doc', 'table', 'presentation', 'diagram']) {
+    for (const prefix of ['doc', 'table', 'presentation', 'diagram', 'canvas', 'video']) {
       const nodeId = `${prefix}:${rawId}`;
       const node = effectiveNodes.get(nodeId);
       if (node) {

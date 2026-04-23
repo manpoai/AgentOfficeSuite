@@ -53,7 +53,7 @@ export interface RevisionItem {
 
 export interface RevisionHistoryProps {
   /** Content type for display */
-  contentType: 'doc' | 'table' | 'presentation' | 'diagram';
+  contentType: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   /** Content ID */
   contentId: string;
   /** Called after a revision is restored */
@@ -81,6 +81,7 @@ const TYPE_LABELS: Record<string, string> = {
   table: 'content.typeTable',
   presentation: 'content.typePresentation',
   diagram: 'content.typeDiagram',
+  canvas: 'content.typeCanvas',
 };
 
 const TRIGGER_LABELS: Record<string, string> = {
