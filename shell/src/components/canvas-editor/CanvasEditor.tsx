@@ -945,6 +945,48 @@ export function CanvasEditor({
     dragRef.current = { type: 'resize', elementId: id, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h };
   }, [data]);
 
+  // ─── Clipboard ─────────────────────
+  const CLIPBOARD_KEY = 'aose-canvas-clipboard';
+  const pasteCountRef = useRef(0);
+
+  const handleCopy = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const allEls = activeFrame?.elements ?? data?.elements ?? [];
+    const copied = allEls.filter(el => selectedIds.has(el.id));
+    if (copied.length === 0) return;
+    const payload = JSON.stringify({ type: CLIPBOARD_KEY, elements: copied });
+    navigator.clipboard.writeText(payload).catch(() => {});
+    pasteCountRef.current = 0;
+  }, [selectedIds, activeFrame, data]);
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      let parsed: { type: string; elements: CanvasElement[] };
+      try { parsed = JSON.parse(text); } catch { return; }
+      if (parsed.type !== CLIPBOARD_KEY || !Array.isArray(parsed.elements) || parsed.elements.length === 0) return;
+      pasteCountRef.current += 1;
+      const offset = pasteCountRef.current * 20;
+      const newEls = parsed.elements.map(el => ({
+        ...el,
+        id: `el-${crypto.randomUUID().slice(0, 8)}`,
+        x: el.x + offset,
+        y: el.y + offset,
+      }));
+      if (activeFrameId) {
+        updateFrame(activeFrameId, page => ({ ...page, elements: [...page.elements, ...newEls] }));
+      } else {
+        updateData(d => ({ ...d, elements: [...(d.elements ?? []), ...newEls] }));
+      }
+      setSelectedIds(new Set(newEls.map(el => el.id)));
+    } catch {}
+  }, [activeFrameId, activeFrame, updateFrame, updateData]);
+
+  const handleCut = useCallback(() => {
+    handleCopy();
+    deleteSelected();
+  }, [handleCopy, deleteSelected]);
+
   // ─── Keyboard ─────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -956,13 +998,16 @@ export function CanvasEditor({
         if (activeFrame) setSelectedIds(new Set(activeFrame.elements.map(el => el.id)));
         else if (data?.elements?.length) setSelectedIds(new Set(data.elements.map(el => el.id)));
       }
+      if (e.key === 'c' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); handleCopy(); }
+      if (e.key === 'v' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); handlePaste(); }
+      if (e.key === 'x' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); handleCut(); }
       if (e.key === 'Escape') { if (pendingInsert) { setPendingInsert(null); return; } setSelectedIds(new Set()); setEditingElementId(null); }
       if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) { e.preventDefault(); handleUndo(); }
       if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); handleRedo(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, activeFrame, editingElementId, handleUndo, handleRedo, pendingInsert]);
+  }, [selectedIds, activeFrame, editingElementId, handleUndo, handleRedo, pendingInsert, handleCopy, handlePaste, handleCut]);
 
   // ─── Actions ────────────────────────
   const deleteFrame = (pageId: string) => {

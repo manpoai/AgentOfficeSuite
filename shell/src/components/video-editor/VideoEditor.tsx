@@ -420,6 +420,48 @@ export function VideoEditor({
     setZoom(Math.min(sx, sy, 1));
   }, [data?.settings.width, data?.settings.height]);
 
+  // ─── Clipboard ───────────────────
+  const VIDEO_CLIPBOARD_KEY = 'aose-video-clipboard';
+  const videoPasteCountRef = useRef(0);
+
+  const handleCopy = useCallback(() => {
+    if (!selectedElementId || !data) return;
+    const el = data.elements.find(e => e.id === selectedElementId);
+    if (!el) return;
+    const payload = JSON.stringify({ type: VIDEO_CLIPBOARD_KEY, elements: [el] });
+    navigator.clipboard.writeText(payload).catch(() => {});
+    videoPasteCountRef.current = 0;
+  }, [selectedElementId, data]);
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      let parsed: { type: string; elements: VideoElement[] };
+      try { parsed = JSON.parse(text); } catch { return; }
+      if ((parsed.type !== VIDEO_CLIPBOARD_KEY && parsed.type !== 'aose-canvas-clipboard') || !Array.isArray(parsed.elements) || parsed.elements.length === 0) return;
+      videoPasteCountRef.current += 1;
+      const offset = videoPasteCountRef.current * 20;
+      const newEls: VideoElement[] = parsed.elements.map(el => ({
+        ...el,
+        id: crypto.randomUUID(),
+        x: el.x + offset,
+        y: el.y + offset,
+        start: (el as any).start ?? currentTime,
+        duration: (el as any).duration ?? 5,
+        type: (el as any).type ?? 'shape',
+        keyframes: (el as any).keyframes ?? [],
+        name: `${el.name ?? (el as any).type ?? 'element'} copy`,
+      }));
+      updateData(d => ({ ...d, elements: [...d.elements, ...newEls] }));
+      if (newEls.length === 1) setSelectedElementId(newEls[0].id);
+    } catch {}
+  }, [currentTime, updateData]);
+
+  const handleCut = useCallback(() => {
+    handleCopy();
+    if (selectedElementId) deleteElement(selectedElementId);
+  }, [handleCopy, selectedElementId, deleteElement]);
+
   // ─── Keyboard Shortcuts ───────────────
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -429,10 +471,13 @@ export function VideoEditor({
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId) { e.preventDefault(); deleteElement(selectedElementId); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); e.shiftKey ? handleRedo() : handleUndo(); }
       if ((e.metaKey || e.ctrlKey) && e.key === 'd' && selectedElementId) { e.preventDefault(); duplicateElement(selectedElementId); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && !e.shiftKey) { e.preventDefault(); handleCopy(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey) { e.preventDefault(); handlePaste(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'x' && !e.shiftKey) { e.preventDefault(); handleCut(); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [selectedElementId, deleteElement, duplicateElement, handleUndo, handleRedo]);
+  }, [selectedElementId, deleteElement, duplicateElement, handleUndo, handleRedo, handleCopy, handlePaste, handleCut]);
 
   // ─── Title & Delete ───────────────────
   const handleTitleChange = useCallback(async (newTitle: string) => {
