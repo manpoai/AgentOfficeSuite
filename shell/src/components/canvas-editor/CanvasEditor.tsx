@@ -14,6 +14,7 @@ import {
   Layers, ChevronDown, ChevronRight, FolderOpen, Folder,
   PenTool as PenToolIcon, Spline, MousePointer2,
   SquaresUnite, SquaresSubtract, SquaresIntersect, SquaresExclude,
+  Eye, EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -442,22 +443,36 @@ function getElementLabel(el: CanvasElement): string {
   return 'Element';
 }
 
-function SortableLayerItem({ el, frameId, isSelected, onSelect, onRename }: {
+function SortableLayerItem({ el, frameId, isSelected, onSelect, onRename, onToggleVisible }: {
   el: CanvasElement; frameId: string; isSelected: boolean;
   onSelect: (frameId: string, elementId: string) => void;
   onRename: (elementId: string, name: string) => void;
+  onToggleVisible: (elementId: string) => void;
 }) {
   const [groupExpanded, setGroupExpanded] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: el.id });
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
   const defaultLabel = getElementLabel(el);
   const isGroup = el.type === 'group';
+  const isHidden = el.visible === false;
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <div
-        className={cn('flex items-center gap-1 pl-6 pr-1.5 py-0.5 cursor-grab active:cursor-grabbing hover:bg-accent/50 text-[11px]',
-          isSelected && 'bg-primary/10 text-primary')}
+        className={cn('group flex items-center gap-1 pl-6 pr-1.5 py-0.5 cursor-grab active:cursor-grabbing hover:bg-accent/50 text-[11px]',
+          isSelected && 'bg-primary/10 text-primary',
+          isHidden && 'opacity-50')}
         onClick={() => onSelect(frameId, el.id)}>
+        <button
+          className="p-0.5 shrink-0 opacity-0 group-hover:opacity-100 data-[hidden=true]:opacity-100"
+          data-hidden={isHidden}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); onToggleVisible(el.id); }}
+          title={isHidden ? 'Show' : 'Hide'}
+        >
+          {isHidden
+            ? <EyeOff className="h-3 w-3 text-muted-foreground" />
+            : <Eye className="h-3 w-3 text-muted-foreground" />}
+        </button>
         {isGroup && (
           <button className="p-0.5 shrink-0" onMouseDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setGroupExpanded(v => !v); }}>
             {groupExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
@@ -478,6 +493,7 @@ function SortableLayerItem({ el, frameId, isSelected, onSelect, onRename }: {
               isSelected={false}
               onSelect={onSelect}
               onRename={onRename}
+              onToggleVisible={onToggleVisible}
             />
           ))}
         </div>
@@ -486,7 +502,7 @@ function SortableLayerItem({ el, frameId, isSelected, onSelect, onRename }: {
   );
 }
 
-function LayerPanel({ data, activeFrameId, selectedIds, onSelectFrame, onSelectElement, onSelectCanvasElement, onClose, onRenameFrame, onRenameElement, onRenameCanvasElement, onReorderElements }: {
+function LayerPanel({ data, activeFrameId, selectedIds, onSelectFrame, onSelectElement, onSelectCanvasElement, onClose, onRenameFrame, onRenameElement, onRenameCanvasElement, onReorderElements, onToggleVisible }: {
   data: CanvasData;
   activeFrameId: string | null;
   selectedIds: Set<string>;
@@ -498,6 +514,7 @@ function LayerPanel({ data, activeFrameId, selectedIds, onSelectFrame, onSelectE
   onRenameElement: (frameId: string, elementId: string, name: string) => void;
   onRenameCanvasElement: (elementId: string, name: string) => void;
   onReorderElements: (frameId: string, activeId: string, overId: string) => void;
+  onToggleVisible: (elementId: string) => void;
 }) {
   const [collapsedFrames, setCollapsedFrames] = useState<Set<string>>(new Set());
   const toggleCollapse = (fid: string) => setCollapsedFrames(prev => {
@@ -561,7 +578,8 @@ function LayerPanel({ data, activeFrameId, selectedIds, onSelectFrame, onSelectE
                       <SortableLayerItem key={el.id} el={el} frameId={frame.page_id}
                         isSelected={selectedIds.has(el.id)}
                         onSelect={onSelectElement}
-                        onRename={(eid, name) => onRenameElement(frame.page_id, eid, name)} />
+                        onRename={(eid, name) => onRenameElement(frame.page_id, eid, name)}
+                        onToggleVisible={onToggleVisible} />
                     ))}
                   </SortableContext>
                 </DndContext>
@@ -1130,7 +1148,7 @@ export function CanvasEditor({
         if (mr && (mr.w > 5 || mr.h > 5)) {
           const selIds = new Set<string>();
           let hitFrame: string | null = null;
-          for (const el of (data.elements ?? [])) {
+          for (const el of (data.elements ?? []).filter(el => el.visible !== false)) {
             const elScreenX = pan.x + el.x * scale;
             const elScreenY = pan.y + el.y * scale;
             if (elScreenX + el.w * scale > mr.x && elScreenX < mr.x + mr.w &&
@@ -1140,7 +1158,7 @@ export function CanvasEditor({
           }
           for (const frame of data.pages) {
             const fx = frame.frame_x ?? 0, fy = frame.frame_y ?? 0;
-            for (const el of frame.elements) {
+            for (const el of frame.elements.filter(el => el.visible !== false)) {
               const elScreenX = pan.x + (fx + el.x) * scale;
               const elScreenY = pan.y + (fy + el.y) * scale;
               const elScreenW = el.w * scale;
@@ -1932,6 +1950,11 @@ export function CanvasEditor({
     if (el) updateElement(id, { locked: !el.locked });
   }, [findElementById, updateElement]);
 
+  const toggleElementVisible = useCallback((id: string) => {
+    const el = findElementById(id);
+    if (el) updateElement(id, { visible: el.visible === false ? true : false });
+  }, [findElementById, updateElement]);
+
   const renameFrame = useCallback((id: string) => {
     setEditingFrameName(id);
   }, [setEditingFrameName]);
@@ -2185,6 +2208,7 @@ export function CanvasEditor({
               onRenameElement={(fid, eid, name) => updateFrame(fid, p => ({ ...p, elements: p.elements.map(e => e.id === eid ? { ...e, name } : e) }))}
               onRenameCanvasElement={(eid, name) => updateCanvasElement(eid, { name })}
               onReorderElements={reorderElements}
+              onToggleVisible={toggleElementVisible}
             />
           )}
 

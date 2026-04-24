@@ -162,6 +162,8 @@ export function CanvasElementView({ element, selected, scale, editing, onSelect,
 
   const handleSize = Math.max(10, 10 / scale);
 
+  if (element.visible === false) return null;
+
   return (
     <div
       style={{
