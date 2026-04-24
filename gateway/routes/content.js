@@ -1252,6 +1252,12 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
     } else if (item.type === 'diagram') {
       db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+    } else if (item.type === 'canvas') {
+      db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+    } else if (item.type === 'video') {
+      db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
+    } else if (item.type === 'page') {
+      db.prepare('UPDATE content_items SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
     }
 
     res.json({ deleted: true });
@@ -1292,6 +1298,12 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       db.prepare('DELETE FROM spreadsheets WHERE id = ?').run(item.raw_id);
     } else if (item.type === 'diagram') {
       db.prepare('DELETE FROM diagrams WHERE id = ?').run(item.raw_id);
+    } else if (item.type === 'canvas') {
+      db.prepare('DELETE FROM canvases WHERE id = ?').run(item.raw_id);
+    } else if (item.type === 'video') {
+      db.prepare('DELETE FROM videos WHERE id = ?').run(item.raw_id);
+    } else if (item.type === 'page') {
+      db.prepare('DELETE FROM pages WHERE id = ?').run(item.raw_id);
     }
 
     db.prepare('DELETE FROM content_items WHERE id = ?').run(req.params.id);
