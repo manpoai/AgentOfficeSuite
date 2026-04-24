@@ -839,6 +839,26 @@ export function CanvasEditor({
     await gw.createContentManualSnapshot(contentId);
   }, [contentId, canvasId]);
 
+  const navigateToAnchor = useCallback((anchor: { type: string; id: string }) => {
+    if (anchor.type !== 'element') return;
+
+    const findInElements = (elements: CanvasElement[], id: string): boolean =>
+      elements.some(e => e.id === id || (e.children ? findInElements(e.children, id) : false));
+
+    for (const page of data?.pages ?? []) {
+      if (findInElements(page.elements, anchor.id)) {
+        setActiveFrameId(page.page_id);
+        setSelectedIds(new Set([anchor.id]));
+        return;
+      }
+    }
+    // Check canvas-level elements (no frame)
+    if (data?.elements && findInElements(data.elements, anchor.id)) {
+      setActiveFrameId(null);
+      setSelectedIds(new Set([anchor.id]));
+    }
+  }, [data]);
+
   useEffect(() => {
     const flush = () => {
       if (saveTimeoutRef.current) { clearTimeout(saveTimeoutRef.current); saveTimeoutRef.current = null; }
@@ -2822,7 +2842,16 @@ export function CanvasEditor({
 
       {showComments && !showRevisions && (
         <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
-          <CommentPanel targetType="canvas" targetId={contentId} onClose={onCloseComments} focusCommentId={focusCommentId} />
+          <CommentPanel
+            targetType="canvas"
+            targetId={contentId}
+            anchorType={singleSelected ? 'element' : undefined}
+            anchorId={singleSelected?.id}
+            anchorMeta={singleSelected ? { name: singleSelected.name || getElementLabel(singleSelected) } : undefined}
+            onNavigateToAnchor={navigateToAnchor}
+            onClose={onCloseComments}
+            focusCommentId={focusCommentId}
+          />
         </div>
       )}
       {showRevisions && (
