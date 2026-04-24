@@ -8,6 +8,8 @@ export interface CanvasElement {
   html: string;
   locked?: boolean;
   z_index?: number;
+  rotation?: number;
+  visible?: boolean;
 }
 
 export interface CanvasPage {

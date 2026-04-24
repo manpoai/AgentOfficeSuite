@@ -1946,22 +1946,22 @@ export function CanvasEditor({
     document.body.appendChild(container);
 
     const { createRoot } = await import('react-dom/client');
+    const { flushSync } = await import('react-dom');
     const root = createRoot(container);
     const ref = React.createRef<HTMLDivElement>();
 
-    await new Promise<void>(resolve => {
-      root.render(
-        React.createElement(CanvasFrameExportView, { frame, ref }),
-      );
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    });
+    try {
+      flushSync(() => {
+        root.render(React.createElement(CanvasFrameExportView, { frame, ref }));
+      });
 
-    if (ref.current) {
-      await exportFramePng(ref.current, frame.title || 'frame');
+      if (ref.current) {
+        await exportFramePng(ref.current, frame.title || 'frame');
+      }
+    } finally {
+      root.unmount();
+      document.body.removeChild(container);
     }
-
-    root.unmount();
-    document.body.removeChild(container);
   }, [data]);
 
   // ─── Context menus ──────────────────

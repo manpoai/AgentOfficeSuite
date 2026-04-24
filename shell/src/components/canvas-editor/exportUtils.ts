@@ -5,5 +5,7 @@ export async function exportFramePng(frameEl: HTMLElement, frameName: string): P
   const a = document.createElement('a');
   a.download = `${frameName || 'frame'}.png`;
   a.href = dataUrl;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
 }
