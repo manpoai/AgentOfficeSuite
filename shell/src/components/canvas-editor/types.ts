@@ -10,6 +10,8 @@ export interface CanvasElement {
   z_index?: number;
   rotation?: number;
   visible?: boolean;
+  type?: 'group' | string;
+  children?: CanvasElement[];
 }
 
 export interface CanvasPage {
@@ -21,6 +23,10 @@ export interface CanvasPage {
   background_color?: string;
   background_image?: string;
   border_radius?: number;
+  border_color?: string;
+  border_width?: number;
+  border_style?: 'solid' | 'dashed' | 'dotted';
+  box_shadow?: string;
   elements: CanvasElement[];
   frame_x?: number;
   frame_y?: number;
@@ -29,6 +35,7 @@ export interface CanvasPage {
 export interface CanvasData {
   pages: CanvasPage[];
   elements?: CanvasElement[];
+  background_color?: string;
 }
 
 export interface DesignToken {

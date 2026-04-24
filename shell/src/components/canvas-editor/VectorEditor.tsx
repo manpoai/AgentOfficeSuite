@@ -7,6 +7,11 @@ import {
   type PathPoint, type ParsedPath,
 } from '@/components/shared/svg-path-utils';
 
+export interface VectorSelectionInfo {
+  points: { index: number; point: PathPoint }[];
+  count: number;
+}
+
 interface VectorEditorProps {
   elementHtml: string;
   elementX: number;
@@ -16,6 +21,7 @@ interface VectorEditorProps {
   scale: number;
   onUpdateHtml: (newHtml: string) => void;
   onExit: () => void;
+  onSelectionChange?: (info: VectorSelectionInfo | null) => void;
 }
 
 const ANCHOR_SIZE = 6;
@@ -23,13 +29,22 @@ const HANDLE_SIZE = 4;
 
 export function VectorEditor({
   elementHtml, elementX, elementY, elementW, elementH,
-  scale, onUpdateHtml, onExit,
+  scale, onUpdateHtml, onExit, onSelectionChange,
 }: VectorEditorProps) {
   const pathD = extractPathD(elementHtml);
   const [parsed, setParsed] = useState<ParsedPath | null>(
     pathD ? parsePath(pathD) : null,
   );
-  const [selectedPointIdx, setSelectedPointIdx] = useState<number | null>(null);
+  const [selectedPointIdx, setSelectedPointIdxRaw] = useState<number | null>(null);
+  const setSelectedPointIdx = useCallback((idx: number | null) => {
+    setSelectedPointIdxRaw(idx);
+    if (idx !== null && parsed) {
+      const pt = parsed.points[idx];
+      if (pt) onSelectionChange?.({ points: [{ index: idx, point: pt }], count: 1 });
+    } else {
+      onSelectionChange?.(null);
+    }
+  }, [parsed, onSelectionChange]);
   const [dragState, setDragState] = useState<{
     type: 'anchor' | 'handleIn' | 'handleOut';
     idx: number;

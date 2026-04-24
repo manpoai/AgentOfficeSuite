@@ -18,6 +18,10 @@ export interface AggregatedProps {
   textDecoration?: 'none' | 'underline' | 'line-through' | 'mixed';
   borderRadius?: number | 'mixed';
   opacity?: number | 'mixed';
+  svgStroke?: string | 'mixed';
+  svgStrokeWidth?: number | 'mixed';
+  svgStrokeDasharray?: string | 'mixed';
+  boxShadow?: string | 'mixed';
 }
 
 // ── flattenToLeaves ───────────────────────────────────────────────────────────
@@ -43,6 +47,8 @@ export function flattenToLeaves(elements: CanvasElement[]): CanvasElement[] {
 export interface PropertyUnion {
   fill: boolean;
   font: boolean;
+  stroke: boolean;
+  shadow: boolean;
 }
 
 export function computePropertyUnion(leaves: CanvasElement[]): PropertyUnion {
@@ -58,7 +64,18 @@ export function computePropertyUnion(leaves: CanvasElement[]): PropertyUnion {
     return p.color !== undefined || p.fontSize !== undefined;
   });
 
-  return { fill: hasFill, font: hasFont };
+  const hasStroke = leaves.some(el => {
+    if (!el.html.includes('<svg')) return false;
+    const p = projectElement(el.html);
+    return p.svgStroke !== undefined;
+  });
+
+  const hasShadow = leaves.some(el => {
+    const p = projectElement(el.html);
+    return el.html.includes('<svg') ? p.svgDropShadow !== null : !!p.boxShadow;
+  });
+
+  return { fill: hasFill, font: hasFont, stroke: hasStroke, shadow: hasShadow };
 }
 
 // ── aggregateProps ────────────────────────────────────────────────────────────
@@ -90,6 +107,10 @@ export function aggregateProps(leaves: CanvasElement[]): AggregatedProps {
     textDecoration: agg(projected.map(p => p.textDecoration)),
     borderRadius: agg(projected.map(p => p.borderRadius)),
     opacity: agg(projected.map(p => p.opacity)),
+    svgStroke: agg(projected.map(p => p.svgStroke)),
+    svgStrokeWidth: agg(projected.map(p => p.svgStrokeWidth)),
+    svgStrokeDasharray: agg(projected.map(p => p.svgStrokeDasharray)),
+    boxShadow: agg(projected.map(p => p.boxShadow)),
   };
 }
 

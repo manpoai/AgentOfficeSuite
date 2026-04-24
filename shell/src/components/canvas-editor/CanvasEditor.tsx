@@ -321,61 +321,6 @@ function CanvasToolbar({ pendingInsert, onSetPending, onAddShape, onAddImage, on
   );
 }
 
-function ElementToolbar({ element, scale, pan, frameOffset, onDelete, onDuplicate, onLock, onBringForward, onSendBackward, onAlign, selectedCount, onTogglePropertyPanel, canBooleanOp, onBooleanOp }: {
-  element: CanvasElement;
-  scale: number;
-  pan: { x: number; y: number };
-  frameOffset: { x: number; y: number };
-  onDelete: () => void;
-  onDuplicate: () => void;
-  onLock: () => void;
-  onBringForward: () => void;
-  onSendBackward: () => void;
-  onAlign: (a: string) => void;
-  selectedCount: number;
-  onTogglePropertyPanel: () => void;
-  canBooleanOp?: boolean;
-  onBooleanOp?: (op: BooleanOp) => void;
-}) {
-  const x = pan.x + (frameOffset.x + element.x) * scale;
-  const y = pan.y + (frameOffset.y + element.y) * scale - 44;
-
-  return (
-    <div className="absolute z-30 flex items-center gap-0.5 bg-card rounded border border-black/10 dark:border-white/10 px-1.5 h-8 shadow-lg"
-      style={{ left: Math.max(4, x), top: Math.max(4, y) }}
-      onMouseDown={e => e.stopPropagation()}>
-      {selectedCount >= 2 && (
-        <>
-          <ToolBtnSm icon={AlignStartHorizontal} onClick={() => onAlign('left')} title="Align left" />
-          <ToolBtnSm icon={AlignHorizontalJustifyCenter} onClick={() => onAlign('center-h')} title="Center H" />
-          <ToolBtnSm icon={AlignEndHorizontal} onClick={() => onAlign('right')} title="Align right" />
-          <ToolBtnSm icon={AlignStartVertical} onClick={() => onAlign('top')} title="Align top" />
-          <ToolBtnSm icon={AlignVerticalJustifyCenter} onClick={() => onAlign('center-v')} title="Center V" />
-          <ToolBtnSm icon={AlignEndVertical} onClick={() => onAlign('bottom')} title="Align bottom" />
-          <div className="w-px h-4 bg-black/10 dark:bg-white/10 mx-0.5" />
-        </>
-      )}
-      {canBooleanOp && onBooleanOp && (
-        <>
-          <ToolBtnSm icon={SquaresUnite} onClick={() => onBooleanOp('union')} title="Union" />
-          <ToolBtnSm icon={SquaresSubtract} onClick={() => onBooleanOp('difference')} title="Subtract" />
-          <ToolBtnSm icon={SquaresIntersect} onClick={() => onBooleanOp('intersection')} title="Intersect" />
-          <ToolBtnSm icon={SquaresExclude} onClick={() => onBooleanOp('exclusion')} title="Exclude" />
-          <div className="w-px h-4 bg-black/10 dark:bg-white/10 mx-0.5" />
-        </>
-      )}
-      <ToolBtnSm icon={Copy} onClick={onDuplicate} title="Duplicate" />
-      <ToolBtnSm icon={ArrowUp} onClick={onBringForward} title="Bring forward" />
-      <ToolBtnSm icon={ArrowDown} onClick={onSendBackward} title="Send backward" />
-      <ToolBtnSm icon={element.locked ? Unlock : Lock} onClick={onLock} title={element.locked ? 'Unlock' : 'Lock'} />
-      <ToolBtnSm icon={PanelRight} onClick={onTogglePropertyPanel} title="Properties" />
-      <div className="w-px h-4 bg-black/10 dark:bg-white/10 mx-0.5" />
-      <button onClick={onDelete} className="p-1 rounded text-destructive hover:bg-destructive/10 transition-colors" title="Delete">
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  );
-}
 
 function ToolBtn({ icon: Icon, onClick, active, title }: { icon: React.ComponentType<{ className?: string }>; onClick: () => void; active?: boolean; title: string; }) {
   return (
@@ -2069,6 +2014,38 @@ export function CanvasEditor({
         }
       }),
     }));
+    if (alignment === 'distribute-h' && selected.length >= 3) {
+      const sorted = [...selected].sort((a, b) => a.x - b.x);
+      const totalSpan = sorted[sorted.length - 1].x + sorted[sorted.length - 1].w - sorted[0].x;
+      const totalElWidth = sorted.reduce((s, e) => s + e.w, 0);
+      const gap = (totalSpan - totalElWidth) / (sorted.length - 1);
+      let cx = sorted[0].x + sorted[0].w + gap;
+      updateFrame(activeFrameId, page => ({
+        ...page, elements: page.elements.map(el => {
+          const idx = sorted.findIndex(s => s.id === el.id);
+          if (idx <= 0 || idx >= sorted.length - 1) return el;
+          const newX = Math.round(cx);
+          cx += el.w + gap;
+          return { ...el, x: newX };
+        }),
+      }));
+    }
+    if (alignment === 'distribute-v' && selected.length >= 3) {
+      const sorted = [...selected].sort((a, b) => a.y - b.y);
+      const totalSpan = sorted[sorted.length - 1].y + sorted[sorted.length - 1].h - sorted[0].y;
+      const totalElHeight = sorted.reduce((s, e) => s + e.h, 0);
+      const gap = (totalSpan - totalElHeight) / (sorted.length - 1);
+      let cy = sorted[0].y + sorted[0].h + gap;
+      updateFrame(activeFrameId, page => ({
+        ...page, elements: page.elements.map(el => {
+          const idx = sorted.findIndex(s => s.id === el.id);
+          if (idx <= 0 || idx >= sorted.length - 1) return el;
+          const newY = Math.round(cy);
+          cy += el.h + gap;
+          return { ...el, y: newY };
+        }),
+      }));
+    }
   };
 
   const handleBooleanOp = useCallback(async (op: BooleanOp) => {
@@ -2239,10 +2216,10 @@ export function CanvasEditor({
           )}
 
           {/* Infinite canvas viewport */}
-          <div className="flex-1 min-w-0 overflow-hidden bg-[#e8e8e8] dark:bg-zinc-900 relative"
+          <div className="flex-1 min-w-0 overflow-hidden relative"
+            style={{ background: data.background_color || '#e8e8e8', touchAction: 'none', cursor: isPanning ? 'grabbing' : pendingInsert ? 'crosshair' : 'default' }}
             ref={containerRef} onMouseDown={handleCanvasPointerDown}
-            onDrop={handleCanvasDrop} onDragOver={handleCanvasDragOver}
-            style={{ touchAction: 'none', cursor: isPanning ? 'grabbing' : pendingInsert ? 'crosshair' : 'default' }}>
+            onDrop={handleCanvasDrop} onDragOver={handleCanvasDragOver}>
 
             <CanvasToolbar
               pendingInsert={pendingInsert}
@@ -2898,9 +2875,15 @@ export function CanvasEditor({
                     selectedCount={selectedIds.size}
                     designTokens={designTokens}
                     subElementSelection={subElementSelection}
+                    canvasBackgroundColor={data.background_color}
                     onUpdateElement={updateElement}
                     onUpdateFrame={handleUpdateFrame}
                     onUpdateToken={handleUpdateToken}
+                    onUpdateCanvasBackground={(color) => {
+                      const newData = { ...data, background_color: color };
+                      setData(newData);
+                      scheduleSave(newData);
+                    }}
                     onClose={() => setShowPropertyPanel(false)}
                     onDelete={deleteSelected}
                     onDuplicate={singleSelected ? () => duplicateElement(singleSelected.id) : undefined}
@@ -2908,6 +2891,16 @@ export function CanvasEditor({
                     onUngroup={singleSelected?.type === 'group' ? ungroupSelected : undefined}
                     onAlign={alignElements}
                     onLock={singleSelected ? () => updateElement(singleSelected.id, { locked: !singleSelected.locked }) : undefined}
+                    onBooleanOp={handleBooleanOp}
+                    onRenameElement={(id, name) => updateElement(id, { name })}
+                    onRenameFrame={(fid, title) => updateFrame(fid, p => ({ ...p, title }))}
+                    onDuplicateFrame={duplicateFrame}
+                    onDeleteFrame={deleteFrame}
+                    onMoveSelection={(dx, dy) => {
+                      selectedElements.forEach(el => {
+                        updateElement(el.id, { x: el.x + dx, y: el.y + dy });
+                      });
+                    }}
                   />
                 )}
               </div>

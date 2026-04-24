@@ -1,5 +1,15 @@
 import type { DesignToken } from './types';
 
+export type MarkerType = 'none' | 'arrow' | 'triangle' | 'triangle-reversed' | 'circle' | 'diamond';
+
+export interface SvgDropShadow {
+  dx: number;
+  dy: number;
+  stdDeviation: number;
+  color: string;
+  opacity: number;
+}
+
 export interface ProjectedProps {
   textContent?: string;
   backgroundColor?: string;
@@ -12,6 +22,9 @@ export interface ProjectedProps {
   letterSpacing?: number;
   textDecoration?: 'none' | 'underline' | 'line-through';
   borderRadius?: number;
+  borderColor?: string;
+  borderWidth?: number;
+  borderStyle?: 'solid' | 'dashed' | 'dotted' | 'none';
   opacity?: number;
   imageSrc?: string;
   svgFill?: string;
@@ -19,16 +32,43 @@ export interface ProjectedProps {
   svgStrokeWidth?: number;
   svgStrokeDasharray?: string;
   svgStrokeAlignment?: 'center' | 'inside' | 'outside';
+  svgStrokeLinecap?: 'butt' | 'round' | 'square';
+  svgMarkerStart?: MarkerType;
+  svgMarkerEnd?: MarkerType;
+  svgDropShadow?: SvgDropShadow | null;
+  boxShadow?: string;
   isSvgShape?: boolean;
+  subLeft?: number;
+  subTop?: number;
+  subWidth?: number;
+  subHeight?: number;
 }
 
-export function projectElement(html: string): ProjectedProps & { rawHTML: string } {
+export function projectElement(html: string, cssPath?: string): ProjectedProps & { rawHTML: string } {
   if (typeof document === 'undefined') return { rawHTML: html };
 
   const div = document.createElement('div');
   div.innerHTML = html;
-  const el = div.firstElementChild as HTMLElement | null;
+  let el = div.firstElementChild as HTMLElement | null;
   if (!el) return { rawHTML: html, textContent: html };
+
+  if (cssPath) {
+    const sub = el.querySelector(cssPath) as HTMLElement | null;
+    if (sub) {
+      const subStyle = sub.style;
+      return {
+        rawHTML: html,
+        backgroundColor: subStyle.background || subStyle.backgroundColor || undefined,
+        color: subStyle.color || undefined,
+        fontSize: subStyle.fontSize ? parseFloat(subStyle.fontSize) || undefined : undefined,
+        opacity: subStyle.opacity ? parseFloat(subStyle.opacity) : undefined,
+        subLeft: subStyle.left ? parseFloat(subStyle.left) : undefined,
+        subTop: subStyle.top ? parseFloat(subStyle.top) : undefined,
+        subWidth: subStyle.width ? parseFloat(subStyle.width) : undefined,
+        subHeight: subStyle.height ? parseFloat(subStyle.height) : undefined,
+      };
+    }
+  }
 
   const style = el.style;
 
@@ -78,6 +118,27 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
     else svgStrokeAlignment = 'center';
   }
 
+  let svgStrokeLinecap: 'butt' | 'round' | 'square' | undefined;
+  let svgMarkerStart: MarkerType | undefined;
+  let svgMarkerEnd: MarkerType | undefined;
+  let svgDropShadow: SvgDropShadow | null | undefined;
+  if (isSvgShape) {
+    const lcMatch = html.match(/stroke-linecap="([^"]*)"/);
+    svgStrokeLinecap = lcMatch ? lcMatch[1] as 'butt' | 'round' | 'square' : undefined;
+    const msMatch = html.match(/marker-start="url\(#marker-(\w+)\)"/);
+    svgMarkerStart = msMatch ? msMatch[1] as MarkerType : 'none';
+    const meMatch = html.match(/marker-end="url\(#marker-(\w+)\)"/);
+    svgMarkerEnd = meMatch ? meMatch[1] as MarkerType : 'none';
+    const filterMatch = html.match(/feDropShadow[^>]*dx="([^"]*)"[^>]*dy="([^"]*)"[^>]*stdDeviation="([^"]*)"[^>]*flood-color="([^"]*)"[^>]*flood-opacity="([^"]*)"/);
+    if (filterMatch) {
+      svgDropShadow = { dx: parseFloat(filterMatch[1]), dy: parseFloat(filterMatch[2]), stdDeviation: parseFloat(filterMatch[3]), color: filterMatch[4], opacity: parseFloat(filterMatch[5]) };
+    } else {
+      svgDropShadow = null;
+    }
+  }
+
+  const boxShadow = !isSvgShape ? (style.boxShadow || undefined) : undefined;
+
   const textAlignRaw = style.textAlign as string;
   const textAlign: ProjectedProps['textAlign'] =
     textAlignRaw === 'left' || textAlignRaw === 'center' || textAlignRaw === 'right' || textAlignRaw === 'justify'
@@ -102,6 +163,13 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
       ? textDecorationRaw
       : textDecorationRaw === 'none' ? 'none' : undefined;
 
+  const borderColor = !isSvgShape ? (style.borderColor || undefined) : undefined;
+  const borderWidth = !isSvgShape && style.borderWidth ? (parseFloat(style.borderWidth) || undefined) : undefined;
+  const borderStyleRaw = !isSvgShape ? (style.borderStyle || undefined) : undefined;
+  const borderStyleVal: ProjectedProps['borderStyle'] =
+    borderStyleRaw === 'solid' || borderStyleRaw === 'dashed' || borderStyleRaw === 'dotted' || borderStyleRaw === 'none'
+      ? borderStyleRaw : undefined;
+
   return {
     textContent: hasContentEditable || (!img && !isSvgShape && innerText.trim()) ? innerText : undefined,
     backgroundColor: isSvgShape ? undefined : backgroundColor,
@@ -114,6 +182,9 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
     letterSpacing: isSvgShape ? undefined : letterSpacing,
     textDecoration: isSvgShape ? undefined : textDecoration,
     borderRadius: style.borderRadius ? parseFloat(style.borderRadius) || undefined : undefined,
+    borderColor,
+    borderWidth,
+    borderStyle: borderStyleVal,
     opacity: style.opacity ? parseFloat(style.opacity) : undefined,
     imageSrc,
     svgFill,
@@ -121,13 +192,36 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
     svgStrokeWidth,
     svgStrokeDasharray,
     svgStrokeAlignment,
+    svgStrokeLinecap,
+    svgMarkerStart,
+    svgMarkerEnd,
+    svgDropShadow,
+    boxShadow,
     isSvgShape,
     rawHTML: html,
   };
 }
 
-export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps>): string {
+export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps>, cssPath?: string): string {
   if (typeof document === 'undefined') return rawHTML;
+
+  if (cssPath) {
+    const div = document.createElement('div');
+    div.innerHTML = rawHTML;
+    const root = div.firstElementChild as HTMLElement | null;
+    const sub = root?.querySelector(cssPath) as HTMLElement | null;
+    if (sub) {
+      if (changes.backgroundColor !== undefined) sub.style.background = changes.backgroundColor;
+      if (changes.color !== undefined) sub.style.color = changes.color;
+      if (changes.fontSize !== undefined) sub.style.fontSize = changes.fontSize + 'px';
+      if (changes.opacity !== undefined) sub.style.opacity = String(changes.opacity);
+      if (changes.subLeft !== undefined) sub.style.left = changes.subLeft + 'px';
+      if (changes.subTop !== undefined) sub.style.top = changes.subTop + 'px';
+      if (changes.subWidth !== undefined) sub.style.width = changes.subWidth + 'px';
+      if (changes.subHeight !== undefined) sub.style.height = changes.subHeight + 'px';
+    }
+    return div.innerHTML;
+  }
 
   let html = rawHTML;
 
@@ -201,6 +295,9 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
   if (changes.letterSpacing !== undefined) el.style.letterSpacing = changes.letterSpacing + 'px';
   if (changes.textDecoration !== undefined) el.style.textDecoration = changes.textDecoration;
   if (changes.borderRadius !== undefined) el.style.borderRadius = changes.borderRadius + 'px';
+  if (changes.borderColor !== undefined) el.style.borderColor = changes.borderColor;
+  if (changes.borderWidth !== undefined) el.style.borderWidth = changes.borderWidth + 'px';
+  if (changes.borderStyle !== undefined) el.style.borderStyle = changes.borderStyle;
   if (changes.opacity !== undefined) el.style.opacity = String(changes.opacity);
 
   if (changes.imageSrc !== undefined) {
@@ -234,4 +331,73 @@ export function updateDesignToken(headHtml: string, tokenName: string, newValue:
   const escaped = tokenName.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
   const re = new RegExp(`(${escaped}\\s*:\\s*)([^;]+)(;)`, 'g');
   return headHtml.replace(re, `$1${newValue}$3`);
+}
+
+export function hasGradientFill(html: string): boolean {
+  return /linear-gradient|radial-gradient|conic-gradient/.test(html) ||
+    /<linearGradient|<radialGradient/.test(html);
+}
+
+export function applySvgDropShadow(html: string, shadow: SvgDropShadow | null): string {
+  let result = html;
+  result = result.replace(/<defs>\s*<filter[^>]*>[\s\S]*?<\/filter>\s*<\/defs>/g, '');
+  result = result.replace(/\s*filter="url\(#[^"]*\)"/g, '');
+
+  if (!shadow) return result;
+
+  const filterId = 'drop-shadow';
+  const filterDef = `<defs><filter id="${filterId}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="${shadow.dx}" dy="${shadow.dy}" stdDeviation="${shadow.stdDeviation}" flood-color="${shadow.color}" flood-opacity="${shadow.opacity}"/></filter></defs>`;
+  result = result.replace(/<svg([^>]*)>/, `<svg$1>${filterDef}`);
+  const shapeTag = /<(path|rect|circle|ellipse|polygon)\b([^>]*)>/;
+  const m = result.match(shapeTag);
+  if (m) {
+    result = result.replace(shapeTag, `<${m[1]}${m[2]} filter="url(#${filterId})">`);
+  }
+  return result;
+}
+
+function markerDef(id: string, type: MarkerType, isStart: boolean): string {
+  const orient = isStart ? 'auto-start-reverse' : 'auto';
+  switch (type) {
+    case 'arrow': return `<marker id="${id}" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="${orient}"><polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="currentColor" stroke-width="1"/></marker>`;
+    case 'triangle': return `<marker id="${id}" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="${orient}"><polygon points="0 0, 10 3.5, 0 7" fill="currentColor"/></marker>`;
+    case 'triangle-reversed': return `<marker id="${id}" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="${orient}"><polygon points="10 0, 0 3.5, 10 7" fill="currentColor"/></marker>`;
+    case 'circle': return `<marker id="${id}" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="${orient}"><circle cx="4" cy="4" r="3" fill="currentColor"/></marker>`;
+    case 'diamond': return `<marker id="${id}" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="${orient}"><polygon points="5 0, 10 5, 5 10, 0 5" fill="currentColor"/></marker>`;
+    default: return '';
+  }
+}
+
+export function applySvgMarker(html: string, end: 'start' | 'end', type: MarkerType): string {
+  let result = html;
+  const attrName = end === 'start' ? 'marker-start' : 'marker-end';
+  const markerId = `marker-${type}`;
+
+  result = result.replace(new RegExp(`\\s*${attrName}="[^"]*"`, 'g'), '');
+  result = result.replace(new RegExp(`<marker id="marker-[^"]*-${end}"[^>]*>[\\s\\S]*?<\\/marker>`, 'g'), '');
+
+  if (type === 'none') return result;
+
+  const fullId = `${markerId}-${end}`;
+  const def = markerDef(fullId, type, end === 'start');
+  if (result.includes('<defs>')) {
+    result = result.replace('</defs>', `${def}</defs>`);
+  } else {
+    result = result.replace(/<svg([^>]*)>/, `<svg$1><defs>${def}</defs>`);
+  }
+  const shapeTag = /<(path|line|polyline)\b([^>]*)>/;
+  const m = result.match(shapeTag);
+  if (m) {
+    result = result.replace(shapeTag, `<${m[1]}${m[2]} ${attrName}="url(#${fullId})">`);
+  }
+  return result;
+}
+
+export function applyStrokeLinecap(html: string, cap: 'butt' | 'round' | 'square'): string {
+  const shapeTag = /<(path|line|polyline|rect|circle|ellipse|polygon)\b([^>]*)>/;
+  const m = html.match(shapeTag);
+  if (!m) return html;
+  let attrs = m[2].replace(/\sstroke-linecap="[^"]*"/, '');
+  if (cap !== 'butt') attrs += ` stroke-linecap="${cap}"`;
+  return html.replace(shapeTag, `<${m[1]}${attrs}>`);
 }
