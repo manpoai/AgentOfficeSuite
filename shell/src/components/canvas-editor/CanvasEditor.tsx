@@ -822,8 +822,16 @@ export function CanvasEditor({
   }, [undoRedo, scheduleSave]);
 
   const handleCreateManualVersion = useCallback(async () => {
+    // Flush any pending deferred save before snapshotting so the snapshot
+    // captures the latest in-memory state.
+    if (saveTimeoutRef.current) { clearTimeout(saveTimeoutRef.current); saveTimeoutRef.current = null; }
+    const pendingToSave = pendingDataRef.current;
+    if (pendingToSave) {
+      pendingDataRef.current = null;
+      await gw.saveCanvas(canvasId, pendingToSave);
+    }
     await gw.createContentManualSnapshot(contentId);
-  }, [contentId]);
+  }, [contentId, canvasId]);
 
   useEffect(() => {
     const flush = () => {
