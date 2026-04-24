@@ -815,6 +815,46 @@ export function CanvasPropertyPanel({
                     </select>
                   </Row>
                 )}
+                {projected.fontSize !== undefined && (
+                  <>
+                    <Row label="Align">
+                      <div className="flex gap-0.5">
+                        {(['left', 'center', 'right', 'justify'] as const).map(a => (
+                          <button key={a}
+                            className={cn('flex-1 text-[10px] px-1 py-0.5 rounded border transition-colors',
+                              projected.textAlign === a
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'border-border hover:border-muted-foreground')}
+                            onClick={() => applyChange({ textAlign: a })}>
+                            {a.charAt(0).toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </Row>
+                    <Row label="Line H">
+                      <NumberInput value={projected.lineHeight ?? 1.4} min={0.5} max={10} step={0.1}
+                        onChange={v => applyChange({ lineHeight: v })} />
+                    </Row>
+                    <Row label="Spacing">
+                      <NumberInput value={projected.letterSpacing ?? 0} step={0.5}
+                        onChange={v => applyChange({ letterSpacing: v })} suffix="px" />
+                    </Row>
+                    <Row label="Decoration">
+                      <div className="flex gap-0.5">
+                        {(['none', 'underline', 'line-through'] as const).map(d => (
+                          <button key={d}
+                            className={cn('flex-1 text-[10px] px-1 py-0.5 rounded border transition-colors',
+                              (projected.textDecoration ?? 'none') === d
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'border-border hover:border-muted-foreground')}
+                            onClick={() => applyChange({ textDecoration: d })}>
+                            {d === 'none' ? 'N' : d === 'underline' ? 'U' : 'S'}
+                          </button>
+                        ))}
+                      </div>
+                    </Row>
+                  </>
+                )}
                 {projected.borderRadius !== undefined && (
                   <Row label="Radius"><NumberInput value={projected.borderRadius} min={0} onChange={v => applyChange({ borderRadius: v })} /></Row>
                 )}

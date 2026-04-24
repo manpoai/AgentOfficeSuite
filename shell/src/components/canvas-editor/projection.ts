@@ -7,6 +7,10 @@ export interface ProjectedProps {
   fontSize?: number;
   fontFamily?: string;
   fontWeight?: string;
+  textAlign?: 'left' | 'center' | 'right' | 'justify';
+  lineHeight?: number;
+  letterSpacing?: number;
+  textDecoration?: 'none' | 'underline' | 'line-through';
   borderRadius?: number;
   opacity?: number;
   imageSrc?: string;
@@ -74,6 +78,28 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
     else svgStrokeAlignment = 'center';
   }
 
+  const textAlignRaw = style.textAlign as string;
+  const textAlign: ProjectedProps['textAlign'] =
+    textAlignRaw === 'left' || textAlignRaw === 'center' || textAlignRaw === 'right' || textAlignRaw === 'justify'
+      ? textAlignRaw
+      : undefined;
+
+  const lineHeightRaw = style.lineHeight;
+  const lineHeight = lineHeightRaw && lineHeightRaw !== 'normal'
+    ? (parseFloat(lineHeightRaw) || undefined)
+    : undefined;
+
+  const letterSpacingRaw = style.letterSpacing;
+  const letterSpacing = letterSpacingRaw && letterSpacingRaw !== 'normal'
+    ? (parseFloat(letterSpacingRaw) || undefined)
+    : undefined;
+
+  const textDecorationRaw = style.textDecoration;
+  const textDecoration: ProjectedProps['textDecoration'] =
+    textDecorationRaw === 'underline' || textDecorationRaw === 'line-through'
+      ? textDecorationRaw
+      : textDecorationRaw === 'none' ? 'none' : undefined;
+
   return {
     textContent: hasContentEditable || (!img && !isSvgShape && innerText.trim()) ? innerText : undefined,
     backgroundColor: isSvgShape ? undefined : backgroundColor,
@@ -81,6 +107,10 @@ export function projectElement(html: string): ProjectedProps & { rawHTML: string
     fontSize: isSvgShape ? undefined : (style.fontSize ? parseFloat(style.fontSize) || undefined : undefined),
     fontFamily: isSvgShape ? undefined : (style.fontFamily || undefined),
     fontWeight: isSvgShape ? undefined : (style.fontWeight || undefined),
+    textAlign: isSvgShape ? undefined : textAlign,
+    lineHeight: isSvgShape ? undefined : lineHeight,
+    letterSpacing: isSvgShape ? undefined : letterSpacing,
+    textDecoration: isSvgShape ? undefined : textDecoration,
     borderRadius: style.borderRadius ? parseFloat(style.borderRadius) || undefined : undefined,
     opacity: style.opacity ? parseFloat(style.opacity) : undefined,
     imageSrc,
@@ -164,6 +194,10 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
   if (changes.fontSize !== undefined) el.style.fontSize = changes.fontSize + 'px';
   if (changes.fontFamily !== undefined) el.style.fontFamily = changes.fontFamily;
   if (changes.fontWeight !== undefined) el.style.fontWeight = changes.fontWeight;
+  if (changes.textAlign !== undefined) el.style.textAlign = changes.textAlign;
+  if (changes.lineHeight !== undefined) el.style.lineHeight = String(changes.lineHeight);
+  if (changes.letterSpacing !== undefined) el.style.letterSpacing = changes.letterSpacing + 'px';
+  if (changes.textDecoration !== undefined) el.style.textDecoration = changes.textDecoration;
   if (changes.borderRadius !== undefined) el.style.borderRadius = changes.borderRadius + 'px';
   if (changes.opacity !== undefined) el.style.opacity = String(changes.opacity);
 
