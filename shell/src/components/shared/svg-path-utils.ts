@@ -4,17 +4,31 @@ export interface PathPoint {
   handleIn?: { x: number; y: number };
   handleOut?: { x: number; y: number };
   type: 'corner' | 'smooth' | 'symmetric';
+  cornerRadius?: number;
+}
+
+export interface SubPath {
+  points: PathPoint[];
+  closed: boolean;
 }
 
 export interface ParsedPath {
   points: PathPoint[];
   closed: boolean;
-  subPaths?: { points: PathPoint[]; closed: boolean }[];
+  subPaths?: SubPath[];
 }
 
 interface PathCmd {
   type: string;
   values: number[];
+}
+
+function parseNumbers(str: string): number[] {
+  const nums: number[] = [];
+  const re = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
+  let m;
+  while ((m = re.exec(str)) !== null) nums.push(Number(m[0]));
+  return nums;
 }
 
 function tokenize(d: string): PathCmd[] {
@@ -23,18 +37,90 @@ function tokenize(d: string): PathCmd[] {
   let match;
   while ((match = re.exec(d)) !== null) {
     const type = match[1];
-    const nums = match[2].trim().split(/[\s,]+/).filter(Boolean).map(Number);
-    cmds.push({ type, values: nums.some(isNaN) ? [] : nums });
+    const nums = parseNumbers(match[2]);
+    cmds.push({ type, values: nums });
   }
   return cmds;
 }
 
+function arcToCubicBeziers(
+  x1: number, y1: number, rx: number, ry: number,
+  angle: number, largeArc: number, sweep: number, x2: number, y2: number
+): number[][] {
+  if (rx === 0 || ry === 0) return [[x1, y1, x2, y2, x2, y2]];
+  const phi = (angle * Math.PI) / 180;
+  const cosPhi = Math.cos(phi), sinPhi = Math.sin(phi);
+  const dx = (x1 - x2) / 2, dy = (y1 - y2) / 2;
+  const x1p = cosPhi * dx + sinPhi * dy;
+  const y1p = -sinPhi * dx + cosPhi * dy;
+  rx = Math.abs(rx); ry = Math.abs(ry);
+  let lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+  if (lambda > 1) { const s = Math.sqrt(lambda); rx *= s; ry *= s; }
+  const rxSq = rx * rx, rySq = ry * ry;
+  const x1pSq = x1p * x1p, y1pSq = y1p * y1p;
+  let sq = Math.max(0, (rxSq * rySq - rxSq * y1pSq - rySq * x1pSq) / (rxSq * y1pSq + rySq * x1pSq));
+  let factor = Math.sqrt(sq) * (largeArc === sweep ? -1 : 1);
+  const cxp = factor * (rx * y1p) / ry;
+  const cyp = factor * -(ry * x1p) / rx;
+  const cx = cosPhi * cxp - sinPhi * cyp + (x1 + x2) / 2;
+  const cy = sinPhi * cxp + cosPhi * cyp + (y1 + y2) / 2;
+  const vecAngle = (ux: number, uy: number, vx: number, vy: number) => {
+    const dot = ux * vx + uy * vy;
+    const len = Math.sqrt(ux * ux + uy * uy) * Math.sqrt(vx * vx + vy * vy);
+    let a = Math.acos(Math.max(-1, Math.min(1, dot / len)));
+    if (ux * vy - uy * vx < 0) a = -a;
+    return a;
+  };
+  let theta1 = vecAngle(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+  let dTheta = vecAngle((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+  if (!sweep && dTheta > 0) dTheta -= 2 * Math.PI;
+  if (sweep && dTheta < 0) dTheta += 2 * Math.PI;
+  const segments = Math.max(1, Math.ceil(Math.abs(dTheta) / (Math.PI / 2)));
+  const segAngle = dTheta / segments;
+  const result: number[][] = [];
+  for (let i = 0; i < segments; i++) {
+    const t1 = theta1 + i * segAngle;
+    const t2 = theta1 + (i + 1) * segAngle;
+    const alpha = (4 / 3) * Math.tan(segAngle / 4);
+    const cos1 = Math.cos(t1), sin1 = Math.sin(t1);
+    const cos2 = Math.cos(t2), sin2 = Math.sin(t2);
+    const ep1x = rx * cos1, ep1y = ry * sin1;
+    const ep2x = rx * cos2, ep2y = ry * sin2;
+    const c1x = ep1x - alpha * rx * sin1, c1y = ep1y + alpha * ry * cos1;
+    const c2x = ep2x + alpha * rx * sin2, c2y = ep2y - alpha * ry * cos2;
+    const transform = (px: number, py: number) => [cosPhi * px - sinPhi * py + cx, sinPhi * px + cosPhi * py + cy];
+    const [tc1x, tc1y] = transform(c1x, c1y);
+    const [tc2x, tc2y] = transform(c2x, c2y);
+    const [tex, tey] = transform(ep2x, ep2y);
+    result.push([tc1x, tc1y, tc2x, tc2y, tex, tey]);
+  }
+  return result;
+}
+
 export function parsePath(d: string): ParsedPath {
   const cmds = tokenize(d);
-  const points: PathPoint[] = [];
+  const subPaths: SubPath[] = [];
+  let currentPoints: PathPoint[] = [];
+  let currentClosed = false;
   let cx = 0, cy = 0;
-  let closed = false;
   let prevControlX = 0, prevControlY = 0;
+  let subPathStartX = 0, subPathStartY = 0;
+
+  const finishSubPath = () => {
+    if (currentPoints.length > 0) {
+      if (currentPoints.length >= 3) {
+        const first = currentPoints[0], last = currentPoints[currentPoints.length - 1];
+        if (first.x === last.x && first.y === last.y) {
+          if (last.handleIn) currentPoints[0] = { ...currentPoints[0], handleIn: last.handleIn };
+          currentPoints.pop();
+          currentClosed = true;
+        }
+      }
+      subPaths.push({ points: currentPoints, closed: currentClosed });
+      currentPoints = [];
+      currentClosed = false;
+    }
+  };
 
   for (const cmd of cmds) {
     const { type, values } = cmd;
@@ -43,14 +129,16 @@ export function parsePath(d: string): ParsedPath {
 
     switch (abs) {
       case 'M': {
+        if (currentPoints.length > 0) finishSubPath();
         const x = isRel ? cx + values[0] : values[0];
         const y = isRel ? cy + values[1] : values[1];
-        points.push({ x, y, type: 'corner' });
+        currentPoints.push({ x, y, type: 'corner' });
         cx = x; cy = y;
+        subPathStartX = x; subPathStartY = y;
         for (let i = 2; i < values.length; i += 2) {
           const lx = isRel ? cx + values[i] : values[i];
           const ly = isRel ? cy + values[i + 1] : values[i + 1];
-          points.push({ x: lx, y: ly, type: 'corner' });
+          currentPoints.push({ x: lx, y: ly, type: 'corner' });
           cx = lx; cy = ly;
         }
         break;
@@ -59,7 +147,7 @@ export function parsePath(d: string): ParsedPath {
         for (let i = 0; i < values.length; i += 2) {
           const x = isRel ? cx + values[i] : values[i];
           const y = isRel ? cy + values[i + 1] : values[i + 1];
-          points.push({ x, y, type: 'corner' });
+          currentPoints.push({ x, y, type: 'corner' });
           cx = x; cy = y;
         }
         break;
@@ -67,7 +155,7 @@ export function parsePath(d: string): ParsedPath {
       case 'H': {
         for (const v of values) {
           const x = isRel ? cx + v : v;
-          points.push({ x, y: cy, type: 'corner' });
+          currentPoints.push({ x, y: cy, type: 'corner' });
           cx = x;
         }
         break;
@@ -75,7 +163,7 @@ export function parsePath(d: string): ParsedPath {
       case 'V': {
         for (const v of values) {
           const y = isRel ? cy + v : v;
-          points.push({ x: cx, y, type: 'corner' });
+          currentPoints.push({ x: cx, y, type: 'corner' });
           cy = y;
         }
         break;
@@ -89,13 +177,13 @@ export function parsePath(d: string): ParsedPath {
           const ex = isRel ? cx + values[i + 4] : values[i + 4];
           const ey = isRel ? cy + values[i + 5] : values[i + 5];
 
-          if (points.length > 0) {
-            const prev = points[points.length - 1];
+          if (currentPoints.length > 0) {
+            const prev = currentPoints[currentPoints.length - 1];
             prev.handleOut = { x: c1x - prev.x, y: c1y - prev.y };
             if (prev.handleOut.x !== 0 || prev.handleOut.y !== 0) prev.type = 'smooth';
           }
 
-          points.push({
+          currentPoints.push({
             x: ex, y: ey,
             handleIn: { x: c2x - ex, y: c2y - ey },
             type: 'smooth',
@@ -112,12 +200,12 @@ export function parsePath(d: string): ParsedPath {
           const ex = isRel ? cx + values[i + 2] : values[i + 2];
           const ey = isRel ? cy + values[i + 3] : values[i + 3];
 
-          if (points.length > 0) {
-            const prev = points[points.length - 1];
+          if (currentPoints.length > 0) {
+            const prev = currentPoints[currentPoints.length - 1];
             prev.handleOut = { x: (qx - prev.x) * 2 / 3, y: (qy - prev.y) * 2 / 3 };
             prev.type = 'smooth';
           }
-          points.push({
+          currentPoints.push({
             x: ex, y: ey,
             handleIn: { x: (qx - ex) * 2 / 3, y: (qy - ey) * 2 / 3 },
             type: 'smooth',
@@ -133,15 +221,15 @@ export function parsePath(d: string): ParsedPath {
           const ex = isRel ? cx + values[i + 2] : values[i + 2];
           const ey = isRel ? cy + values[i + 3] : values[i + 3];
 
-          if (points.length > 0) {
-            const prev = points[points.length - 1];
+          if (currentPoints.length > 0) {
+            const prev = currentPoints[currentPoints.length - 1];
             const c1x = 2 * prev.x - prevControlX;
             const c1y = 2 * prev.y - prevControlY;
             prev.handleOut = { x: c1x - prev.x, y: c1y - prev.y };
             prev.type = 'smooth';
           }
 
-          points.push({
+          currentPoints.push({
             x: ex, y: ey,
             handleIn: { x: c2x - ex, y: c2y - ey },
             type: 'smooth',
@@ -151,32 +239,102 @@ export function parsePath(d: string): ParsedPath {
         }
         break;
       }
+      case 'A': {
+        for (let i = 0; i < values.length; i += 7) {
+          const arx = values[i], ary = values[i + 1];
+          const angle = values[i + 2];
+          const largeArc = values[i + 3], sweep = values[i + 4];
+          const ex = isRel ? cx + values[i + 5] : values[i + 5];
+          const ey = isRel ? cy + values[i + 6] : values[i + 6];
+          const cubics = arcToCubicBeziers(cx, cy, arx, ary, angle, largeArc, sweep, ex, ey);
+          for (const [c1x, c1y, c2x, c2y, epx, epy] of cubics) {
+            if (currentPoints.length > 0) {
+              const prev = currentPoints[currentPoints.length - 1];
+              prev.handleOut = { x: c1x - prev.x, y: c1y - prev.y };
+              if (prev.handleOut.x !== 0 || prev.handleOut.y !== 0) prev.type = 'smooth';
+            }
+            currentPoints.push({
+              x: epx, y: epy,
+              handleIn: { x: c2x - epx, y: c2y - epy },
+              type: 'smooth',
+            });
+          }
+          prevControlX = cubics[cubics.length - 1][2];
+          prevControlY = cubics[cubics.length - 1][3];
+          cx = ex; cy = ey;
+        }
+        break;
+      }
       case 'Z': {
-        closed = true;
-        if (points.length > 0) { cx = points[0].x; cy = points[0].y; }
+        currentClosed = true;
+        cx = subPathStartX; cy = subPathStartY;
         break;
       }
     }
   }
+  finishSubPath();
 
-  return { points, closed };
+  const allPoints = subPaths.flatMap(sp => sp.points);
+  const firstClosed = subPaths.length > 0 ? subPaths[0].closed : false;
+  return { points: allPoints, closed: firstClosed, subPaths };
 }
 
-export function serializePath(parsed: ParsedPath): string {
-  const { points, closed } = parsed;
-  if (points.length === 0) return '';
+function expandCornerRadii(sp: SubPath): PathPoint[] {
+  const { points, closed } = sp;
+  if (points.length < 3) return points;
+  const KAPPA = 0.5522847498;
+  const len = points.length;
+  const result: PathPoint[] = [];
 
+  for (let i = 0; i < len; i++) {
+    const pt = points[i];
+    const cr = pt.cornerRadius;
+    if (!cr || cr <= 0) { result.push(pt); continue; }
+
+    const prevIdx = closed ? (i - 1 + len) % len : i - 1;
+    const nextIdx = closed ? (i + 1) % len : i + 1;
+    if (prevIdx < 0 || nextIdx >= len) { result.push(pt); continue; }
+
+    const prev = points[prevIdx];
+    const next = points[nextIdx];
+    const dxA = prev.x - pt.x, dyA = prev.y - pt.y;
+    const dxB = next.x - pt.x, dyB = next.y - pt.y;
+    const lenA = Math.sqrt(dxA * dxA + dyA * dyA);
+    const lenB = Math.sqrt(dxB * dxB + dyB * dyB);
+    if (lenA < 0.01 || lenB < 0.01) { result.push(pt); continue; }
+
+    const offset = Math.min(cr, lenA / 2, lenB / 2);
+    const handleLen = offset * KAPPA;
+    const uAx = dxA / lenA, uAy = dyA / lenA;
+    const uBx = dxB / lenB, uBy = dyB / lenB;
+
+    result.push({
+      x: pt.x + uAx * offset, y: pt.y + uAy * offset,
+      type: 'smooth',
+      handleOut: { x: -uAx * handleLen, y: -uAy * handleLen },
+    });
+    result.push({
+      x: pt.x + uBx * offset, y: pt.y + uBy * offset,
+      type: 'smooth',
+      handleIn: { x: -uBx * handleLen, y: -uBy * handleLen },
+    });
+  }
+  return result;
+}
+
+export function serializeSubPath(sp: SubPath): string {
+  const expanded = expandCornerRadii(sp);
+  const { closed } = sp;
+  if (expanded.length === 0) return '';
   const parts: string[] = [];
   const r = (n: number) => Math.round(n * 100) / 100;
 
-  for (let i = 0; i < points.length; i++) {
-    const pt = points[i];
+  for (let i = 0; i < expanded.length; i++) {
+    const pt = expanded[i];
     if (i === 0) { parts.push(`M${r(pt.x)},${r(pt.y)}`); continue; }
-
-    const prev = points[i - 1];
+    const prev = expanded[i - 1];
     const hasHandleOut = prev.handleOut && (prev.handleOut.x !== 0 || prev.handleOut.y !== 0);
     const hasHandleIn = pt.handleIn && (pt.handleIn.x !== 0 || pt.handleIn.y !== 0);
-
     if (hasHandleOut || hasHandleIn) {
       const c1x = prev.x + (prev.handleOut?.x ?? 0);
       const c1y = prev.y + (prev.handleOut?.y ?? 0);
@@ -188,12 +346,11 @@ export function serializePath(parsed: ParsedPath): string {
     }
   }
 
-  if (closed && points.length > 1) {
-    const last = points[points.length - 1];
-    const first = points[0];
+  if (closed && expanded.length > 1) {
+    const last = expanded[expanded.length - 1];
+    const first = expanded[0];
     const hasHandleOut = last.handleOut && (last.handleOut.x !== 0 || last.handleOut.y !== 0);
     const hasHandleIn = first.handleIn && (first.handleIn.x !== 0 || first.handleIn.y !== 0);
-
     if (hasHandleOut || hasHandleIn) {
       const c1x = last.x + (last.handleOut?.x ?? 0);
       const c1y = last.y + (last.handleOut?.y ?? 0);
@@ -203,17 +360,79 @@ export function serializePath(parsed: ParsedPath): string {
     }
     parts.push('Z');
   }
-
   return parts.join('');
+}
+
+export function serializePath(parsed: ParsedPath): string {
+  if (parsed.subPaths && parsed.subPaths.length > 0) {
+    return parsed.subPaths.map(sp => serializeSubPath(sp)).join('');
+  }
+  return serializeSubPath({ points: parsed.points, closed: parsed.closed });
 }
 
 export function updatePathInHtml(html: string, newD: string): string {
   return html.replace(/(<path\b[^>]*\s)d="[^"]*"/, `$1d="${newD}"`);
 }
 
+export function updateAllPathsInHtml(html: string, subPathDs: string[]): string {
+  let idx = 0;
+  return html.replace(/(<path\b[^>]*\s)d="[^"]*"/g, (match, prefix) => {
+    if (idx < subPathDs.length) {
+      return `${prefix}d="${subPathDs[idx++]}"`;
+    }
+    return match;
+  });
+}
+
+export function applyCornerRadiiToHtml(html: string, pathElIdx: number, radii: (number | undefined)[]): string {
+  const radiiStr = radii.map(r => r ?? 0).join(',');
+  const allZero = radii.every(r => !r || r <= 0);
+  let count = 0;
+  return html.replace(/<path\b([^>]*?)\s*(\/?>)/g, (match, attrs, close) => {
+    if (count++ !== pathElIdx) return match;
+    let a = attrs.replace(/\sdata-corner-radii="[^"]*"/, '');
+    if (!allZero) a += ` data-corner-radii="${radiiStr}"`;
+    return `<path${a} ${close}`;
+  });
+}
+
+export function parseCornerRadiiFromHtml(html: string, pathElIdx: number): number[] {
+  const re = /<path\b[^>]*\sdata-corner-radii="([^"]*)"[^>]*/g;
+  let count = 0;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (count++ === pathElIdx) {
+      return m[1].split(',').map(v => parseFloat(v) || 0);
+    }
+  }
+  return [];
+}
+
 export function extractPathD(html: string): string | null {
   const match = html.match(/<path\b[^>]*\sd="([^"]*)"/);
   return match ? match[1] : null;
+}
+
+export function extractAllPathDs(html: string): string[] {
+  const re = /<path\b[^>]*\sd="([^"]*)"/g;
+  const results: string[] = [];
+  let m;
+  while ((m = re.exec(html)) !== null) results.push(m[1]);
+  return results;
+}
+
+export function extractCombinedPathD(html: string): string | null {
+  const ds = extractAllPathDs(html);
+  if (ds.length === 0) return null;
+  return ds.join(' ');
+}
+
+export function updateNthPathInHtml(html: string, index: number, newD: string): string {
+  let count = 0;
+  return html.replace(/(<path\b[^>]*\s)d="[^"]*"/g, (match, prefix) => {
+    if (count++ === index) return `${prefix}d="${newD}"`;
+    return match;
+  });
 }
 
 export function insertPoint(parsed: ParsedPath, afterIndex: number, t = 0.5): ParsedPath {
@@ -230,103 +449,292 @@ export function insertPoint(parsed: ParsedPath, afterIndex: number, t = 0.5): Pa
   };
 
   points.splice(afterIndex + 1, 0, newPt);
-  return { ...parsed, points };
+  return { ...parsed, points, closed: false };
 }
 
 export function removePoint(parsed: ParsedPath, index: number): ParsedPath {
   if (parsed.points.length <= 2) return parsed;
   const points = parsed.points.filter((_, i) => i !== index);
-  return { ...parsed, points };
+  return { ...parsed, points, closed: false };
 }
 
-export function serializeSubPath(sub: { points: PathPoint[]; closed: boolean }): string {
-  return serializePath(sub);
+function circleToPath(cx: number, cy: number, r: number): string {
+  const k = 0.5522847498;
+  const kr = k * r;
+  return [
+    `M${cx - r},${cy}`,
+    `C${cx - r},${cy - kr} ${cx - kr},${cy - r} ${cx},${cy - r}`,
+    `C${cx + kr},${cy - r} ${cx + r},${cy - kr} ${cx + r},${cy}`,
+    `C${cx + r},${cy + kr} ${cx + kr},${cy + r} ${cx},${cy + r}`,
+    `C${cx - kr},${cy + r} ${cx - r},${cy + kr} ${cx - r},${cy}`,
+    'Z',
+  ].join('');
 }
 
-export function extractAllPathDs(html: string): string[] {
-  const re = /<path\b[^>]*\sd="([^"]*)"/g;
-  const results: string[] = [];
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    if (m[1]) results.push(m[1]);
+function ellipseToPath(cx: number, cy: number, rx: number, ry: number): string {
+  const kx = 0.5522847498 * rx;
+  const ky = 0.5522847498 * ry;
+  return [
+    `M${cx - rx},${cy}`,
+    `C${cx - rx},${cy - ky} ${cx - kx},${cy - ry} ${cx},${cy - ry}`,
+    `C${cx + kx},${cy - ry} ${cx + rx},${cy - ky} ${cx + rx},${cy}`,
+    `C${cx + rx},${cy + ky} ${cx + kx},${cy + ry} ${cx},${cy + ry}`,
+    `C${cx - kx},${cy + ry} ${cx - rx},${cy + ky} ${cx - rx},${cy}`,
+    'Z',
+  ].join('');
+}
+
+function rectToPath(x: number, y: number, w: number, h: number, rx = 0, ry = 0): string {
+  if (rx === 0 && ry === 0) {
+    return `M${x},${y}L${x + w},${y}L${x + w},${y + h}L${x},${y + h}Z`;
   }
-  return results;
+  rx = Math.min(rx, w / 2);
+  ry = Math.min(ry || rx, h / 2);
+  return [
+    `M${x + rx},${y}`,
+    `L${x + w - rx},${y}`,
+    `A${rx},${ry} 0 0 1 ${x + w},${y + ry}`,
+    `L${x + w},${y + h - ry}`,
+    `A${rx},${ry} 0 0 1 ${x + w - rx},${y + h}`,
+    `L${x + rx},${y + h}`,
+    `A${rx},${ry} 0 0 1 ${x},${y + h - ry}`,
+    `L${x},${y + ry}`,
+    `A${rx},${ry} 0 0 1 ${x + rx},${y}`,
+    'Z',
+  ].join('');
+}
+
+function lineToPath(x1: number, y1: number, x2: number, y2: number): string {
+  return `M${x1},${y1}L${x2},${y2}`;
+}
+
+function polyToPath(pointsStr: string, closed: boolean): string {
+  const nums = pointsStr.trim().split(/[\s,]+/).map(Number);
+  if (nums.length < 4) return '';
+  const parts = [`M${nums[0]},${nums[1]}`];
+  for (let i = 2; i < nums.length; i += 2) {
+    parts.push(`L${nums[i]},${nums[i + 1]}`);
+  }
+  if (closed) parts.push('Z');
+  return parts.join('');
+}
+
+function getAttr(tag: string, name: string): number {
+  const m = tag.match(new RegExp(`${name}="([^"]*)"`));
+  return m ? parseFloat(m[1]) || 0 : 0;
+}
+
+function getStrAttr(tag: string, name: string): string {
+  const m = tag.match(new RegExp(`${name}="([^"]*)"`));
+  return m ? m[1] : '';
+}
+
+function copyAttrs(origTag: string, exclude: string[]): string {
+  const attrs: string[] = [];
+  const re = /(\w[\w-]*)="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(origTag)) !== null) {
+    if (!exclude.includes(m[1])) attrs.push(`${m[1]}="${m[2]}"`);
+  }
+  return attrs.join(' ');
 }
 
 export function convertShapesToPaths(html: string): string {
-  let result = html;
-  result = result.replace(/<rect\b([^>]*)\/?>/g, (_, attrs) => {
-    const x = parseFloat(attrs.match(/\bx="([^"]*)"/)?.[1] ?? '0');
-    const y = parseFloat(attrs.match(/\by="([^"]*)"/)?.[1] ?? '0');
-    const w = parseFloat(attrs.match(/\bwidth="([^"]*)"/)?.[1] ?? '0');
-    const h = parseFloat(attrs.match(/\bheight="([^"]*)"/)?.[1] ?? '0');
-    const rx = parseFloat(attrs.match(/\brx="([^"]*)"/)?.[1] ?? '0');
-    const ry = parseFloat(attrs.match(/\bry="([^"]*)"/)?.[1] ?? rx.toString());
-    const otherAttrs = attrs
-      .replace(/\b(x|y|width|height|rx|ry)="[^"]*"/g, '')
-      .trim();
-    let d: string;
-    if (rx > 0 || ry > 0) {
-      const r = Math.min(rx, w / 2);
-      const rv = Math.min(ry, h / 2);
-      d = `M${x + r},${y} L${x + w - r},${y} A${r},${rv} 0 0 1 ${x + w},${y + rv} L${x + w},${y + h - rv} A${r},${rv} 0 0 1 ${x + w - r},${y + h} L${x + r},${y + h} A${r},${rv} 0 0 1 ${x},${y + h - rv} L${x},${y + rv} A${r},${rv} 0 0 1 ${x + r},${y}Z`;
-    } else {
-      d = `M${x},${y} L${x + w},${y} L${x + w},${y + h} L${x},${y + h}Z`;
-    }
-    return `<path d="${d}" ${otherAttrs}/>`;
-  });
-  result = result.replace(/<circle\b([^>]*)\/?>/g, (_, attrs) => {
-    const cx = parseFloat(attrs.match(/\bcx="([^"]*)"/)?.[1] ?? '0');
-    const cy = parseFloat(attrs.match(/\bcy="([^"]*)"/)?.[1] ?? '0');
-    const r = parseFloat(attrs.match(/\br="([^"]*)"/)?.[1] ?? '0');
-    const otherAttrs = attrs.replace(/\b(cx|cy|r)="[^"]*"/g, '').trim();
-    const d = `M${cx - r},${cy} A${r},${r} 0 1 0 ${cx + r},${cy} A${r},${r} 0 1 0 ${cx - r},${cy}Z`;
-    return `<path d="${d}" ${otherAttrs}/>`;
-  });
-  result = result.replace(/<ellipse\b([^>]*)\/?>/g, (_, attrs) => {
-    const cx = parseFloat(attrs.match(/\bcx="([^"]*)"/)?.[1] ?? '0');
-    const cy = parseFloat(attrs.match(/\bcy="([^"]*)"/)?.[1] ?? '0');
-    const rx = parseFloat(attrs.match(/\brx="([^"]*)"/)?.[1] ?? '0');
-    const ry = parseFloat(attrs.match(/\bry="([^"]*)"/)?.[1] ?? '0');
-    const otherAttrs = attrs.replace(/\b(cx|cy|rx|ry)="[^"]*"/g, '').trim();
-    const d = `M${cx - rx},${cy} A${rx},${ry} 0 1 0 ${cx + rx},${cy} A${rx},${ry} 0 1 0 ${cx - rx},${cy}Z`;
-    return `<path d="${d}" ${otherAttrs}/>`;
-  });
-  result = result.replace(/<line\b([^>]*)\/?>/g, (_, attrs) => {
-    const x1 = parseFloat(attrs.match(/\bx1="([^"]*)"/)?.[1] ?? '0');
-    const y1 = parseFloat(attrs.match(/\by1="([^"]*)"/)?.[1] ?? '0');
-    const x2 = parseFloat(attrs.match(/\bx2="([^"]*)"/)?.[1] ?? '0');
-    const y2 = parseFloat(attrs.match(/\by2="([^"]*)"/)?.[1] ?? '0');
-    const otherAttrs = attrs.replace(/\b(x1|y1|x2|y2)="[^"]*"/g, '').trim();
-    return `<path d="M${x1},${y1} L${x2},${y2}" ${otherAttrs}/>`;
-  });
-  result = result.replace(/<polygon\b([^>]*)\/?>/g, (_, attrs) => {
-    const pointsStr = attrs.match(/\bpoints="([^"]*)"/)?.[1] ?? '';
-    const nums = pointsStr.trim().split(/[\s,]+/).map(Number);
-    const otherAttrs = attrs.replace(/\bpoints="[^"]*"/g, '').trim();
-    if (nums.length < 4) return `<path d="" ${otherAttrs}/>`;
-    let d = `M${nums[0]},${nums[1]}`;
-    for (let i = 2; i < nums.length; i += 2) d += ` L${nums[i]},${nums[i + 1]}`;
-    d += 'Z';
-    return `<path d="${d}" ${otherAttrs}/>`;
-  });
-  return result;
+  return html
+    .replace(/<circle\b([^>]*)\/?>(\s*<\/circle>)?/g, (match, attrs) => {
+      const tag = `<circle ${attrs}>`;
+      const d = circleToPath(getAttr(tag, 'cx'), getAttr(tag, 'cy'), getAttr(tag, 'r'));
+      const other = copyAttrs(tag, ['cx', 'cy', 'r']);
+      return `<path d="${d}" ${other}/>`;
+    })
+    .replace(/<ellipse\b([^>]*)\/?>(\s*<\/ellipse>)?/g, (match, attrs) => {
+      const tag = `<ellipse ${attrs}>`;
+      const d = ellipseToPath(getAttr(tag, 'cx'), getAttr(tag, 'cy'), getAttr(tag, 'rx'), getAttr(tag, 'ry'));
+      const other = copyAttrs(tag, ['cx', 'cy', 'rx', 'ry']);
+      return `<path d="${d}" ${other}/>`;
+    })
+    .replace(/<rect\b([^>]*)\/?>(\s*<\/rect>)?/g, (match, attrs) => {
+      const tag = `<rect ${attrs}>`;
+      const d = rectToPath(getAttr(tag, 'x'), getAttr(tag, 'y'), getAttr(tag, 'width'), getAttr(tag, 'height'), getAttr(tag, 'rx'), getAttr(tag, 'ry'));
+      const other = copyAttrs(tag, ['x', 'y', 'width', 'height', 'rx', 'ry']);
+      return `<path d="${d}" ${other}/>`;
+    })
+    .replace(/<line\b([^>]*)\/?>(\s*<\/line>)?/g, (match, attrs) => {
+      const tag = `<line ${attrs}>`;
+      const d = lineToPath(getAttr(tag, 'x1'), getAttr(tag, 'y1'), getAttr(tag, 'x2'), getAttr(tag, 'y2'));
+      const other = copyAttrs(tag, ['x1', 'y1', 'x2', 'y2']);
+      return `<path d="${d}" ${other}/>`;
+    })
+    .replace(/<polygon\b([^>]*)\/?>(\s*<\/polygon>)?/g, (match, attrs) => {
+      const tag = `<polygon ${attrs}>`;
+      const d = polyToPath(getStrAttr(tag, 'points'), true);
+      const other = copyAttrs(tag, ['points']);
+      return `<path d="${d}" ${other}/>`;
+    })
+    .replace(/<polyline\b([^>]*)\/?>(\s*<\/polyline>)?/g, (match, attrs) => {
+      const tag = `<polyline ${attrs}>`;
+      const d = polyToPath(getStrAttr(tag, 'points'), false);
+      const other = copyAttrs(tag, ['points']);
+      return `<path d="${d}" ${other}/>`;
+    });
 }
 
-export function rescaleSvgHtml(html: string, newW: number, newH: number): string {
-  return html.replace(
-    /viewBox="([^"]*)"/,
-    (_, vb) => {
-      const parts = vb.split(/[\s,]+/).map(Number);
-      if (parts.length === 4) {
-        return `viewBox="${parts[0]} ${parts[1]} ${newW} ${newH}"`;
+export function roundPathCorners(d: string, radius: number): string {
+  if (radius <= 0) return d;
+  const parsed = parsePath(d);
+  const subs = parsed.subPaths && parsed.subPaths.length > 0
+    ? parsed.subPaths
+    : [{ points: parsed.points, closed: parsed.closed }];
+
+  return subs.map(sp => {
+    const pts = sp.points;
+    if (pts.length < 3) return serializeSubPath(sp);
+
+    const newPoints: PathPoint[] = [];
+    const len = pts.length;
+
+    for (let i = 0; i < len; i++) {
+      const pt = pts[i];
+      const hasHandles = (pt.handleIn && (pt.handleIn.x !== 0 || pt.handleIn.y !== 0)) ||
+                         (pt.handleOut && (pt.handleOut.x !== 0 || pt.handleOut.y !== 0));
+      if (hasHandles || pt.type !== 'corner') {
+        newPoints.push(pt);
+        continue;
       }
-      return `viewBox="0 0 ${newW} ${newH}"`;
-    },
-  );
+
+      const prevIdx = sp.closed ? (i - 1 + len) % len : i - 1;
+      const nextIdx = sp.closed ? (i + 1) % len : i + 1;
+      if (prevIdx < 0 || nextIdx >= len) {
+        newPoints.push(pt);
+        continue;
+      }
+
+      const prev = pts[prevIdx];
+      const next = pts[nextIdx];
+      const dxA = prev.x - pt.x, dyA = prev.y - pt.y;
+      const dxB = next.x - pt.x, dyB = next.y - pt.y;
+      const lenA = Math.sqrt(dxA * dxA + dyA * dyA);
+      const lenB = Math.sqrt(dxB * dxB + dyB * dyB);
+      if (lenA < 0.01 || lenB < 0.01) { newPoints.push(pt); continue; }
+
+      const offset = Math.min(radius, lenA / 2, lenB / 2);
+      const startX = pt.x + (dxA / lenA) * offset;
+      const startY = pt.y + (dyA / lenA) * offset;
+      const endX = pt.x + (dxB / lenB) * offset;
+      const endY = pt.y + (dyB / lenB) * offset;
+
+      const k = 0.5522847498;
+      const handleLen = offset * k;
+
+      newPoints.push({
+        x: startX, y: startY, type: 'smooth',
+        handleOut: { x: -(dxA / lenA) * handleLen, y: -(dyA / lenA) * handleLen },
+      });
+      newPoints.push({
+        x: endX, y: endY, type: 'smooth',
+        handleIn: { x: -(dxB / lenB) * handleLen, y: -(dyB / lenB) * handleLen },
+      });
+    }
+
+    return serializeSubPath({ points: newPoints, closed: sp.closed });
+  }).join('');
 }
 
 export type BooleanOp = 'union' | 'difference' | 'intersection' | 'exclusion';
+
+function normalizeClosedPaths(d: string): string {
+  const parsed = parsePath(d);
+  const subs = parsed.subPaths && parsed.subPaths.length > 0
+    ? parsed.subPaths
+    : [{ points: parsed.points, closed: parsed.closed }];
+  return subs.map(sp => serializeSubPath(sp)).join('');
+}
+
+export function rescaleSvgHtml(html: string, oldW: number, oldH: number, newW: number, newH: number): string {
+  if (!html.includes('<svg') || oldW <= 0 || oldH <= 0 || newW <= 0 || newH <= 0) return html;
+  if (oldW === newW && oldH === newH) return html;
+
+  const vbMatch = html.match(/viewBox="([^"]*)"/);
+  if (!vbMatch) return html;
+  const vb = vbMatch[1].split(/[\s,]+/).map(Number);
+  if (vb.length < 4) return html;
+
+  const sx = newW / oldW;
+  const sy = newH / oldH;
+
+  const newVb = [vb[0] * sx, vb[1] * sy, vb[2] * sx, vb[3] * sy];
+  let result = html.replace(/viewBox="[^"]*"/, `viewBox="${newVb.map(v => Math.round(v * 100) / 100).join(' ')}"`);
+
+  const scaleD = (d: string): string => {
+    const parsed = parsePath(d);
+    const subs = parsed.subPaths && parsed.subPaths.length > 0
+      ? parsed.subPaths
+      : [{ points: parsed.points, closed: parsed.closed }];
+    for (const sp of subs) {
+      for (const pt of sp.points) {
+        pt.x *= sx;
+        pt.y *= sy;
+        if (pt.handleIn) { pt.handleIn.x *= sx; pt.handleIn.y *= sy; }
+        if (pt.handleOut) { pt.handleOut.x *= sx; pt.handleOut.y *= sy; }
+      }
+    }
+    return subs.map(sp => serializeSubPath(sp)).join('');
+  };
+
+  const scaleDWithRadii = (d: string, radii: number[]): string => {
+    const parsed = parsePath(d);
+    const subs = parsed.subPaths && parsed.subPaths.length > 0
+      ? parsed.subPaths
+      : [{ points: parsed.points, closed: parsed.closed }];
+    let ri = 0;
+    for (const sp of subs) {
+      for (const pt of sp.points) {
+        pt.x *= sx;
+        pt.y *= sy;
+        if (pt.handleIn) { pt.handleIn.x *= sx; pt.handleIn.y *= sy; }
+        if (pt.handleOut) { pt.handleOut.x *= sx; pt.handleOut.y *= sy; }
+        const cr = radii[ri++];
+        if (cr && cr > 0) pt.cornerRadius = cr;
+      }
+    }
+    return subs.map(sp => serializeSubPath(sp)).join('');
+  };
+
+  const pathDs = extractAllPathDs(result);
+  pathDs.forEach((d, i) => {
+    const radii = parseCornerRadiiFromHtml(result, i);
+    const hasRadii = radii.some(r => r > 0);
+
+    const origDRe = /<path\b[^>]*?\sdata-orig-d="([^"]*)"[^>]*/g;
+    const origDs: string[] = [];
+    let om;
+    while ((om = origDRe.exec(result)) !== null) origDs.push(om[1]);
+    const origD = origDs[i];
+
+    if (hasRadii && origD) {
+      const newExpandedD = scaleDWithRadii(origD, radii);
+      const newOrigD = scaleD(origD);
+      result = updateNthPathInHtml(result, i, newExpandedD);
+      let oi = 0;
+      result = result.replace(/data-orig-d="[^"]*"/g, (m) => {
+        if (oi++ === i) return `data-orig-d="${newOrigD}"`;
+        return m;
+      });
+    } else {
+      result = updateNthPathInHtml(result, i, scaleD(d));
+      if (origD) {
+        const newOrigD = scaleD(origD);
+        let oi = 0;
+        result = result.replace(/data-orig-d="[^"]*"/g, (m) => {
+          if (oi++ === i) return `data-orig-d="${newOrigD}"`;
+          return m;
+        });
+      }
+    }
+  });
+
+  return result;
+}
 
 export async function booleanPathOp(d1: string, d2: string, op: BooleanOp): Promise<string> {
   const { pathFromPathData, pathToPathData, pathBoolean, FillRule, PathBooleanOperation } = await import('path-bool');
@@ -341,5 +749,6 @@ export async function booleanPathOp(d1: string, d2: string, op: BooleanOp): Prom
   const p1 = pathFromPathData(d1);
   const p2 = pathFromPathData(d2);
   const result = pathBoolean(p1, FillRule.EvenOdd, p2, FillRule.EvenOdd, ops[op]);
-  return result.map(p => pathToPathData(p)).join(' ');
+  const rawD = result.map(p => pathToPathData(p)).join(' ');
+  return normalizeClosedPaths(rawD);
 }
