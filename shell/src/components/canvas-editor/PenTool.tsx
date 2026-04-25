@@ -3,6 +3,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { serializePath, type PathPoint, type ParsedPath } from '@/components/shared/svg-path-utils';
 
+export interface OpenEndpoint {
+  elementId: string;
+  points: PathPoint[];
+  end: 'start' | 'end';
+  canvasX: number;
+  canvasY: number;
+}
+
 interface PenToolProps {
   scale: number;
   panX: number;
@@ -11,8 +19,13 @@ interface PenToolProps {
   frameY?: number;
   frameW: number;
   frameH: number;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   onComplete: (html: string, x: number, y: number, w: number, h: number) => void;
   onCancel: () => void;
+  initialPoints?: PathPoint[];
+  appendEnd?: 'start' | 'end';
+  openEndpoints?: OpenEndpoint[];
+  onContinueFrom?: (endpoint: OpenEndpoint) => void;
 }
 
 const ANCHOR_SIZE = 6;
@@ -21,22 +34,37 @@ const DRAG_THRESHOLD = 4;
 
 export function PenTool({
   scale, panX, panY, frameX = 0, frameY = 0, frameW, frameH,
-  onComplete, onCancel,
+  containerRef, onComplete, onCancel, initialPoints, appendEnd,
+  openEndpoints, onContinueFrom,
 }: PenToolProps) {
-  const [points, setPoints] = useState<PathPoint[]>([]);
+  const [points, setPoints] = useState<PathPoint[]>(initialPoints ?? []);
   const [previewPoint, setPreviewPoint] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
 
-  const clientToCanvas = (clientX: number, clientY: number) => ({
-    x: (clientX - panX) / scale - frameX,
-    y: (clientY - panY) / scale - frameY,
-  });
+  const clientToCanvas = useCallback((clientX: number, clientY: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const ox = rect ? rect.left : 0;
+    const oy = rect ? rect.top : 0;
+    return {
+      x: (clientX - ox - panX) / scale - frameX,
+      y: (clientY - oy - panY) / scale - frameY,
+    };
+  }, [containerRef, panX, panY, scale, frameX, frameY]);
 
-  const canvasToScreen = (cx: number, cy: number) => ({
+  const canvasToLocal = useCallback((cx: number, cy: number) => ({
     x: panX + (frameX + cx) * scale,
     y: panY + (frameY + cy) * scale,
-  });
+  }), [panX, panY, frameX, frameY, scale]);
+
+  const canvasToScreen = useCallback((cx: number, cy: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const local = canvasToLocal(cx, cy);
+    return {
+      x: local.x + (rect?.left ?? 0),
+      y: local.y + (rect?.top ?? 0),
+    };
+  }, [containerRef, canvasToLocal]);
 
   const finishPath = useCallback((closed: boolean) => {
     if (points.length < 2) { onCancel(); return; }
@@ -60,14 +88,25 @@ export function PenTool({
     onComplete(html, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
   }, [points, onComplete, onCancel]);
 
+  const finishPathRef = useRef(finishPath);
+  finishPathRef.current = finishPath;
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onCancel(); return; }
-      if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); finishPath(false); return; }
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); onCancelRef.current(); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (points.length >= 2) finishPathRef.current(false);
+        else onCancelRef.current();
+        return;
+      }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [finishPath, onCancel]);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [points.length]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -103,6 +142,18 @@ export function PenTool({
     if (!isDragging && dragStartRef.current) {
       const { x, y } = clientToCanvas(e.clientX, e.clientY);
 
+      // Check for open endpoint click when starting fresh
+      if (points.length === 0 && openEndpoints && onContinueFrom) {
+        for (const ep of openEndpoints) {
+          const s = canvasToScreen(ep.canvasX, ep.canvasY);
+          if (Math.hypot(e.clientX - s.x, e.clientY - s.y) < CLOSE_THRESHOLD) {
+            onContinueFrom(ep);
+            dragStartRef.current = null;
+            return;
+          }
+        }
+      }
+
       if (points.length >= 3) {
         const first = canvasToScreen(points[0].x, points[0].y);
         const dist = Math.hypot(e.clientX - first.x, e.clientY - first.y);
@@ -127,27 +178,28 @@ export function PenTool({
       {points.length > 0 && (() => {
         const parsed: ParsedPath = { points, closed: false };
         const d = serializePath(parsed);
-        const first = canvasToScreen(points[0].x, points[0].y);
         return (
           <g>
             <path d={d} fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeDasharray="4 3"
               transform={`translate(${panX + frameX * scale}, ${panY + frameY * scale}) scale(${scale})`} />
-            {previewPoint && (
-              <line
-                x1={canvasToScreen(points[points.length - 1].x, points[points.length - 1].y).x}
-                y1={canvasToScreen(points[points.length - 1].x, points[points.length - 1].y).y}
-                x2={canvasToScreen(previewPoint.x, previewPoint.y).x}
-                y2={canvasToScreen(previewPoint.x, previewPoint.y).y}
-                stroke="#3b82f6" strokeWidth={1} strokeDasharray="2 2" opacity={0.5}
-              />
-            )}
+            {previewPoint && (() => {
+              const last = canvasToLocal(points[points.length - 1].x, points[points.length - 1].y);
+              const preview = canvasToLocal(previewPoint.x, previewPoint.y);
+              return (
+                <line
+                  x1={last.x} y1={last.y}
+                  x2={preview.x} y2={preview.y}
+                  stroke="#3b82f6" strokeWidth={1} strokeDasharray="2 2" opacity={0.5}
+                />
+              );
+            })()}
           </g>
         );
       })()}
 
       {/* Anchor points */}
       {points.map((pt, i) => {
-        const s = canvasToScreen(pt.x, pt.y);
+        const s = canvasToLocal(pt.x, pt.y);
         return (
           <rect key={i}
             x={s.x - ANCHOR_SIZE} y={s.y - ANCHOR_SIZE}
@@ -159,16 +211,29 @@ export function PenTool({
         );
       })}
 
+      {/* Open endpoint indicators */}
+      {points.length === 0 && openEndpoints && openEndpoints.map((ep, i) => {
+        const s = canvasToLocal(ep.canvasX, ep.canvasY);
+        return (
+          <circle key={`open-ep-${i}`}
+            cx={s.x} cy={s.y} r={8}
+            fill="none" stroke="#10b981" strokeWidth={2} strokeDasharray="4 2"
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })}
+
       {/* Handle lines for last point if dragging */}
       {points.length > 0 && points[points.length - 1].handleOut && (() => {
         const last = points[points.length - 1];
-        const anchor = canvasToScreen(last.x, last.y);
-        const hOut = canvasToScreen(last.x + (last.handleOut!.x / scale * scale), last.y + (last.handleOut!.y / scale * scale));
+        const anchor = canvasToLocal(last.x, last.y);
+        const hx = last.handleOut!.x * scale;
+        const hy = last.handleOut!.y * scale;
         return (
           <>
-            <line x1={anchor.x} y1={anchor.y} x2={anchor.x + last.handleOut!.x} y2={anchor.y + last.handleOut!.y}
+            <line x1={anchor.x} y1={anchor.y} x2={anchor.x + hx} y2={anchor.y + hy}
               stroke="#3b82f6" strokeWidth={1} strokeDasharray="3 2" />
-            <circle cx={anchor.x + last.handleOut!.x} cy={anchor.y + last.handleOut!.y} r={4}
+            <circle cx={anchor.x + hx} cy={anchor.y + hy} r={4}
               fill="#3b82f6" stroke="white" strokeWidth={1.5} />
           </>
         );
