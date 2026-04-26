@@ -153,8 +153,10 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
       onShadowRootReady?.(element.id, shadowRootRef.current);
     }
     const sr = shadowRootRef.current;
-    const needsOverflow = element.html.includes('data-stroke-align="outside"') || vectorEditing;
-    sr.innerHTML = `<style>:host { display: block; width: 100%; height: 100%; overflow: ${needsOverflow ? 'visible' : 'hidden'}; } svg path, svg rect, svg circle, svg ellipse, svg line, svg polygon, svg polyline { vector-effect: non-scaling-stroke; }</style>${element.html}`;
+    const isSvg = element.html.includes('<svg');
+    const needsOverflow = isSvg || vectorEditing;
+    const svgWrapperOverflow = isSvg ? ':host > div { overflow: visible !important; }' : '';
+    sr.innerHTML = `<style>:host { display: block; width: 100%; height: 100%; overflow: ${needsOverflow ? 'visible' : 'hidden'}; } ${svgWrapperOverflow} svg path, svg rect, svg circle, svg ellipse, svg line, svg polygon, svg polyline { vector-effect: non-scaling-stroke; }</style>${element.html}`;
   }, [element.html, vectorEditing]);
 
   const handlePointerDown = (e: React.MouseEvent | React.TouchEvent) => {

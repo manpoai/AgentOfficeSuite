@@ -38,7 +38,7 @@ import { VectorEditor, type VectorSelectionInfo } from './VectorEditor';
 import { VectorPropertyPanel } from './VectorPropertyPanel';
 import { PenTool, type OpenEndpoint } from './PenTool';
 import { LineDrawTool } from './LineDrawTool';
-import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
+import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, expandCornerRadii, applyCornerRadiiToHtml, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 import { FramePresetPanel } from './FramePresetPanel';
 import { SubElementEditor, type SubElementSelection } from '@/components/shared/SubElementEditor';
@@ -243,12 +243,30 @@ function createShapeElement(shapeType: ShapeType, pageW: number, pageH: number):
   if (!shapeDef) return createTextElement(Math.round(pageW / 2 - 50), Math.round(pageH / 2 - 16));
   const scale = 2;
   const w = shapeDef.width * scale, h = shapeDef.height * scale;
-  const pathData = shapeDef.renderPath(w, h);
   const defaultRadius = shapeType === 'rounded-rect' ? 8 : 0;
+
+  let pathData: string;
+  let extraPathAttrs = '';
+  if (defaultRadius > 0) {
+    const rectPath = `M0 0h${w}v${h}H0z`;
+    const parsed = parsePath(rectPath);
+    const subs = parsed.subPaths && parsed.subPaths.length > 0
+      ? parsed.subPaths : [{ points: parsed.points, closed: parsed.closed }];
+    const radii = subs.flatMap(sp => sp.points.map(() => defaultRadius));
+    const expandedSubs = subs.map(sp => {
+      const pts = sp.points.map(pt => ({ ...pt, cornerRadius: defaultRadius }));
+      return { points: expandCornerRadii({ points: pts, closed: sp.closed }), closed: sp.closed };
+    });
+    pathData = expandedSubs.map(sp => serializeSubPath(sp)).join('');
+    extraPathAttrs = ` data-corner-radii="${radii.join(',')}" data-orig-d="${rectPath}"`;
+  } else {
+    pathData = shapeDef.renderPath(w, h);
+  }
+
   return {
     id: `el-${crypto.randomUUID().slice(0, 8)}`, locked: false, z_index: 1,
     x: Math.round(pageW / 2 - w / 2), y: Math.round(pageH / 2 - h / 2), w, h,
-    html: `<div style="width:100%;height:100%;border-radius:${defaultRadius}px;overflow:hidden;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:hidden;border-radius:inherit;"><path d="${pathData}" fill="#e0e7ff" stroke="#374151" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg></div>`,
+    html: `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><path d="${pathData}" fill="#e0e7ff" stroke="#374151" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"${extraPathAttrs}/></svg></div>`,
   };
 }
 
@@ -1290,12 +1308,28 @@ export function CanvasEditor({
             if (dragged) {
               const shapeDef = SHAPE_MAP.get(shapeType);
               if (shapeDef) {
-                const pathData = shapeDef.renderPath(Math.round(elW), Math.round(elH));
+                const rw = Math.round(elW), rh = Math.round(elH);
                 const defaultRadius = shapeType === 'rounded-rect' ? 8 : 0;
+                let pd: string;
+                let epa = '';
+                if (defaultRadius > 0) {
+                  const rectPath = `M0 0h${rw}v${rh}H0z`;
+                  const pp = parsePath(rectPath);
+                  const ss = pp.subPaths && pp.subPaths.length > 0 ? pp.subPaths : [{ points: pp.points, closed: pp.closed }];
+                  const rr = ss.flatMap(sp => sp.points.map(() => defaultRadius));
+                  const es = ss.map(sp => {
+                    const pts = sp.points.map(pt => ({ ...pt, cornerRadius: defaultRadius }));
+                    return { points: expandCornerRadii({ points: pts, closed: sp.closed }), closed: sp.closed };
+                  });
+                  pd = es.map(sp => serializeSubPath(sp)).join('');
+                  epa = ` data-corner-radii="${rr.join(',')}" data-orig-d="${rectPath}"`;
+                } else {
+                  pd = shapeDef.renderPath(rw, rh);
+                }
                 el = {
                   id: `el-${crypto.randomUUID().slice(0, 8)}`, locked: false, z_index: 1,
-                  x: 0, y: 0, w: Math.round(elW), h: Math.round(elH),
-                  html: `<div style="width:100%;height:100%;border-radius:${defaultRadius}px;overflow:hidden;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${Math.round(elW) + 2} ${Math.round(elH) + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:hidden;border-radius:inherit;"><path d="${pathData}" fill="#e0e7ff" stroke="#374151" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg></div>`,
+                  x: 0, y: 0, w: rw, h: rh,
+                  html: `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${rw + 2} ${rh + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><path d="${pd}" fill="#e0e7ff" stroke="#374151" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"${epa}/></svg></div>`,
                 };
               } else {
                 el = createShapeElement(shapeType, Math.round(elW), Math.round(elH));

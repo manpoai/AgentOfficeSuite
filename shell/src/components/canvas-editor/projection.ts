@@ -1,4 +1,5 @@
 import type { DesignToken } from './types';
+import { parseCornerRadiiFromHtml, applyCornerRadiiToHtml, parsePath, serializeSubPath, expandCornerRadii } from '@/components/shared/svg-path-utils';
 
 export type MarkerType = 'none' | 'arrow' | 'triangle' | 'triangle-reversed' | 'circle' | 'diamond';
 
@@ -43,6 +44,16 @@ export interface ProjectedProps {
   subTop?: number;
   subWidth?: number;
   subHeight?: number;
+}
+
+function svgBorderRadius(html: string): number | undefined {
+  const radii = parseCornerRadiiFromHtml(html, 0);
+  if (radii.length === 0) return 0;
+  const nonZero = radii.filter(r => r > 0);
+  if (nonZero.length === 0) return 0;
+  const allSame = radii.every(r => r === radii[0]);
+  if (allSame) return radii[0];
+  return -1;
 }
 
 export function projectElement(html: string, cssPath?: string): ProjectedProps & { rawHTML: string } {
@@ -210,7 +221,7 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
     lineHeight: isSvgShape ? undefined : lineHeight,
     letterSpacing: isSvgShape ? undefined : letterSpacing,
     textDecoration: isSvgShape ? undefined : textDecoration,
-    borderRadius: style.borderRadius ? parseFloat(style.borderRadius) || undefined : undefined,
+    borderRadius: isSvgShape ? svgBorderRadius(html) : (style.borderRadius ? parseFloat(style.borderRadius) || undefined : undefined),
     borderColor,
     borderWidth,
     borderStyle: borderStyleVal,
@@ -299,13 +310,50 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
       let svgAttrs = sm[1];
       svgAttrs = svgAttrs.replace(/\soverflow="[^"]*"/, '');
       svgAttrs = svgAttrs.replace(/\sdata-stroke-align="[^"]*"/, '');
-      if (changes.svgStrokeAlignment === 'inside') {
-        svgAttrs += ' overflow="hidden" data-stroke-align="inside"';
-      } else {
-        svgAttrs += ' overflow="visible"';
-        svgAttrs += ` data-stroke-align="${changes.svgStrokeAlignment}"`;
-      }
+      const overflowVal = changes.svgStrokeAlignment === 'inside' ? 'hidden' : 'visible';
+      svgAttrs = svgAttrs.replace(/overflow:\s*\w+;?/g, '');
+      svgAttrs = svgAttrs.replace(/style="([^"]*)"/, (_, s) => `style="${s}overflow:${overflowVal};"`);
+      svgAttrs += ` data-stroke-align="${changes.svgStrokeAlignment}"`;
       html = html.replace(svgTag, `<svg${svgAttrs}>`);
+    }
+  }
+
+  if (changes.borderRadius !== undefined && html.includes('<svg')) {
+    const origDMatch = html.match(/<path\b[^>]*\sdata-orig-d="([^"]*)"/);
+    const dMatch = html.match(/<path\b[^>]*\sd="([^"]*)"/);
+    const sourceD = origDMatch?.[1] || dMatch?.[1];
+    if (sourceD) {
+      const parsed = parsePath(sourceD);
+      const subs = parsed.subPaths && parsed.subPaths.length > 0
+        ? parsed.subPaths
+        : [{ points: parsed.points, closed: parsed.closed }];
+      const r = changes.borderRadius;
+      const allRadii: (number | undefined)[] = [];
+      for (const sp of subs) {
+        for (const _pt of sp.points) {
+          allRadii.push(r > 0 ? r : undefined);
+        }
+      }
+      if (r > 0) {
+        const expandedSubs = subs.map(sp => {
+          const pts = sp.points.map(pt => ({ ...pt, cornerRadius: r }));
+          return { points: expandCornerRadii({ points: pts, closed: sp.closed }), closed: sp.closed };
+        });
+        const expandedD = expandedSubs.map(sp => serializeSubPath(sp)).join('');
+        const origD = subs.map(sp => serializeSubPath(sp)).join('');
+        html = html.replace(/<path\b([^>]*?)\sd="[^"]*"/, (match, attrs) => {
+          let a = attrs.replace(/\sdata-orig-d="[^"]*"/, '');
+          a += ` data-orig-d="${origD}"`;
+          return `<path${a} d="${expandedD}"`;
+        });
+      } else {
+        const plainD = subs.map(sp => serializeSubPath(sp)).join('');
+        html = html.replace(/<path\b([^>]*?)\sd="[^"]*"/, (match, attrs) => {
+          let a = attrs.replace(/\sdata-orig-d="[^"]*"/, '');
+          return `<path${a} d="${plainD}"`;
+        });
+      }
+      html = applyCornerRadiiToHtml(html, 0, allRadii);
     }
   }
 
@@ -332,7 +380,7 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
   if (changes.lineHeight !== undefined) el.style.lineHeight = String(changes.lineHeight);
   if (changes.letterSpacing !== undefined) el.style.letterSpacing = changes.letterSpacing + 'px';
   if (changes.textDecoration !== undefined) el.style.textDecoration = changes.textDecoration;
-  if (changes.borderRadius !== undefined) el.style.borderRadius = changes.borderRadius + 'px';
+  if (changes.borderRadius !== undefined && !html.includes('<svg')) el.style.borderRadius = changes.borderRadius + 'px';
   if (changes.borderColor !== undefined) el.style.borderColor = changes.borderColor;
   if (changes.borderWidth !== undefined) el.style.borderWidth = changes.borderWidth + 'px';
   if (changes.borderStyle !== undefined) el.style.borderStyle = changes.borderStyle;

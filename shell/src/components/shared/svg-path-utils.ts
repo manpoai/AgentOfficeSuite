@@ -279,7 +279,7 @@ export function parsePath(d: string): ParsedPath {
   return { points: allPoints, closed: firstClosed, subPaths };
 }
 
-function expandCornerRadii(sp: SubPath): PathPoint[] {
+export function expandCornerRadii(sp: SubPath): PathPoint[] {
   const { points, closed } = sp;
   if (points.length < 3) return points;
   const KAPPA = 0.5522847498;
