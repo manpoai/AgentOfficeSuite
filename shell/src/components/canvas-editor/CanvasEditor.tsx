@@ -1376,8 +1376,8 @@ export function CanvasEditor({
       };
       return;
     }
-    if ((e.target as HTMLElement).closest('[data-frame-id]')) {
-      // If clicking inside a frame while in group mode, exit group
+    const { cx: clickCx, cy: clickCy } = screenToCanvas(e.clientX, e.clientY);
+    if (findFrameAtPoint(clickCx, clickCy)) {
       if (activeGroupId) { setActiveGroupPath([]); setSelectedIds(new Set()); return; }
       return;
     }
