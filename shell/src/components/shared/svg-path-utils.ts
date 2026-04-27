@@ -452,13 +452,13 @@ export function insertPoint(parsed: ParsedPath, afterIndex: number, t = 0.5): Pa
   };
 
   points.splice(afterIndex + 1, 0, newPt);
-  return { ...parsed, points, closed: false };
+  return { ...parsed, points, closed: parsed.closed };
 }
 
 export function removePoint(parsed: ParsedPath, index: number): ParsedPath {
   if (parsed.points.length <= 2) return parsed;
   const points = parsed.points.filter((_, i) => i !== index);
-  return { ...parsed, points, closed: false };
+  return { ...parsed, points, closed: parsed.closed };
 }
 
 function circleToPath(cx: number, cy: number, r: number): string {

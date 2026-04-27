@@ -1489,6 +1489,11 @@ export function CanvasEditor({
     const el = containerRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
+      // Let overlays inside the canvas (property panel, etc.) handle their
+      // own wheel scrolling. They mark themselves with data-overlay-scrollable
+      // so we don't preventDefault/swallow the wheel event for them.
+      const target = e.target as Element | null;
+      if (target?.closest?.('[data-overlay-scrollable]')) return;
       e.preventDefault();
       e.stopPropagation();
       if (e.ctrlKey || e.metaKey) {
@@ -3360,7 +3365,7 @@ export function CanvasEditor({
             )}
             {/* Property panel (overlay) */}
             {showPropertyPanel && pendingInsert?.type !== 'frame' && (
-              <div className="absolute top-0 right-0 bottom-0" style={{ zIndex: 10000 }} onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+              <div className="absolute top-0 right-0 bottom-0" data-overlay-scrollable style={{ zIndex: 10000 }} onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
                 {vectorEditId && vectorSelection ? (() => {
                   return (
                     <VectorPropertyPanel
