@@ -132,6 +132,10 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
       const svgSwMatch = html.match(/<svg[^>]*?\sstroke-width="([^"]*)"/);
       if (svgSwMatch) { const v = parseFloat(svgSwMatch[1]); svgStrokeWidth = isNaN(v) ? undefined : v; }
     }
+    const alignAttr = html.match(/data-stroke-align="([^"]*)"/)?.[1];
+    if (svgStrokeWidth !== undefined && (alignAttr === 'inside' || alignAttr === 'outside')) {
+      svgStrokeWidth = svgStrokeWidth / 2;
+    }
   }
 
   let svgStrokeDasharray: string | undefined;
@@ -283,7 +287,11 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
     html = replaceAttrOnShapeOrSvg(html, 'stroke', changes.svgStroke);
   }
   if (changes.svgStrokeWidth !== undefined) {
-    html = replaceAttrOnShapeOrSvg(html, 'stroke-width', String(changes.svgStrokeWidth));
+    const currentAlign = html.match(/data-stroke-align="([^"]*)"/)?.[1];
+    const physical = (currentAlign === 'inside' || currentAlign === 'outside')
+      ? changes.svgStrokeWidth * 2
+      : changes.svgStrokeWidth;
+    html = replaceAttrOnShapeOrSvg(html, 'stroke-width', String(physical));
   }
   if (changes.svgStrokeDasharray !== undefined) {
     const shapeTag = /<(path|rect|circle|ellipse|polygon)\b([^>]*)>/;
@@ -296,6 +304,20 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
     }
   }
   if (changes.svgStrokeAlignment !== undefined) {
+    const oldAlign = html.match(/data-stroke-align="([^"]*)"/)?.[1];
+    const oldPhysicalSw = (() => {
+      const m = html.match(/<(?:path|rect|circle|ellipse|polygon)[^>]*?\sstroke-width="([^"]*)"/);
+      const v = m ? parseFloat(m[1]) : NaN;
+      return isNaN(v) ? undefined : v;
+    })();
+    const oldDoubled = oldAlign === 'inside' || oldAlign === 'outside';
+    const newDoubled = changes.svgStrokeAlignment === 'inside' || changes.svgStrokeAlignment === 'outside';
+    if (oldPhysicalSw !== undefined && oldDoubled !== newDoubled) {
+      const visible = oldDoubled ? oldPhysicalSw / 2 : oldPhysicalSw;
+      const newPhysical = newDoubled ? visible * 2 : visible;
+      html = replaceAttrOnShapeOrSvg(html, 'stroke-width', String(newPhysical));
+    }
+
     const shapeTag = /<(path|rect|circle|ellipse|polygon)\b([^>]*)>/;
     const m = html.match(shapeTag);
     if (m) {

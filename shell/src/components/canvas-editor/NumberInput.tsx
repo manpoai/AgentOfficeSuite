@@ -25,7 +25,7 @@ export function NumberInput({
     return r;
   }, [min, max]);
 
-  const displayValue = value == null ? '' : (step < 1 ? value.toFixed(1) : String(value));
+  const displayValue = value == null ? '' : String(value);
 
   return (
     <div className={cn('flex items-center', className)}>
