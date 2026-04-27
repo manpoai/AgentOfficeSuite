@@ -38,7 +38,7 @@ import { VectorEditor, type VectorSelectionInfo } from './VectorEditor';
 import { VectorPropertyPanel } from './VectorPropertyPanel';
 import { PenTool, type OpenEndpoint } from './PenTool';
 import { LineDrawTool } from './LineDrawTool';
-import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, expandCornerRadii, applyCornerRadiiToHtml, bakeRotationOnElement, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
+import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, expandCornerRadii, applyCornerRadiiToHtml, bakeRotation, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 import { FramePresetPanel } from './FramePresetPanel';
 import { SubElementEditor, type SubElementSelection } from '@/components/shared/SubElementEditor';
@@ -1063,35 +1063,53 @@ export function CanvasEditor({
           }));
         } else { updateElement(d.elementId, { x: newX, y: newY }, d.groupId); }
       } else if (d.type === 'resize' && d.handle && d.elementId) {
-        let nX = d.origX, nY = d.origY, nW = d.origW, nH = d.origH;
-        if (d.handle.includes('e')) nW = Math.max(20, d.origW + dx);
-        if (d.handle.includes('w')) { nW = Math.max(20, d.origW - dx); nX = d.origX + d.origW - nW; }
-        if (d.handle.includes('s')) nH = Math.max(20, d.origH + dy);
-        if (d.handle.includes('n')) { nH = Math.max(20, d.origH - dy); nY = d.origY + d.origH - nH; }
+        // For rotated elements, transform mouse delta into the element-local
+        // frame (rotate by -rotation), do the resize math axis-aligned, then
+        // map the new center back to world so the anchor (opposite corner/
+        // edge) stays under the cursor visually.
+        const rotDeg = d.origRotation || 0;
+        const rotRad = (rotDeg * Math.PI) / 180;
+        const cosR = Math.cos(rotRad), sinR = Math.sin(rotRad);
+        const localDx = dx * cosR + dy * sinR;
+        const localDy = -dx * sinR + dy * cosR;
+        let nXLocal = d.origX, nYLocal = d.origY, nW = d.origW, nH = d.origH;
+        if (d.handle.includes('e')) nW = Math.max(20, d.origW + localDx);
+        if (d.handle.includes('w')) { nW = Math.max(20, d.origW - localDx); nXLocal = d.origX + d.origW - nW; }
+        if (d.handle.includes('s')) nH = Math.max(20, d.origH + localDy);
+        if (d.handle.includes('n')) { nH = Math.max(20, d.origH - localDy); nYLocal = d.origY + d.origH - nH; }
         if (e instanceof MouseEvent && e.shiftKey && d.origW > 0 && d.origH > 0 && d.handle.length === 2) {
           const ratio = d.origW / d.origH;
           const dw = Math.abs(nW - d.origW);
           const dh = Math.abs(nH - d.origH);
           if (dw >= dh) {
             nH = nW / ratio;
-            if (d.handle.includes('n')) nY = d.origY + d.origH - nH;
+            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
           } else {
             nW = nH * ratio;
-            if (d.handle.includes('w')) nX = d.origX + d.origW - nW;
+            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
           }
           if (nW < 20) {
             nW = 20;
             nH = nW / ratio;
-            if (d.handle.includes('n')) nY = d.origY + d.origH - nH;
-            if (d.handle.includes('w')) nX = d.origX + d.origW - nW;
+            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
           }
           if (nH < 20) {
             nH = 20;
             nW = nH * ratio;
-            if (d.handle.includes('w')) nX = d.origX + d.origW - nW;
-            if (d.handle.includes('n')) nY = d.origY + d.origH - nH;
+            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
+            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
           }
         }
+        // Map the new center from local-frame delta back to world.
+        const newCenterLocalDX = nXLocal + nW / 2 - (d.origX + d.origW / 2);
+        const newCenterLocalDY = nYLocal + nH / 2 - (d.origY + d.origH / 2);
+        const newCenterWorldDX = newCenterLocalDX * cosR - newCenterLocalDY * sinR;
+        const newCenterWorldDY = newCenterLocalDX * sinR + newCenterLocalDY * cosR;
+        const newCx = d.origX + d.origW / 2 + newCenterWorldDX;
+        const newCy = d.origY + d.origH / 2 + newCenterWorldDY;
+        const nX = newCx - nW / 2;
+        const nY = newCy - nH / 2;
         const updates: Partial<CanvasElement> = { x: Math.round(nX), y: Math.round(nY), w: Math.round(nW), h: Math.round(nH) };
         if (d.origHtml) {
           updates.html = rescaleSvgHtml(d.origHtml, d.origW, d.origH, Math.round(nW), Math.round(nH));
@@ -1122,9 +1140,9 @@ export function CanvasEditor({
         }
         updateElement(d.elementId, updates, d.groupId);
       } else if (d.type === 'rotate' && d.elementId) {
-        // Rotation: each frame, bake the *total* delta from the drag start
-        // into the original (cached) html, so the path geometry tracks the
-        // current angle. Element x/y/w/h becomes the AABB of the rotated path.
+        // Rotation: directly update the rotation field. Path geometry stays
+        // in element-local (unrotated) coords; CSS rotate on the outer div
+        // is what makes the element appear rotated.
         const cxScreen = pan.x + (d.origX + d.origW / 2) * scale;
         const cyScreen = pan.y + (d.origY + d.origH / 2) * scale;
         const startAngle = Math.atan2(d.startY - cyScreen, d.startX - cxScreen);
@@ -1135,16 +1153,7 @@ export function CanvasEditor({
         }
         let newRotation = (d.origRotation || 0) + deltaDeg;
         newRotation = ((newRotation % 360) + 360) % 360;
-        if (d.origHtml) {
-          const baked = bakeRotationOnElement(d.origHtml, deltaDeg, d.origX, d.origY, d.origW, d.origH);
-          updateElement(d.elementId, {
-            html: baked.html,
-            x: baked.x, y: baked.y, w: baked.w, h: baked.h,
-            rotation: newRotation,
-          }, d.groupId);
-        } else {
-          updateElement(d.elementId, { rotation: newRotation }, d.groupId);
-        }
+        updateElement(d.elementId, { rotation: newRotation }, d.groupId);
       }
     };
     const handleUp = (e: MouseEvent | TouchEvent) => {
@@ -1234,23 +1243,51 @@ export function CanvasEditor({
       if (d?.type === 'marquee' && data) {
         const mr = marqueeRect;
         if (mr && (mr.w > 5 || mr.h > 5)) {
+          // Visual AABB of an element in screen coords, accounting for rotation
+          // around the element's transform-origin (which may differ from its
+          // geometric center if vector-edit reassemble offset it).
+          const visualAabb = (el: CanvasElement, baseX: number, baseY: number) => {
+            const originFx = el.rotationOriginX ?? 0.5;
+            const originFy = el.rotationOriginY ?? 0.5;
+            const cx = baseX + (el.x + originFx * el.w) * scale;
+            const cy = baseY + (el.y + originFy * el.h) * scale;
+            const elScreenX = baseX + el.x * scale;
+            const elScreenY = baseY + el.y * scale;
+            const elScreenW = el.w * scale;
+            const elScreenH = el.h * scale;
+            const corners = [
+              [elScreenX, elScreenY],
+              [elScreenX + elScreenW, elScreenY],
+              [elScreenX + elScreenW, elScreenY + elScreenH],
+              [elScreenX, elScreenY + elScreenH],
+            ];
+            const rot = (el.rotation || 0) * Math.PI / 180;
+            const cosR = Math.cos(rot), sinR = Math.sin(rot);
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const [px, py] of corners) {
+              const dx = px - cx, dy = py - cy;
+              const wx = cx + dx * cosR - dy * sinR;
+              const wy = cy + dx * sinR + dy * cosR;
+              if (wx < minX) minX = wx; if (wx > maxX) maxX = wx;
+              if (wy < minY) minY = wy; if (wy > maxY) maxY = wy;
+            }
+            return { minX, minY, maxX, maxY };
+          };
           const canvasHits = new Set<string>();
           const frameHits = new Map<string, Set<string>>();
           for (const el of (data.elements ?? []).filter(el => el.visible !== false)) {
-            const elScreenX = pan.x + el.x * scale;
-            const elScreenY = pan.y + el.y * scale;
-            if (elScreenX + el.w * scale > mr.x && elScreenX < mr.x + mr.w &&
-                elScreenY + el.h * scale > mr.y && elScreenY < mr.y + mr.h) {
+            const aabb = visualAabb(el, pan.x, pan.y);
+            if (aabb.maxX > mr.x && aabb.minX < mr.x + mr.w &&
+                aabb.maxY > mr.y && aabb.minY < mr.y + mr.h) {
               canvasHits.add(el.id);
             }
           }
           for (const frame of data.pages) {
             const fx = frame.frame_x ?? 0, fy = frame.frame_y ?? 0;
             for (const el of frame.elements.filter(el => el.visible !== false)) {
-              const elScreenX = pan.x + (fx + el.x) * scale;
-              const elScreenY = pan.y + (fy + el.y) * scale;
-              if (elScreenX + el.w * scale > mr.x && elScreenX < mr.x + mr.w &&
-                  elScreenY + el.h * scale > mr.y && elScreenY < mr.y + mr.h) {
+              const aabb = visualAabb(el, pan.x + fx * scale, pan.y + fy * scale);
+              if (aabb.maxX > mr.x && aabb.minX < mr.x + mr.w &&
+                  aabb.maxY > mr.y && aabb.minY < mr.y + mr.h) {
                 if (!frameHits.has(frame.page_id)) frameHits.set(frame.page_id, new Set());
                 frameHits.get(frame.page_id)!.add(el.id);
               }
@@ -1584,7 +1621,7 @@ export function CanvasEditor({
     const deepCloneChildren = (children: CanvasElement[]): CanvasElement[] =>
       children.map(c => ({ ...c, children: c.children ? deepCloneChildren(c.children) : undefined }));
     undoRedo.beginBatch();
-    dragRef.current = { type: 'resize', elementId: id, frameId: frameId ?? undefined, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origHtml: el.html?.includes('<svg') ? el.html : undefined, origChildren: el.type === 'group' && el.children ? deepCloneChildren(el.children) : undefined };
+    dragRef.current = { type: 'resize', elementId: id, frameId: frameId ?? undefined, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origRotation: el.rotation, origHtml: el.html?.includes('<svg') ? el.html : undefined, origChildren: el.type === 'group' && el.children ? deepCloneChildren(el.children) : undefined };
   }, [data, undoRedo]);
 
   const handleRotateStart = useCallback((frameId: string | null, id: string, e: React.MouseEvent | React.TouchEvent) => {
@@ -1597,7 +1634,6 @@ export function CanvasEditor({
       startX: pos.clientX, startY: pos.clientY,
       origX: el.x, origY: el.y, origW: el.w, origH: el.h,
       origRotation: el.rotation || 0,
-      origHtml: el.html?.includes('<svg') ? el.html : undefined,
     };
   }, [findElementById, undoRedo]);
 
@@ -2311,10 +2347,13 @@ export function CanvasEditor({
     if (elements.length !== 2) return;
     const sorted = [...elements].sort((x, y) => x.z_index - y.z_index);
     const [a, b] = sorted;
-    // Path geometry is already in world coords (rotation is baked into the
-    // path on every rotation change), so we can consume directly.
-    const htmlA = convertShapesToPaths(a.html);
-    const htmlB = convertShapesToPaths(b.html);
+    // Bake each element's rotation into the path geometry first, so the
+    // boolean op runs on the rotated visual shape (not the local-frame
+    // unrotated shape). The result element gets rotation = 0.
+    const htmlARotated = a.rotation ? bakeRotation(a.html, a.rotation, a.w, a.h) : a.html;
+    const htmlBRotated = b.rotation ? bakeRotation(b.html, b.rotation, b.w, b.h) : b.html;
+    const htmlA = convertShapesToPaths(htmlARotated);
+    const htmlB = convertShapesToPaths(htmlBRotated);
     const dA = extractPathD(htmlA);
     const dB = extractPathD(htmlB);
     if (!dA || !dB) return;
@@ -2689,7 +2728,7 @@ export function CanvasEditor({
                                   if (!isDeepest) return;
                                   const pos = getClientPos(e); if (!pos) return;
                                   undoRedo.beginBatch();
-                                  dragRef.current = { type: 'resize', elementId: id, frameId: frame.page_id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                                  dragRef.current = { type: 'resize', elementId: id, frameId: frame.page_id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
                                 }}
                                 onRotateStart={(id, e) => {
                                   if (!isDeepest) return;
@@ -2857,7 +2896,7 @@ export function CanvasEditor({
                             if (!isDeepest) return;
                             const pos = getClientPos(e); if (!pos) return;
                             undoRedo.beginBatch();
-                            dragRef.current = { type: 'resize', elementId: id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                            dragRef.current = { type: 'resize', elementId: id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
                           }}
                           onRotateStart={(id, e) => {
                             if (!isDeepest) return;
@@ -2931,11 +2970,16 @@ export function CanvasEditor({
                   elementY={el.y + groupOffY + fy}
                   elementW={el.w}
                   elementH={el.h}
+                  elementRotation={el.rotation}
+                  elementRotationOriginX={el.rotationOriginX}
+                  elementRotationOriginY={el.rotationOriginY}
                   scale={scale}
                   panX={pan.x}
                   panY={pan.y}
-                  onUpdate={({ html, x, y, w, h }) => {
-                    const updates = { html, x: x - fx - groupOffX, y: y - fy - groupOffY, w, h };
+                  onUpdate={({ html, x, y, w, h, rotationOriginX, rotationOriginY }) => {
+                    const updates: Partial<CanvasElement> = { html, x: x - fx - groupOffX, y: y - fy - groupOffY, w, h };
+                    if (rotationOriginX !== undefined) updates.rotationOriginX = rotationOriginX;
+                    if (rotationOriginY !== undefined) updates.rotationOriginY = rotationOriginY;
                     updateElement(el.id, updates);
                     if (activeGroupPath.length > 0) {
                       elementContext.setElements(els => recalcGroupBounds(els, activeGroupPath));

@@ -119,6 +119,10 @@ export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDon
         outlineOffset: -1,
         borderRadius: 2,
         overflow: 'hidden',
+        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+        transformOrigin: (element.rotationOriginX !== undefined || element.rotationOriginY !== undefined)
+          ? `${(element.rotationOriginX ?? 0.5) * 100}% ${(element.rotationOriginY ?? 0.5) * 100}%`
+          : 'center center',
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -186,6 +190,10 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
         cursor: editing ? 'text' : element.locked ? 'default' : 'move',
         opacity: editing ? 0 : 1,
         pointerEvents: editing || nonInteractive ? 'none' : 'auto',
+        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+        transformOrigin: (element.rotationOriginX !== undefined || element.rotationOriginY !== undefined)
+          ? `${(element.rotationOriginX ?? 0.5) * 100}% ${(element.rotationOriginY ?? 0.5) * 100}%`
+          : 'center center',
       }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
@@ -237,7 +245,10 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
         <div style={{
           position: 'absolute',
           top: '100%', left: '50%',
-          transform: 'translateX(-50%)',
+          transform: element.rotation
+            ? `translateX(-50%) rotate(${-element.rotation}deg)`
+            : 'translateX(-50%)',
+          transformOrigin: 'center top',
           marginTop: 4,
           fontSize: 10, lineHeight: '16px',
           padding: '0 6px',

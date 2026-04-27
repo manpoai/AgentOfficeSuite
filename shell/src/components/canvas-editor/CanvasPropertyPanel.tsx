@@ -21,7 +21,6 @@ import { flattenToLeaves, computePropertyUnion, aggregateProps, applyToLeaves } 
 import type { AggregatedProps } from './property-model';
 import { NumberInput } from './NumberInput';
 import { ColorPicker } from './ColorPicker';
-import { bakeRotationOnElement } from '@/components/shared/svg-path-utils';
 import type { SubElementSelection } from '@/components/shared/SubElementEditor';
 import { CANVAS_FONTS } from './fonts';
 import { loadGoogleFont } from './fontLoader';
@@ -948,15 +947,8 @@ export function CanvasPropertyPanel({
               </div>
             </Row>
             <Row label="Rotation"><NumberInput value={element.rotation ?? 0} step={1} suffix="°" onChange={v => {
-              const old = element.rotation ?? 0;
-              const delta = v - old;
-              if (!delta) return;
-              if (element.html?.includes('<svg')) {
-                const baked = bakeRotationOnElement(element.html, delta, element.x, element.y, element.w, element.h);
-                onUpdateElement(element.id, { html: baked.html, x: baked.x, y: baked.y, w: baked.w, h: baked.h, rotation: v });
-              } else {
-                onUpdateElement(element.id, { rotation: v });
-              }
+              const normalized = ((v % 360) + 360) % 360;
+              onUpdateElement(element.id, { rotation: normalized });
             }} /></Row>
           </div>
         </>

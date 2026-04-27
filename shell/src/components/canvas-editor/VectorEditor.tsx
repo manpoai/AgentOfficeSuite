@@ -25,10 +25,14 @@ interface VectorEditorProps {
   elementY: number;
   elementW: number;
   elementH: number;
+  elementRotation?: number;
+  /** Fraction along element width/height where the CSS rotate origin sits (0..1). Defaults to 0.5/0.5. */
+  elementRotationOriginX?: number;
+  elementRotationOriginY?: number;
   scale: number;
   panX: number;
   panY: number;
-  onUpdate: (updates: { html: string; x: number; y: number; w: number; h: number }) => void;
+  onUpdate: (updates: { html: string; x: number; y: number; w: number; h: number; rotationOriginX?: number; rotationOriginY?: number }) => void;
   onExit: () => void;
   onSelectionChange?: (info: VectorSelectionInfo | null) => void;
   onPointsUpdate?: (pathIdx: number, pointIdx: number, changes: Partial<PathPoint>) => void;
@@ -84,7 +88,8 @@ function parseAllSubPaths(html: string): SubPathEntry[] {
 }
 
 export function VectorEditor({
-  elementHtml, elementX, elementY, elementW, elementH,
+  elementHtml, elementX, elementY, elementW, elementH, elementRotation,
+  elementRotationOriginX, elementRotationOriginY,
   scale, panX, panY, onUpdate, onExit, onSelectionChange,
 }: VectorEditorProps) {
   const baseEntries = parseAllSubPaths(elementHtml);
@@ -157,34 +162,46 @@ export function VectorEditor({
     ? dragOverride.subs
     : baseEntries.map(e => e.sub);
 
-  const toScreen = (px: number, py: number) => ({
-    x: panX + (elementX + (px - vbX) * scaleX) * scale,
-    y: panY + (elementY + (py - vbY) * scaleY) * scale,
-  });
+  // Latest subs for onExit-time reassemble. Updated on every render.
+  const currentSubsRef = useRef<SubPath[]>(currentSubs);
+  currentSubsRef.current = currentSubs;
 
-  const reassembleAndCommit = useCallback((updatedSubs: SubPath[]) => {
-    const pad = 2;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const sp of updatedSubs) {
-      for (const pt of sp.points) {
-        minX = Math.min(minX, pt.x); minY = Math.min(minY, pt.y);
-        maxX = Math.max(maxX, pt.x); maxY = Math.max(maxY, pt.y);
-        if (pt.handleIn) {
-          minX = Math.min(minX, pt.x + pt.handleIn.x); minY = Math.min(minY, pt.y + pt.handleIn.y);
-          maxX = Math.max(maxX, pt.x + pt.handleIn.x); maxY = Math.max(maxY, pt.y + pt.handleIn.y);
-        }
-        if (pt.handleOut) {
-          minX = Math.min(minX, pt.x + pt.handleOut.x); minY = Math.min(minY, pt.y + pt.handleOut.y);
-          maxX = Math.max(maxX, pt.x + pt.handleOut.x); maxY = Math.max(maxY, pt.y + pt.handleOut.y);
-        }
-      }
-    }
+  // Forward decl: declared after reassembleAndCommit below.
+  const reassembleAndCommitRef = useRef<((s: SubPath[]) => void) | null>(null);
 
-    const newVbX = minX - pad;
-    const newVbY = minY - pad;
-    const newVbW = Math.max(maxX - minX + pad * 2, 1);
-    const newVbH = Math.max(maxY - minY + pad * 2, 1);
+  const exitWithReassemble = useCallback(() => {
+    const fn = reassembleAndCommitRef.current;
+    if (fn) fn(currentSubsRef.current);
+    onExit();
+  }, [onExit]);
 
+  // CSS rotation is applied around the element's transform-origin (defaults
+  // to center center, but may be offset after a vector-edit reassemble so
+  // the rotation pivot stayed put even though the element box tightened).
+  // Apply the same rotation to anchor/handle screen positions so the editor
+  // overlay aligns with the visually rotated path.
+  const rotRad = ((elementRotation || 0) * Math.PI) / 180;
+  const cosRot = Math.cos(rotRad);
+  const sinRot = Math.sin(rotRad);
+  const originFracX = elementRotationOriginX ?? 0.5;
+  const originFracY = elementRotationOriginY ?? 0.5;
+  const centerCanvasX = elementX + originFracX * elementW;
+  const centerCanvasY = elementY + originFracY * elementH;
+
+  const toScreen = (px: number, py: number) => {
+    const cxRaw = elementX + (px - vbX) * scaleX;
+    const cyRaw = elementY + (py - vbY) * scaleY;
+    const dx = cxRaw - centerCanvasX;
+    const dy = cyRaw - centerCanvasY;
+    const cxRot = centerCanvasX + dx * cosRot - dy * sinRot;
+    const cyRot = centerCanvasY + dx * sinRot + dy * cosRot;
+    return { x: panX + cxRot * scale, y: panY + cyRot * scale };
+  };
+
+  // Build the new html with updated path d (and corner radii data) for the
+  // given subpaths. Used by both live edits and final commit. Does NOT touch
+  // viewBox or element x/y/w/h — caller decides whether to reassemble those.
+  const buildHtmlWithPaths = useCallback((updatedSubs: SubPath[]): string => {
     const pathElCount = Math.max(...baseEntries.map(e => e.pathElIdx)) + 1;
     let newHtml = elementHtml;
     for (let pei = 0; pei < pathElCount; pei++) {
@@ -219,19 +236,78 @@ export function VectorEditor({
         return `<path${a} ${close}`;
       });
     }
+    return newHtml;
+  }, [elementHtml, baseEntries]);
 
+  // Live commit: only update path d. Keep viewBox/element x/y/w/h fixed so
+  // the CSS rotate center doesn't move during drag — other anchors stay
+  // visually pinned, and only the dragged anchor moves with the cursor.
+  const commitPathOnly = useCallback((updatedSubs: SubPath[]) => {
+    const newHtml = buildHtmlWithPaths(updatedSubs);
+    onUpdate({ html: newHtml, x: elementX, y: elementY, w: elementW, h: elementH });
+  }, [buildHtmlWithPaths, onUpdate, elementX, elementY, elementW, elementH]);
+
+  // Final reassemble: tighten viewBox / element box around the new path
+  // AABB. To keep unchanged anchors visually pinned, instead of moving the
+  // element box to keep the geometric center, we set transform-origin so
+  // that CSS rotation still pivots around the OLD element center. The new
+  // box can therefore be tight against the path while rotation visually
+  // stays anchored.
+  const reassembleAndCommit = useCallback((updatedSubs: SubPath[]) => {
+    const pad = 2;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const sp of updatedSubs) {
+      for (const pt of sp.points) {
+        minX = Math.min(minX, pt.x); minY = Math.min(minY, pt.y);
+        maxX = Math.max(maxX, pt.x); maxY = Math.max(maxY, pt.y);
+        if (pt.handleIn) {
+          minX = Math.min(minX, pt.x + pt.handleIn.x); minY = Math.min(minY, pt.y + pt.handleIn.y);
+          maxX = Math.max(maxX, pt.x + pt.handleIn.x); maxY = Math.max(maxY, pt.y + pt.handleIn.y);
+        }
+        if (pt.handleOut) {
+          minX = Math.min(minX, pt.x + pt.handleOut.x); minY = Math.min(minY, pt.y + pt.handleOut.y);
+          maxX = Math.max(maxX, pt.x + pt.handleOut.x); maxY = Math.max(maxY, pt.y + pt.handleOut.y);
+        }
+      }
+    }
+    if (!isFinite(minX)) return;
+
+    const newVbX = minX - pad;
+    const newVbY = minY - pad;
+    const newVbW = Math.max(maxX - minX + pad * 2, 1);
+    const newVbH = Math.max(maxY - minY + pad * 2, 1);
+
+    let newHtml = buildHtmlWithPaths(updatedSubs);
     newHtml = newHtml.replace(
       /viewBox="[^"]*"/,
       `viewBox="${newVbX} ${newVbY} ${newVbW} ${newVbH}"`
     );
 
-    const newX = elementX + (newVbX - vbX) * scaleX;
-    const newY = elementY + (newVbY - vbY) * scaleY;
     const newW = newVbW * scaleX;
     const newH = newVbH * scaleY;
+    // Element box position: same mapping as before (canvas pos of any
+    // viewBox point stays consistent).
+    const newX = elementX + (newVbX - vbX) * scaleX;
+    const newY = elementY + (newVbY - vbY) * scaleY;
+    // Compute transform-origin so CSS rotation pivots around the OLD pivot.
+    // Important: read the OLD pivot from the existing rotationOrigin (not the
+    // element's geometric center), in case it was already offset by a prior
+    // reassemble.
+    const oldCenterX = elementX + originFracX * elementW;
+    const oldCenterY = elementY + originFracY * elementH;
+    const rotationOriginX = newW > 0 ? (oldCenterX - newX) / newW : 0.5;
+    const rotationOriginY = newH > 0 ? (oldCenterY - newY) / newH : 0.5;
 
-    onUpdate({ html: newHtml, x: Math.round(newX), y: Math.round(newY), w: Math.round(newW), h: Math.round(newH) });
-  }, [elementHtml, elementX, elementY, vbX, vbY, vbW, vbH, scaleX, scaleY, onUpdate, baseEntries]);
+    onUpdate({
+      html: newHtml,
+      x: Math.round(newX), y: Math.round(newY),
+      w: Math.round(newW), h: Math.round(newH),
+      rotationOriginX,
+      rotationOriginY,
+    });
+  }, [buildHtmlWithPaths, elementX, elementY, elementW, elementH, vbX, vbY, scaleX, scaleY, onUpdate]);
+
+  reassembleAndCommitRef.current = reassembleAndCommit;
 
   // Expose updatePoints for property panel
   const updateSelectedPoints = useCallback((changes: Partial<PathPoint>) => {
@@ -259,9 +335,9 @@ export function VectorEditor({
       });
       return { ...sp, points };
     });
-    reassembleAndCommit(updated);
+    commitPathOnly(updated);
     notifySelection(selectedPoints, updated);
-  }, [selectedPoints, baseEntries, reassembleAndCommit, notifySelection]);
+  }, [selectedPoints, baseEntries, commitPathOnly, notifySelection]);
 
   const applyCornerRadiusToSelected = useCallback((radius: number) => {
     if (selectedPoints.length === 0) return;
@@ -273,9 +349,9 @@ export function VectorEditor({
       });
       return { ...sp, points };
     });
-    reassembleAndCommit(updated);
+    commitPathOnly(updated);
     notifySelection(selectedPoints, updated);
-  }, [selectedPoints, baseEntries, reassembleAndCommit, notifySelection]);
+  }, [selectedPoints, baseEntries, commitPathOnly, notifySelection]);
 
   // Make updateSelectedPoints accessible via ref for parent
   const updatePointsRef = useRef(updateSelectedPoints);
@@ -299,7 +375,7 @@ export function VectorEditor({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Enter') { onExit(); return; }
+      if (e.key === 'Escape' || e.key === 'Enter') { exitWithReassemble(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedPoints.length > 0 && baseEntries.length > 0) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -317,13 +393,13 @@ export function VectorEditor({
             );
           }
         }
-        reassembleAndCommit(updated);
+        commitPathOnly(updated);
         setSelection([]);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPoints, baseEntries, onExit, reassembleAndCommit, setSelection]);
+  }, [selectedPoints, baseEntries, exitWithReassemble, commitPathOnly, setSelection]);
 
   // Notify selection on html change
   useEffect(() => {
@@ -412,11 +488,19 @@ export function VectorEditor({
       return;
     }
     if (dragState) {
-      const dx = (e.clientX - dragState.startX) / scale / scaleX;
-      const dy = (e.clientY - dragState.startY) / scale / scaleY;
+      // Map screen-space mouse delta back to viewBox-space, reversing the
+      // element's rotation so the dragged anchor follows the cursor visually.
+      const screenDx = e.clientX - dragState.startX;
+      const screenDy = e.clientY - dragState.startY;
+      const localScreenDx = screenDx * cosRot + screenDy * sinRot;
+      const localScreenDy = -screenDx * sinRot + screenDy * cosRot;
+      const dx = localScreenDx / scale / scaleX;
+      const dy = localScreenDy / scale / scaleY;
       const updated = applyDrag(dx, dy);
       setDragOverride({ subs: updated, forHtml: elementHtml });
-      reassembleAndCommit(updated);
+      // Live commit: only update path d, leave element box / viewBox fixed
+      // so the rotation center doesn't drift while dragging.
+      commitPathOnly(updated);
       // Check merge proximity
       if (dragState.type === 'anchor') {
         const draggedPt = updated[dragState.pathIdx]?.points[dragState.pointIdx];
@@ -543,7 +627,7 @@ export function VectorEditor({
             const points = sp.points.filter((_, i) => i !== dragState.pointIdx);
             return { ...sp, points };
           });
-          reassembleAndCommit(merged);
+          commitPathOnly(merged);
           setSelection([]);
           setDragState(null);
           setDragOverride(null);
@@ -551,9 +635,9 @@ export function VectorEditor({
           return;
         }
       }
-      reassembleAndCommit(override.subs);
+      commitPathOnly(override.subs);
     } else if (dragState && override) {
-      reassembleAndCommit(override.subs);
+      commitPathOnly(override.subs);
     }
     setDragState(null);
     setDragOverride(null);
@@ -564,7 +648,7 @@ export function VectorEditor({
       setBgDragStart(null);
       if (dx * dx + dy * dy <= 9) {
         setSelection([]);
-        onExit();
+        exitWithReassemble();
       }
     }
   };
@@ -583,7 +667,7 @@ export function VectorEditor({
       });
       return { ...sp, points };
     });
-    reassembleAndCommit(updated);
+    commitPathOnly(updated);
   };
 
   const handleSegmentClick = (pathIdx: number, segIdx: number) => {
@@ -592,7 +676,7 @@ export function VectorEditor({
       if (i !== pathIdx) return sp;
       return insertPoint({ points: sp.points, closed: sp.closed, subPaths: [] }, segIdx, 0.5);
     });
-    reassembleAndCommit(updated);
+    commitPathOnly(updated);
     setSelection([{ pathIdx, pointIdx: segIdx + 1 }]);
   };
 
