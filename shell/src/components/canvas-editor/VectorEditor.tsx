@@ -469,13 +469,16 @@ export function VectorEditor({
         // Point-to-segment distance
         const dx = sb.x - sa.x, dy = sb.y - sa.y;
         const lenSq = dx * dx + dy * dy;
-        let t = lenSq === 0 ? 0 : ((clientX - sa.x) * dx + (clientY - sa.y) * dy) / lenSq;
-        t = Math.max(0.15, Math.min(0.85, t)); // Clamp to avoid overlap with anchor points
-        const px = sa.x + t * dx, py = sa.y + t * dy;
-        const dist = Math.sqrt((clientX - px) ** 2 + (clientY - py) ** 2);
-        if (dist < minDist) {
-          minDist = dist;
-          closest = { pathIdx, segIdx: i, screenX: px, screenY: py };
+        const tRaw = lenSq === 0 ? 0 : ((clientX - sa.x) * dx + (clientY - sa.y) * dy) / lenSq;
+        // Gate: cursor must be in the central 40-60% of the segment along its length.
+        if (tRaw < 0.4 || tRaw > 0.6) continue;
+        // Perpendicular distance from cursor to the segment line.
+        const projX = sa.x + tRaw * dx, projY = sa.y + tRaw * dy;
+        const perpDist = Math.sqrt((clientX - projX) ** 2 + (clientY - projY) ** 2);
+        if (perpDist < minDist) {
+          minDist = perpDist;
+          // Always render the add-anchor button at the segment midpoint.
+          closest = { pathIdx, segIdx: i, screenX: sa.x + 0.5 * dx, screenY: sa.y + 0.5 * dy };
         }
       }
     }
