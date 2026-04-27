@@ -290,13 +290,32 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
       const files = await pickFile({ accept: 'image/*' });
       const file = files[0];
       if (!file) return;
-      const formData = new FormData();
-      formData.append('file', file);
-      const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
-      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
-      const respData = await resp.json();
-      const url = respData.url?.startsWith('http') ? respData.url : `/api/gateway${respData.url?.replace(/^\/api/, '')}`;
-      applyImageFill(url);
+      // Step 1: instant preview with a blob URL so the user sees the image fill immediately.
+      const blobUrl = URL.createObjectURL(file);
+      applyImageFill(blobUrl);
+      // Step 2: upload, preload server URL into cache, then swap blob → server URL.
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+        const respData = await resp.json();
+        const rawUrl = respData.url as string;
+        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `/api/gateway${rawUrl?.replace(/^\/api/, '')}`;
+        await new Promise<void>(resolve => {
+          const img = new Image();
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+          img.src = serverUrl;
+        });
+        // Replace the blob URL with the server URL in whatever the latest html is.
+        // The state has updated since step 1, so read element.html via a fresh apply.
+        applyImageFill(serverUrl);
+        requestAnimationFrame(() => URL.revokeObjectURL(blobUrl));
+      } catch (err) {
+        URL.revokeObjectURL(blobUrl);
+        throw err;
+      }
     } catch (err) {
       showError('Failed to upload image', err);
     }
