@@ -1703,6 +1703,10 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       dataObj = doc.data_json ? JSON.parse(doc.data_json)
         : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
       title = doc.title;
+    } else if (type === 'canvas') {
+      const row = db.prepare('SELECT data_json FROM canvases WHERE id = ?').get(rawId);
+      if (!row) return res.status(404).json({ error: 'NOT_FOUND' });
+      try { dataObj = JSON.parse(row.data_json); } catch { dataObj = {}; }
     } else {
       return res.status(400).json({ error: 'UNSUPPORTED_TYPE', message: `Cannot create manual snapshot for type: ${type}` });
     }
@@ -1743,7 +1747,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     // ── Determine content type and raw ID ──
     const type = revision.content_type || (contentId.includes(':') ? contentId.split(':')[0] : '');
     const rawId = contentId.includes(':') ? contentId.split(':').slice(1).join(':') : contentId;
-    const tableName = type === 'presentation' ? 'presentations' : type === 'diagram' ? 'diagrams' : null;
+    const tableName = type === 'presentation' ? 'presentations' : type === 'diagram' ? 'diagrams' : type === 'canvas' ? 'canvases' : null;
 
     if (tableName) {
       const current = db.prepare(`SELECT data_json FROM ${tableName} WHERE id = ?`).get(rawId);
