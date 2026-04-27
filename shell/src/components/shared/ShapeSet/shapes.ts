@@ -24,6 +24,7 @@ export type ShapeType =
   | 'hexagon'
   | 'pentagon'
   | 'octagon'
+  | 'polygon'
   | 'star'
   | 'cross'
   | 'cloud'
@@ -369,9 +370,50 @@ export const SHAPES: ShapeDef[] = [
   },
 ];
 
+/** Generate a regular polygon SVG path with N sides inscribed in a w×h ellipse. */
+export function regularPolygonPath(w: number, h: number, sides: number): string {
+  const n = Math.max(3, Math.min(60, Math.round(sides)));
+  const cx = w / 2, cy = h / 2;
+  const rx = w / 2, ry = h / 2;
+  const pts: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+    pts.push(`${cx + rx * Math.cos(angle)} ${cy + ry * Math.sin(angle)}`);
+  }
+  return `M${pts.join('L')}z`;
+}
+
+/** Generate a regular star SVG path with N points inscribed in a w×h ellipse. */
+export function regularStarPath(w: number, h: number, points: number, innerRatio = 0.4): string {
+  const n = Math.max(3, Math.min(60, Math.round(points)));
+  const cx = w / 2, cy = h / 2;
+  const outerRx = w / 2, outerRy = h / 2;
+  const innerRx = outerRx * innerRatio, innerRy = outerRy * innerRatio;
+  const pts: string[] = [];
+  for (let i = 0; i < n * 2; i++) {
+    const isOuter = i % 2 === 0;
+    const rx = isOuter ? outerRx : innerRx;
+    const ry = isOuter ? outerRy : innerRy;
+    const angle = (Math.PI * i) / n - Math.PI / 2;
+    pts.push(`${cx + rx * Math.cos(angle)} ${cy + ry * Math.sin(angle)}`);
+  }
+  return `M${pts.join('L')}z`;
+}
+
+/** Polygon shape (default 5 sides; use regularPolygonPath for custom sides). */
+const POLYGON_SHAPE: ShapeDef = {
+  type: 'polygon',
+  label: 'Polygon',
+  labelKey: 'shapes.polygon',
+  category: 'basic',
+  width: 100, height: 100,
+  iconPath: 'M12 2L21.5 9 18 21H6L2.5 9z',
+  renderPath: (w, h) => regularPolygonPath(w, h, 5),
+};
+
 /** Lookup map by shape type */
 export const SHAPE_MAP = new Map<ShapeType, ShapeDef>(
-  SHAPES.map((s) => [s.type, s])
+  [...SHAPES, POLYGON_SHAPE].map((s) => [s.type, s])
 );
 
 /** Get shape definition by type */

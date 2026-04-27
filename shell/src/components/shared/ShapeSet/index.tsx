@@ -165,5 +165,5 @@ export function ShapeRenderer({
 }
 
 // Re-export shape types and utilities
-export { SHAPES, SHAPE_MAP, getShape, getShapesByCategory, CATEGORIES, CATEGORY_LABELS } from './shapes';
+export { SHAPES, SHAPE_MAP, getShape, getShapesByCategory, CATEGORIES, CATEGORY_LABELS, regularPolygonPath, regularStarPath } from './shapes';
 export type { ShapeType, ShapeDef, ShapeCategory } from './shapes';

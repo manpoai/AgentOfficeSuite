@@ -26,7 +26,7 @@ import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-comm
 import { getPublicOrigin } from '@/lib/remote-access';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
-import { ShapePicker, SHAPE_MAP, type ShapeType } from '@/components/shared/ShapeSet';
+import { ShapePicker, SHAPE_MAP, regularPolygonPath, regularStarPath, type ShapeType } from '@/components/shared/ShapeSet';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent,
 } from '@dnd-kit/core';
@@ -259,6 +259,12 @@ function createShapeElement(shapeType: ShapeType, pageW: number, pageH: number):
     });
     pathData = expandedSubs.map(sp => serializeSubPath(sp)).join('');
     extraPathAttrs = ` data-corner-radii="${radii.join(',')}" data-orig-d="${rectPath}"`;
+  } else if (shapeType === 'polygon') {
+    pathData = regularPolygonPath(w, h, 5);
+    extraPathAttrs = ` data-shape="polygon" data-sides="5"`;
+  } else if (shapeType === 'star') {
+    pathData = regularStarPath(w, h, 5);
+    extraPathAttrs = ` data-shape="star" data-points="5"`;
   } else {
     pathData = shapeDef.renderPath(w, h);
   }
@@ -1389,6 +1395,12 @@ export function CanvasEditor({
                   });
                   pd = es.map(sp => serializeSubPath(sp)).join('');
                   epa = ` data-corner-radii="${rr.join(',')}" data-orig-d="${rectPath}"`;
+                } else if (shapeType === 'polygon') {
+                  pd = regularPolygonPath(rw, rh, 5);
+                  epa = ` data-shape="polygon" data-sides="5"`;
+                } else if (shapeType === 'star') {
+                  pd = regularStarPath(rw, rh, 5);
+                  epa = ` data-shape="star" data-points="5"`;
                 } else {
                   pd = shapeDef.renderPath(rw, rh);
                 }

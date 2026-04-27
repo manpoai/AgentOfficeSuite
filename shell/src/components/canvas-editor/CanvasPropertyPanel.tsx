@@ -21,6 +21,7 @@ import { flattenToLeaves, computePropertyUnion, aggregateProps, applyToLeaves } 
 import type { AggregatedProps } from './property-model';
 import { NumberInput } from './NumberInput';
 import { ColorPicker } from './ColorPicker';
+import { regularPolygonPath, regularStarPath } from '@/components/shared/ShapeSet';
 import type { SubElementSelection } from '@/components/shared/SubElementEditor';
 import { CANVAS_FONTS } from './fonts';
 import { loadGoogleFont } from './fontLoader';
@@ -202,6 +203,31 @@ function ColorRow({ label, value, onChange, allowNone, onClear }: {
       </div>
     </Row>
   );
+}
+
+// ── Polygon/star shape parametrics ─────────────────────────────────────────────
+
+/** Read shape kind + parametric count from html. Returns null if not a parametric shape. */
+function getParametricShape(html: string): { kind: 'polygon' | 'star'; count: number } | null {
+  const polyMatch = html.match(/<path\b[^>]*\sdata-shape="polygon"[^>]*\sdata-sides="(\d+)"/);
+  if (polyMatch) return { kind: 'polygon', count: parseInt(polyMatch[1], 10) };
+  const starMatch = html.match(/<path\b[^>]*\sdata-shape="star"[^>]*\sdata-points="(\d+)"/);
+  if (starMatch) return { kind: 'star', count: parseInt(starMatch[1], 10) };
+  return null;
+}
+
+/** Update polygon/star count: regenerate path d from element's current w/h, update data attr. */
+function updateParametricShape(html: string, kind: 'polygon' | 'star', count: number, w: number, h: number): string {
+  const n = Math.max(3, Math.min(60, Math.round(count)));
+  // We re-render using element w/h (the element box represents the shape's bounding ellipse).
+  // viewBox coords for the path use the same w/h ranges.
+  const newD = kind === 'polygon' ? regularPolygonPath(w, h, n) : regularStarPath(w, h, n);
+  const attrName = kind === 'polygon' ? 'data-sides' : 'data-points';
+  // Replace path d
+  let result = html.replace(/(<path\b[^>]*?\s)d="[^"]*"/, `$1d="${newD}"`);
+  // Replace data-sides / data-points
+  result = result.replace(new RegExp(`(${attrName})="\\d+"`), `$1="${n}"`);
+  return result;
 }
 
 // ── Image fill mode ───────────────────────────────────────────────────────────
@@ -1087,6 +1113,22 @@ export function CanvasPropertyPanel({
                 )}
               </Row>
             )}
+
+            {/* SVG: polygon sides / star points */}
+            {isSingle && element && (() => {
+              const ps = getParametricShape(element.html);
+              if (!ps) return null;
+              const label = ps.kind === 'polygon' ? 'Sides' : 'Points';
+              return (
+                <Row label={label}>
+                  <NumberInput value={ps.count} min={3} max={60} step={1} onChange={v => {
+                    const clamped = Math.max(3, Math.min(60, Math.round(v)));
+                    const newHtml = updateParametricShape(element.html, ps.kind, clamped, element.w, element.h);
+                    onUpdateElement(element.id, { html: newHtml });
+                  }} />
+                </Row>
+              );
+            })()}
 
             {/* Non-SVG: text color, font */}
             {isSingle && projected && !projected.isSvgShape && (
