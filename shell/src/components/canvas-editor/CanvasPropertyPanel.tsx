@@ -9,6 +9,7 @@ import {
   AlignHorizontalSpaceAround, AlignVerticalSpaceAround,
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
   Download,
+  MoveHorizontal, MoveVertical, Square,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -203,6 +204,40 @@ function ColorRow({ label, value, onChange, allowNone, onClear }: {
       </div>
     </Row>
   );
+}
+
+// ── Text resize mode ───────────────────────────────────────────────────────────
+
+type TextResizeMode = 'auto' | 'fixed-width' | 'fixed';
+
+/** Read text resize mode from element html. Returns null if not a text element. */
+function getTextResizeMode(html: string): TextResizeMode | null {
+  const m = html.match(/data-text-resize="([^"]*)"/);
+  if (!m) return null;
+  if (m[1] === 'auto') return 'auto';
+  if (m[1] === 'fixed-width') return 'fixed-width';
+  if (m[1] === 'fixed') return 'fixed';
+  return null;
+}
+
+/** Update text resize mode on html: changes data attribute + white-space CSS. */
+function setTextResizeMode(html: string, mode: TextResizeMode): string {
+  let result = html.replace(/data-text-resize="[^"]*"/, `data-text-resize="${mode}"`);
+  // Update white-space + word-wrap inline style on the contenteditable div.
+  // auto:  white-space: nowrap (no wrapping; width grows with content)
+  // fixed-width: white-space: normal + word-wrap: break-word (wrap; width fixed, height grows)
+  // fixed: white-space: normal + word-wrap: break-word (wrap; both fixed; overflow hidden upstream)
+  const ws = mode === 'auto' ? 'nowrap' : 'normal';
+  const wrap = mode === 'auto' ? '' : 'word-wrap: break-word; ';
+  // Strip existing white-space and word-wrap declarations within the style attribute.
+  result = result.replace(/(<div\b[^>]*?\sstyle="[^"]*?)white-space:\s*[^;"]*;?\s*/, '$1');
+  result = result.replace(/(<div\b[^>]*?\sstyle="[^"]*?)word-wrap:\s*[^;"]*;?\s*/, '$1');
+  // Append the new white-space + word-wrap before the closing quote of the FIRST style attribute.
+  result = result.replace(/(<div\b[^>]*?\sstyle="[^"]*?)("\s)/, (_m, before, after) => {
+    const sep = before.endsWith(';') || before.endsWith('"') ? '' : ';';
+    return `${before}${sep} white-space: ${ws}; ${wrap}${after}`;
+  });
+  return result;
 }
 
 // ── Polygon/star shape parametrics ─────────────────────────────────────────────
@@ -936,11 +971,33 @@ export function CanvasPropertyPanel({
               <Row label="X"><NumberInput value={element.x} onChange={v => onUpdateElement(element.id, { x: v })} /></Row>
               <Row label="Y"><NumberInput value={element.y} onChange={v => onUpdateElement(element.id, { y: v })} /></Row>
               <Row label="W"><NumberInput value={element.w} min={20} onChange={v => {
-                if (aspectLocked) {
-                  onUpdateElement(element.id, { w: v, h: Math.round(v / aspectRatio.current) });
-                } else {
-                  onUpdateElement(element.id, { w: v });
+                // Text element: changing width manually flips auto-width into
+                // fixed-width (auto-height) and re-measures height.
+                const textMode = getTextResizeMode(element.html);
+                const updates: Partial<CanvasElement> = aspectLocked
+                  ? { w: v, h: Math.round(v / aspectRatio.current) }
+                  : { w: v };
+                if (textMode && textMode !== 'fixed') {
+                  let newHtml = element.html;
+                  if (textMode === 'auto') {
+                    newHtml = setTextResizeMode(newHtml, 'fixed-width');
+                  }
+                  updates.html = newHtml;
+                  if (typeof document !== 'undefined') {
+                    const measurer = document.createElement('div');
+                    measurer.style.cssText = `position:absolute;left:-9999px;top:-9999px;visibility:hidden;width:${v}px;`;
+                    measurer.innerHTML = newHtml;
+                    document.body.appendChild(measurer);
+                    const inner = measurer.firstElementChild as HTMLElement | null;
+                    if (inner) {
+                      inner.style.width = `${v}px`;
+                      const rect = inner.getBoundingClientRect();
+                      updates.h = Math.max(20, Math.ceil(rect.height));
+                    }
+                    if (measurer.isConnected) document.body.removeChild(measurer);
+                  }
                 }
+                onUpdateElement(element.id, updates);
               }} /></Row>
               <Row label="H"><NumberInput value={element.h} min={20} onChange={v => {
                 if (aspectLocked) {
@@ -976,6 +1033,55 @@ export function CanvasPropertyPanel({
               const normalized = ((v % 360) + 360) % 360;
               onUpdateElement(element.id, { rotation: normalized });
             }} /></Row>
+            {/* Text Resize mode: only for text elements */}
+            {(() => {
+              const mode = getTextResizeMode(element.html);
+              if (!mode) return null;
+              const modes: { key: TextResizeMode; icon: typeof MoveHorizontal; title: string }[] = [
+                { key: 'auto', icon: MoveHorizontal, title: 'Auto width' },
+                { key: 'fixed-width', icon: MoveVertical, title: 'Auto height' },
+                { key: 'fixed', icon: Square, title: 'Fixed size' },
+              ];
+              return (
+                <Row label="Resize">
+                  <div className="flex gap-1">
+                    {modes.map(m => {
+                      const Icon = m.icon;
+                      const active = mode === m.key;
+                      return (
+                        <button key={m.key} title={m.title}
+                          className={cn('flex-1 h-7 flex items-center justify-center rounded border transition-colors',
+                            active ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-muted-foreground')}
+                          onClick={() => {
+                            const newHtml = setTextResizeMode(element.html, m.key);
+                            const updates: Partial<CanvasElement> = { html: newHtml };
+                            // Re-measure to fit content under the new mode (except 'fixed').
+                            if (m.key !== 'fixed' && typeof document !== 'undefined') {
+                              const measurer = document.createElement('div');
+                              measurer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+                              if (m.key === 'fixed-width') measurer.style.width = `${element.w}px`;
+                              measurer.innerHTML = newHtml;
+                              document.body.appendChild(measurer);
+                              const inner = measurer.firstElementChild as HTMLElement | null;
+                              if (inner) {
+                                if (m.key === 'auto') { inner.style.width = 'auto'; inner.style.whiteSpace = 'nowrap'; }
+                                else { inner.style.width = `${element.w}px`; }
+                                const rect = inner.getBoundingClientRect();
+                                if (m.key === 'auto') updates.w = Math.max(20, Math.ceil(rect.width));
+                                updates.h = Math.max(20, Math.ceil(rect.height));
+                              }
+                              if (measurer.isConnected) document.body.removeChild(measurer);
+                            }
+                            onUpdateElement(element.id, updates);
+                          }}>
+                          <Icon className="w-3.5 h-3.5" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Row>
+              );
+            })()}
           </div>
         </>
       )}

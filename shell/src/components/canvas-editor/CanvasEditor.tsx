@@ -85,7 +85,7 @@ type SnapLine =
   | { kind: 'align'; orientation: 'h' | 'v'; position: number }
   | { kind: 'spacing'; x1: number; x2: number; y1: number; y2: number };
 
-function measureTextSize(html: string): { w: number; h: number } {
+function measureTextSize(html: string, fixedWidth?: number): { w: number; h: number } {
   if (typeof document === 'undefined') return { w: 100, h: 32 };
 
   const measurer = document.createElement('div');
@@ -97,8 +97,16 @@ function measureTextSize(html: string): { w: number; h: number } {
     if (measurer.isConnected) document.body.removeChild(measurer);
     return { w: 100, h: 32 };
   }
-  const isAuto = el.getAttribute('data-text-resize') === 'auto';
-  if (isAuto) { el.style.width = 'auto'; el.style.whiteSpace = 'nowrap'; }
+  const mode = el.getAttribute('data-text-resize');
+  if (mode === 'auto') {
+    el.style.width = 'auto';
+    el.style.whiteSpace = 'nowrap';
+  } else if (mode === 'fixed-width' && fixedWidth !== undefined && fixedWidth > 0) {
+    // Constrain measurer width so the text wraps at the same width as the
+    // rendered element. Without this, the div grows to the natural single-line
+    // width and reports a single-line height.
+    el.style.width = `${fixedWidth}px`;
+  }
   const rect = el.getBoundingClientRect();
   const w = Math.max(20, Math.ceil(rect.width));
   const h = Math.max(20, Math.ceil(rect.height));
@@ -1119,6 +1127,34 @@ export function CanvasEditor({
         const updates: Partial<CanvasElement> = { x: Math.round(nX), y: Math.round(nY), w: Math.round(nW), h: Math.round(nH) };
         if (d.origHtml) {
           updates.html = rescaleSvgHtml(d.origHtml, d.origW, d.origH, Math.round(nW), Math.round(nH));
+        }
+        // Text element: handle that changes width flips auto-width → fixed-width
+        // and re-measures height to fit the new wrapping.
+        if (d.origHtml === undefined) {
+          const sourceEl = findElementById(d.elementId);
+          if (sourceEl?.html?.includes('data-text-resize=') && d.handle && /[ew]/.test(d.handle)) {
+            let newHtml = sourceEl.html;
+            if (newHtml.includes('data-text-resize="auto"')) {
+              newHtml = newHtml
+                .replace('data-text-resize="auto"', 'data-text-resize="fixed-width"')
+                .replace(/(<div\b[^>]*?\sstyle="[^"]*?)white-space:\s*nowrap;?\s*/, '$1white-space: normal; word-wrap: break-word; ');
+            }
+            updates.html = newHtml;
+            // Re-measure height for the new width.
+            if (typeof document !== 'undefined' && !newHtml.includes('data-text-resize="fixed"')) {
+              const measurer = document.createElement('div');
+              measurer.style.cssText = `position:absolute;left:-9999px;top:-9999px;visibility:hidden;width:${Math.round(nW)}px;`;
+              measurer.innerHTML = newHtml;
+              document.body.appendChild(measurer);
+              const inner = measurer.firstElementChild as HTMLElement | null;
+              if (inner) {
+                inner.style.width = `${Math.round(nW)}px`;
+                const rect = inner.getBoundingClientRect();
+                updates.h = Math.max(20, Math.ceil(rect.height));
+              }
+              if (measurer.isConnected) document.body.removeChild(measurer);
+            }
+          }
         }
         // Group: scale children proportionally from original positions (recursive)
         if (d.origChildren && d.origW > 0 && d.origH > 0) {
@@ -2981,16 +3017,24 @@ export function CanvasEditor({
                   panX={elPanX}
                   panY={elPanY}
                   onHtmlChange={(html) => {
-                    const size = measureTextSize(html);
-                    const isAutoWidth = html.includes('data-text-resize="auto"');
                     const updates: Partial<CanvasElement> = { html };
-                    if (isAutoWidth) {
+                    const modeMatch = html.match(/data-text-resize="([^"]*)"/);
+                    const mode = modeMatch?.[1];
+                    if (mode === 'auto') {
+                      const size = measureTextSize(html);
                       updates.w = size.w;
                       updates.h = size.h;
-                    } else {
+                    } else if (mode === 'fixed-width') {
+                      // Pass current element.w so the measurer wraps at the
+                      // same width and reports the multi-line height.
+                      const size = measureTextSize(html, el.w);
                       updates.h = size.h;
                     }
+                    // mode === 'fixed' (or undefined): don't touch w/h.
                     updateElement(el.id, updates);
+                  }}
+                  onSizeChange={(w, h) => {
+                    updateElement(el.id, { w, h });
                   }}
                   onDone={() => setEditingElementId(null)}
                 />
@@ -3315,7 +3359,7 @@ export function CanvasEditor({
               </div>
             )}
             {/* Property panel (overlay) */}
-            {showPropertyPanel && (
+            {showPropertyPanel && pendingInsert?.type !== 'frame' && (
               <div className="absolute top-0 right-0 bottom-0" style={{ zIndex: 10000 }} onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
                 {vectorEditId && vectorSelection ? (() => {
                   return (

@@ -31,6 +31,10 @@ interface EditingOverlayProps {
   panX: number;
   panY: number;
   onHtmlChange: (html: string) => void;
+  /** Called during editing whenever the contenteditable's natural size changes
+   * (auto mode: width + height; fixed-width mode: only height). Caller should
+   * update element.w/h so the outer selection box tracks the editor. */
+  onSizeChange?: (w: number, h: number) => void;
   onDone: () => void;
 }
 
@@ -63,48 +67,94 @@ function getClientPos(e: React.MouseEvent | React.TouchEvent | MouseEvent | Touc
 
 export { getClientPos };
 
-export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDone }: EditingOverlayProps) {
-  const editRef = useRef<HTMLDivElement>(null);
+export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onSizeChange, onDone }: EditingOverlayProps) {
+  // hostRef: non-editable wrapper used to inject the user's html. The actual
+  // contenteditable lives inside (the user's own div with contenteditable=true).
+  // Nesting two contenteditables breaks focus + selection in subtle ways
+  // (focus jumps to body, measurements come from the empty outer shell).
+  const hostRef = useRef<HTMLDivElement>(null);
+  const editableRef = useRef<HTMLElement | null>(null);
   const savedRef = useRef(false);
   const onHtmlChangeRef = useRef(onHtmlChange);
+  const onSizeChangeRef = useRef(onSizeChange);
   const onDoneRef = useRef(onDone);
   onHtmlChangeRef.current = onHtmlChange;
+  onSizeChangeRef.current = onSizeChange;
   onDoneRef.current = onDone;
 
-  useEffect(() => {
-    const el = editRef.current;
-    if (!el) return;
-    el.innerHTML = element.html;
-    el.focus();
-    const sel = window.getSelection();
-    if (sel && el.childNodes.length > 0) {
-      sel.selectAllChildren(el);
-      sel.collapseToEnd();
-    }
-    return () => {
-      if (!savedRef.current && el) {
-        onHtmlChangeRef.current(el.innerHTML);
-      }
-    };
-  }, []);
+  // Detect text-resize mode from the element's html (set by createTextElement).
+  const isTextElement = element.html.includes('data-text-resize=');
+  const isAutoWidth = element.html.includes('data-text-resize="auto"');
+
+  // Refs so the mount-only effect can read fresh values without re-running.
+  const elementWRef = useRef(element.w);
+  elementWRef.current = element.w;
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
 
   const finish = useCallback(() => {
-    if (savedRef.current || !editRef.current) return;
+    if (savedRef.current || !hostRef.current) return;
     savedRef.current = true;
-    onHtmlChangeRef.current(editRef.current.innerHTML);
+    onHtmlChangeRef.current(hostRef.current.innerHTML);
     onDoneRef.current();
   }, []);
 
-  const handleBlur = useCallback(() => {
-    finish();
-  }, [finish]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      finish();
+  const handleInput = useCallback(() => {
+    if (!isTextElement || !onSizeChangeRef.current) return;
+    const inner = editableRef.current;
+    if (!inner) return;
+    const rect = inner.getBoundingClientRect();
+    const w = Math.max(20, Math.ceil(rect.width / scaleRef.current));
+    const h = Math.max(20, Math.ceil(rect.height / scaleRef.current));
+    if (isAutoWidth) {
+      onSizeChangeRef.current(w, h);
+    } else {
+      onSizeChangeRef.current(elementWRef.current, h);
     }
-  }, [finish]);
+  }, [isTextElement, isAutoWidth]);
+
+  // Mount-only effect. Re-running this on every prop change would re-inject
+  // innerHTML, blow away the user's typed text, and cause a flicker loop with
+  // the parent's onHtmlChange (which updates element.html → re-renders us →
+  // we'd unmount-and-save again).
+  const initialHtmlRef = useRef(element.html);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    host.innerHTML = initialHtmlRef.current;
+    const inner = host.firstElementChild as HTMLElement | null;
+    if (!inner) return;
+    editableRef.current = inner;
+    if (inner.getAttribute('contenteditable') !== 'true') {
+      inner.setAttribute('contenteditable', 'true');
+    }
+    const onBlur = () => finish();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); finish(); }
+    };
+    const onInput = () => handleInput();
+    inner.addEventListener('blur', onBlur);
+    inner.addEventListener('keydown', onKeyDown);
+    inner.addEventListener('input', onInput);
+    const raf = requestAnimationFrame(() => {
+      inner.focus();
+      const sel = window.getSelection();
+      if (sel) {
+        sel.selectAllChildren(inner);
+        sel.collapseToEnd();
+      }
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      inner.removeEventListener('blur', onBlur);
+      inner.removeEventListener('keydown', onKeyDown);
+      inner.removeEventListener('input', onInput);
+      if (!savedRef.current) {
+        onHtmlChangeRef.current(host.innerHTML);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
@@ -112,13 +162,16 @@ export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDon
         position: 'absolute',
         left: panX + element.x * scale,
         top: panY + element.y * scale,
-        width: element.w * scale,
-        height: element.h * scale,
+        // For text elements let the box grow with content (auto mode: w+h,
+        // fixed-width: only h). The caller will keep element.w/h in sync.
+        width: isTextElement && isAutoWidth ? 'auto' : element.w * scale,
+        height: isTextElement ? 'auto' : element.h * scale,
         zIndex: 10000,
-        outline: '2px solid #10b981',
-        outlineOffset: -1,
+        // No outline — the underlying element's selection box (rendered by
+        // CanvasElementView when selected && !vectorEditing) provides the
+        // visible frame; the editor here is just the contenteditable.
         borderRadius: 2,
-        overflow: 'hidden',
+        overflow: isTextElement ? 'visible' : 'hidden',
         transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
         transformOrigin: (element.rotationOriginX !== undefined || element.rotationOriginY !== undefined)
           ? `${(element.rotationOriginX ?? 0.5) * 100}% ${(element.rotationOriginY ?? 0.5) * 100}%`
@@ -127,14 +180,10 @@ export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDon
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div
-        ref={editRef}
-        contentEditable
-        suppressContentEditableWarning
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
+        ref={hostRef}
         style={{
-          width: element.w,
-          height: element.h,
+          width: isTextElement ? (isAutoWidth ? 'auto' : element.w) : element.w,
+          height: isTextElement ? 'auto' : element.h,
           zoom: scale,
           outline: 'none',
           cursor: 'text',
@@ -188,7 +237,8 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
         height: element.h,
         zIndex: element.z_index ?? 0,
         cursor: editing ? 'text' : element.locked ? 'default' : 'move',
-        opacity: editing ? 0 : 1,
+        // Don't fade the whole element — only the content (so selection chrome
+        // stays visible during text editing). The content is hidden inside.
         pointerEvents: editing || nonInteractive ? 'none' : 'auto',
         transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
         transformOrigin: (element.rotationOriginX !== undefined || element.rotationOriginY !== undefined)
@@ -204,7 +254,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
     >
       {element.type === 'group' && element.children ? (
         hideGroupChildren ? null : (
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: groupChildrenInteractive ? 'auto' : 'none' }}>
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: groupChildrenInteractive ? 'auto' : 'none', opacity: editing ? 0 : 1 }}>
           {element.children.map(child => (
             <CanvasElementView
               key={child.id}
@@ -221,7 +271,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
         </div>
         )
       ) : (
-        <div ref={shadowHostRef} style={{ width: '100%', height: '100%', pointerEvents: 'none' }} />
+        <div ref={shadowHostRef} style={{ width: '100%', height: '100%', pointerEvents: 'none', opacity: editing ? 0 : 1 }} />
       )}
       {hovered && !selected && !editing && (
         <div style={{
@@ -230,7 +280,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           pointerEvents: 'none', borderRadius: 2,
         }} />
       )}
-      {selected && !editing && !vectorEditing && (
+      {selected && !vectorEditing && (
         <div
           style={{
             position: 'absolute',
@@ -241,7 +291,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           }}
         />
       )}
-      {selected && !editing && !vectorEditing && (
+      {selected && !vectorEditing && (
         <div style={{
           position: 'absolute',
           top: '100%', left: '50%',
