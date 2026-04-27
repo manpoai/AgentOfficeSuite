@@ -232,7 +232,7 @@ function createTextElement(x: number, y: number, fixedWidth?: number): CanvasEle
     x, y,
     w: isFixedWidth ? fixedWidth : 100,
     h: 32,
-    html: `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 24px; font-weight: 400; color: #111827; padding: 4px; box-sizing: border-box; ${isFixedWidth ? 'white-space: normal; word-wrap: break-word;' : 'white-space: nowrap;'}" contenteditable="true" data-text-resize="${isFixedWidth ? 'fixed-width' : 'auto'}"></div>`,
+    html: `<div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 24px; font-weight: 400; color: #111827; box-sizing: border-box; ${isFixedWidth ? 'white-space: normal; word-wrap: break-word;' : 'white-space: nowrap;'}" contenteditable="true" data-text-resize="${isFixedWidth ? 'fixed-width' : 'auto'}"></div>`,
   };
 }
 
@@ -1338,6 +1338,13 @@ export function CanvasEditor({
           elY = Math.min(d.origY, endCy);
           elW = Math.abs(dx);
           elH = Math.abs(dy);
+        } else if (d.createType.type === 'text') {
+          // For text on simple click, place the element at the click point
+          // so the cursor sits where the user clicked.
+          elW = 100;
+          elH = 32;
+          elX = d.origX;
+          elY = d.origY;
         } else {
           elW = d.createType.type === 'frame' ? 1920 : 200;
           elH = d.createType.type === 'frame' ? 1080 : 200;
@@ -1795,6 +1802,7 @@ export function CanvasEditor({
       if (e.key === 'v' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert(null); return; }
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert({ type: 'shape', shapeType: 'rect' }); return; }
       if (e.key === 'o' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert({ type: 'shape', shapeType: 'circle' }); return; }
+      if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert({ type: 'text' }); return; }
       if (e.key === 'a' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert({ type: 'frame' }); return; }
       if (e.key === 'l' && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); setPendingInsert({ type: 'line-draw' }); return; }
       if (e.key === 'Escape') { if (pendingInsert) { setPendingInsert(null); setCreatePreview(null); return; } if (activeGroupId) { setActiveGroupPath(prev => prev.slice(0, -1)); setSelectedIds(new Set()); return; } setSelectedIds(new Set()); setEditingElementId(null); }
