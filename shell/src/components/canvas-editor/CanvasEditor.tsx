@@ -38,7 +38,7 @@ import { VectorEditor, type VectorSelectionInfo } from './VectorEditor';
 import { VectorPropertyPanel } from './VectorPropertyPanel';
 import { PenTool, type OpenEndpoint } from './PenTool';
 import { LineDrawTool } from './LineDrawTool';
-import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, expandCornerRadii, applyCornerRadiiToHtml, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
+import { extractPathD, parsePath, serializePath, serializeSubPath, booleanPathOp, convertShapesToPaths, extractAllPathDs, rescaleSvgHtml, expandCornerRadii, applyCornerRadiiToHtml, bakeRotationOnElement, type BooleanOp, type PathPoint } from '@/components/shared/svg-path-utils';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 import { FramePresetPanel } from './FramePresetPanel';
 import { SubElementEditor, type SubElementSelection } from '@/components/shared/SubElementEditor';
@@ -658,12 +658,13 @@ export function CanvasEditor({
   const undoRedo = useUndoRedo<CanvasData | null>(null);
 
   const dragRef = useRef<{
-    type: 'move' | 'resize' | 'pan' | 'frame-move' | 'frame-resize' | 'marquee' | 'create';
+    type: 'move' | 'resize' | 'pan' | 'frame-move' | 'frame-resize' | 'marquee' | 'create' | 'rotate';
     elementId?: string; handle?: string;
     frameId?: string;
     groupId?: string;
     startX: number; startY: number;
     origX: number; origY: number; origW: number; origH: number;
+    origRotation?: number; // only used by 'rotate' drag type
     origPanX?: number; origPanY?: number;
     origPositions?: Map<string, { x: number; y: number }>;
     origHtml?: string;
@@ -1067,8 +1068,6 @@ export function CanvasEditor({
         if (d.handle.includes('w')) { nW = Math.max(20, d.origW - dx); nX = d.origX + d.origW - nW; }
         if (d.handle.includes('s')) nH = Math.max(20, d.origH + dy);
         if (d.handle.includes('n')) { nH = Math.max(20, d.origH - dy); nY = d.origY + d.origH - nH; }
-        // Shift: maintain aspect ratio (corner handles only — 2-char handles like 'nw', 'ne', 'sw', 'se')
-        // TouchEvent has no shiftKey; Shift+drag on touch/iPad is a known gap
         if (e instanceof MouseEvent && e.shiftKey && d.origW > 0 && d.origH > 0 && d.handle.length === 2) {
           const ratio = d.origW / d.origH;
           const dw = Math.abs(nW - d.origW);
@@ -1122,6 +1121,30 @@ export function CanvasEditor({
           updates.children = scaleChildrenRecursive(d.origChildren, scaleX, scaleY);
         }
         updateElement(d.elementId, updates, d.groupId);
+      } else if (d.type === 'rotate' && d.elementId) {
+        // Rotation: each frame, bake the *total* delta from the drag start
+        // into the original (cached) html, so the path geometry tracks the
+        // current angle. Element x/y/w/h becomes the AABB of the rotated path.
+        const cxScreen = pan.x + (d.origX + d.origW / 2) * scale;
+        const cyScreen = pan.y + (d.origY + d.origH / 2) * scale;
+        const startAngle = Math.atan2(d.startY - cyScreen, d.startX - cxScreen);
+        const currentAngle = Math.atan2(pos.clientY - cyScreen, pos.clientX - cxScreen);
+        let deltaDeg = ((currentAngle - startAngle) * 180) / Math.PI;
+        if (e instanceof MouseEvent && e.shiftKey) {
+          deltaDeg = Math.round(deltaDeg / 15) * 15;
+        }
+        let newRotation = (d.origRotation || 0) + deltaDeg;
+        newRotation = ((newRotation % 360) + 360) % 360;
+        if (d.origHtml) {
+          const baked = bakeRotationOnElement(d.origHtml, deltaDeg, d.origX, d.origY, d.origW, d.origH);
+          updateElement(d.elementId, {
+            html: baked.html,
+            x: baked.x, y: baked.y, w: baked.w, h: baked.h,
+            rotation: newRotation,
+          }, d.groupId);
+        } else {
+          updateElement(d.elementId, { rotation: newRotation }, d.groupId);
+        }
       }
     };
     const handleUp = (e: MouseEvent | TouchEvent) => {
@@ -1354,7 +1377,7 @@ export function CanvasEditor({
           }
         }
       }
-      if (d && (d.type === 'move' || d.type === 'resize' || d.type === 'frame-move' || d.type === 'frame-resize') && data) {
+      if (d && (d.type === 'move' || d.type === 'resize' || d.type === 'frame-move' || d.type === 'frame-resize' || d.type === 'rotate') && data) {
         undoRedo.endBatch(data);
       }
       dragRef.current = null; setSnapLines([]);
@@ -1516,6 +1539,9 @@ export function CanvasEditor({
     }
     const hasSvg = el.html.includes('<svg');
     if (hasSvg) {
+      // Vector edit operates on the path geometry as-is. The element's own
+      // rotation continues to apply via the outer container, so anchors
+      // appear at their rotated visual positions (WYSIWYG).
       const converted = convertShapesToPaths(el.html);
       if (extractAllPathDs(converted).length > 0) {
         if (converted !== el.html) {
@@ -1560,6 +1586,20 @@ export function CanvasEditor({
     undoRedo.beginBatch();
     dragRef.current = { type: 'resize', elementId: id, frameId: frameId ?? undefined, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origHtml: el.html?.includes('<svg') ? el.html : undefined, origChildren: el.type === 'group' && el.children ? deepCloneChildren(el.children) : undefined };
   }, [data, undoRedo]);
+
+  const handleRotateStart = useCallback((frameId: string | null, id: string, e: React.MouseEvent | React.TouchEvent) => {
+    const el = findElementById(id);
+    if (!el) return;
+    const pos = getClientPos(e); if (!pos) return;
+    undoRedo.beginBatch();
+    dragRef.current = {
+      type: 'rotate', elementId: id, frameId: frameId ?? undefined,
+      startX: pos.clientX, startY: pos.clientY,
+      origX: el.x, origY: el.y, origW: el.w, origH: el.h,
+      origRotation: el.rotation || 0,
+      origHtml: el.html?.includes('<svg') ? el.html : undefined,
+    };
+  }, [findElementById, undoRedo]);
 
   // ─── Clipboard ─────────────────────
   const CLIPBOARD_KEY = 'aose-canvas-clipboard';
@@ -2271,6 +2311,8 @@ export function CanvasEditor({
     if (elements.length !== 2) return;
     const sorted = [...elements].sort((x, y) => x.z_index - y.z_index);
     const [a, b] = sorted;
+    // Path geometry is already in world coords (rotation is baked into the
+    // path on every rotation change), so we can consume directly.
     const htmlA = convertShapesToPaths(a.html);
     const htmlB = convertShapesToPaths(b.html);
     const dA = extractPathD(htmlA);
@@ -2584,6 +2626,10 @@ export function CanvasEditor({
                             if (activeGroupPath.includes(id)) return;
                             handleResizeStart(frame.page_id, id, handle, e);
                           }}
+                          onRotateStart={(id, e) => {
+                            if (activeGroupPath.includes(id)) return;
+                            handleRotateStart(frame.page_id, id, e);
+                          }}
                           onDoubleClick={(id) => {
                             console.log('[frame element onDoubleClick]', { id, activeGroupPath: [...activeGroupPath] });
                             if (activeGroupPath.includes(id)) return;
@@ -2644,6 +2690,10 @@ export function CanvasEditor({
                                   const pos = getClientPos(e); if (!pos) return;
                                   undoRedo.beginBatch();
                                   dragRef.current = { type: 'resize', elementId: id, frameId: frame.page_id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                                }}
+                                onRotateStart={(id, e) => {
+                                  if (!isDeepest) return;
+                                  handleRotateStart(frame.page_id, id, e);
                                 }}
                                 onDoubleClick={(id) => isDeepest ? handleDoubleClick(frame.page_id, id) : undefined}
                                 onShadowRootReady={(id, sr) => shadowRootRefs.current.set(id, sr)}
@@ -2726,6 +2776,10 @@ export function CanvasEditor({
                         if (activeGroupPath.includes(id)) return;
                         handleResizeStart(null, id, handle, e);
                       }}
+                      onRotateStart={(id, e) => {
+                        if (activeGroupPath.includes(id)) return;
+                        handleRotateStart(null, id, e);
+                      }}
                       onShadowRootReady={(id, sr) => shadowRootRefs.current.set(id, sr)}
                       onMouseEnter={() => { if (!activeGroupPath.includes(el.id)) setHoveredId(el.id); }}
                       onMouseLeave={() => { if (hoveredId === el.id) setHoveredId(null); }}
@@ -2804,6 +2858,10 @@ export function CanvasEditor({
                             const pos = getClientPos(e); if (!pos) return;
                             undoRedo.beginBatch();
                             dragRef.current = { type: 'resize', elementId: id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                          }}
+                          onRotateStart={(id, e) => {
+                            if (!isDeepest) return;
+                            handleRotateStart(null, id, e);
                           }}
                           onDoubleClick={(id) => isDeepest ? handleDoubleClick(null, id) : undefined}
                           onShadowRootReady={(id, sr) => shadowRootRefs.current.set(id, sr)}

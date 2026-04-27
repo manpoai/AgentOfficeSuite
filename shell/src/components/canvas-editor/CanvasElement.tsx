@@ -13,6 +13,7 @@ interface CanvasElementProps {
   onSelect: (id: string, e: React.MouseEvent | React.TouchEvent) => void;
   onDragStart: (id: string, e: React.MouseEvent | React.TouchEvent) => void;
   onResizeStart: (id: string, handle: string, e: React.MouseEvent | React.TouchEvent) => void;
+  onRotateStart?: (id: string, e: React.MouseEvent | React.TouchEvent) => void;
   onDoubleClick?: (id: string) => void;
   onHtmlChange?: (html: string) => void;
   onShadowRootReady?: (id: string, shadowRoot: ShadowRoot) => void;
@@ -118,8 +119,6 @@ export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDon
         outlineOffset: -1,
         borderRadius: 2,
         overflow: 'hidden',
-        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
-        transformOrigin: 'center center',
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
@@ -141,7 +140,7 @@ export function EditingOverlay({ element, scale, panX, panY, onHtmlChange, onDon
   );
 }
 
-export function CanvasElementView({ element, selected, hovered, scale, editing, vectorEditing, onSelect, onDragStart, onResizeStart, onDoubleClick, onContextMenu, onShadowRootReady, onMouseEnter, onMouseLeave, groupChildrenInteractive, hideGroupChildren, nonInteractive }: CanvasElementProps) {
+export function CanvasElementView({ element, selected, hovered, scale, editing, vectorEditing, onSelect, onDragStart, onResizeStart, onRotateStart, onDoubleClick, onContextMenu, onShadowRootReady, onMouseEnter, onMouseLeave, groupChildrenInteractive, hideGroupChildren, nonInteractive }: CanvasElementProps) {
   const shadowHostRef = useRef<HTMLDivElement>(null);
   const shadowRootRef = useRef<ShadowRoot | null>(null);
 
@@ -187,8 +186,6 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
         cursor: editing ? 'text' : element.locked ? 'default' : 'move',
         opacity: editing ? 0 : 1,
         pointerEvents: editing || nonInteractive ? 'none' : 'auto',
-        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
-        transformOrigin: 'center center',
       }}
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
@@ -225,7 +222,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           pointerEvents: 'none', borderRadius: 2,
         }} />
       )}
-      {selected && !editing && (
+      {selected && !editing && !vectorEditing && (
         <div
           style={{
             position: 'absolute',
@@ -236,7 +233,7 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           }}
         />
       )}
-      {selected && !editing && (
+      {selected && !editing && !vectorEditing && (
         <div style={{
           position: 'absolute',
           top: '100%', left: '50%',
@@ -277,6 +274,41 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           }}
         />
       ))}
+      {selected && !element.locked && !editing && !vectorEditing && onRotateStart && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -28 / scale,
+            left: '50%',
+            transform: `translateX(-50%) rotate(${-(element.rotation || 0)}deg)`,
+            transformOrigin: 'center center',
+            width: handleSize * 1.4,
+            height: handleSize * 1.4,
+            background: '#fff',
+            border: '2px solid #3b82f6',
+            borderRadius: '50%',
+            cursor: 'grab',
+            zIndex: 11,
+            pointerEvents: 'auto',
+            touchAction: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#3b82f6',
+            fontSize: handleSize * 0.9,
+            lineHeight: 1,
+          }}
+          onMouseDown={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
+          onTouchStart={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
+          title="Rotate"
+        >
+          <svg width={handleSize * 0.85} height={handleSize * 0.85} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3" />
+            <polyline points="12 2 12 5 9 5" />
+            <polyline points="4 14 4 11 7 11" />
+          </svg>
+        </div>
+      )}
     </div>
   );
 }

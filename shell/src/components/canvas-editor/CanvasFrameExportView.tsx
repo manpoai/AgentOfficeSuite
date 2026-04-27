@@ -16,8 +16,6 @@ function ExportElement({ el }: { el: CanvasElement }) {
           width: el.w,
           height: el.h,
           zIndex: el.z_index ?? 0,
-          transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-          transformOrigin: 'center center',
           pointerEvents: 'none',
         }}
       >
@@ -38,8 +36,6 @@ function ExportElement({ el }: { el: CanvasElement }) {
         width: el.w,
         height: el.h,
         zIndex: el.z_index ?? 0,
-        transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-        transformOrigin: 'center center',
         overflow: 'hidden',
         pointerEvents: 'none',
       }}

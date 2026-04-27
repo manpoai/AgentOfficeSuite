@@ -754,3 +754,118 @@ export async function booleanPathOp(d1: string, d2: string, op: BooleanOp): Prom
   const rawD = result.map(p => pathToPathData(p)).join(' ');
   return normalizeClosedPaths(rawD);
 }
+
+/**
+ * Bake a rotation (degrees) into the path geometry of an SVG html string.
+ * Rotates around the viewBox content center (w/2, h/2) — the same center
+ * that CSS `transform: rotate()` with `transform-origin: center center` uses.
+ *
+ * The viewBox stays unchanged; the rotated path may extend outside it, which
+ * is fine because the SVG host has overflow:visible.
+ *
+ * Each path's data-orig-d (used to reapply corner radii) is also rotated.
+ */
+export function bakeRotation(html: string, rotation: number, w: number, h: number): string {
+  if (!html.includes('<svg') || !rotation) return html;
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  const rotatePt = (x: number, y: number): { x: number; y: number } => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+  // handleIn / handleOut are stored as deltas relative to the anchor.
+  // Rotate them as vectors (no translation), so the bezier handles rotate
+  // along with the anchor.
+  const rotateDelta = (dx: number, dy: number): { x: number; y: number } => ({
+    x: dx * cos - dy * sin,
+    y: dx * sin + dy * cos,
+  });
+
+  const rotateD = (d: string): string => {
+    const parsed = parsePath(d);
+    const subs = parsed.subPaths && parsed.subPaths.length > 0
+      ? parsed.subPaths
+      : [{ points: parsed.points, closed: parsed.closed }];
+    for (const sp of subs) {
+      for (const pt of sp.points) {
+        const r = rotatePt(pt.x, pt.y);
+        pt.x = r.x; pt.y = r.y;
+        if (pt.handleIn) { const h1 = rotateDelta(pt.handleIn.x, pt.handleIn.y); pt.handleIn.x = h1.x; pt.handleIn.y = h1.y; }
+        if (pt.handleOut) { const h2 = rotateDelta(pt.handleOut.x, pt.handleOut.y); pt.handleOut.x = h2.x; pt.handleOut.y = h2.y; }
+      }
+    }
+    return subs.map(sp => serializeSubPath(sp)).join('');
+  };
+
+  let result = html;
+  const pathDs = extractAllPathDs(result);
+  pathDs.forEach((d, i) => {
+    result = updateNthPathInHtml(result, i, rotateD(d));
+  });
+  // Also rotate any data-orig-d (used to re-expand corner radii on radius changes)
+  result = result.replace(/data-orig-d="([^"]*)"/g, (_m, dOrig) => {
+    return `data-orig-d="${rotateD(dOrig)}"`;
+  });
+  return result;
+}
+
+/**
+ * Bake a rotation delta into the element's geometry around its current center,
+ * and return the new html plus the new element x/y/w/h that snaps to the
+ * rotated path's bounding box. The visual center (oldCx, oldCy) is preserved.
+ *
+ * Caller passes element's current x/y/w/h. The result element is axis-aligned
+ * (it contains the rotated path geometry directly) and has rotation = 0 conceptually.
+ */
+export function bakeRotationOnElement(
+  html: string,
+  rotation: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): { html: string; x: number; y: number; w: number; h: number } {
+  if (!html.includes('<svg') || !rotation) return { html, x, y, w, h };
+  // Step 1: rotate path points around the viewBox content center (w/2, h/2).
+  const baked = bakeRotation(html, rotation, w, h);
+
+  // Step 2: compute new viewBox to fit the rotated path AABB + padding.
+  const pad = 1;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const d of extractAllPathDs(baked)) {
+    const parsed = parsePath(d);
+    const subs = parsed.subPaths && parsed.subPaths.length > 0
+      ? parsed.subPaths : [{ points: parsed.points, closed: parsed.closed }];
+    for (const sp of subs) for (const pt of sp.points) {
+      if (pt.x < minX) minX = pt.x; if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y; if (pt.y > maxY) maxY = pt.y;
+    }
+  }
+  if (!isFinite(minX)) return { html: baked, x, y, w, h };
+
+  const newVbX = Math.round((minX - pad) * 100) / 100;
+  const newVbY = Math.round((minY - pad) * 100) / 100;
+  const newVbW = Math.max(Math.round((maxX - minX + pad * 2) * 100) / 100, 1);
+  const newVbH = Math.max(Math.round((maxY - minY + pad * 2) * 100) / 100, 1);
+
+  // Step 3: compute new element box. Preserve scale (1 viewBox unit = 1 canvas
+  // unit pre-rotation), so newW/newH equal newVbW/newVbH minus padding.
+  // The new element box's center should equal the OLD element box's center
+  // (the user perceives the rotation as happening around the element's center).
+  const oldCx = x + w / 2;
+  const oldCy = y + h / 2;
+  const newW = Math.max(1, Math.round(newVbW - pad * 2));
+  const newH = Math.max(1, Math.round(newVbH - pad * 2));
+  const newX = Math.round(oldCx - newW / 2);
+  const newY = Math.round(oldCy - newH / 2);
+
+  // Step 4: write new viewBox into html.
+  const finalHtml = baked.replace(/viewBox="[^"]*"/, `viewBox="${newVbX} ${newVbY} ${newVbW} ${newVbH}"`);
+
+  return { html: finalHtml, x: newX, y: newY, w: newW, h: newH };
+}
