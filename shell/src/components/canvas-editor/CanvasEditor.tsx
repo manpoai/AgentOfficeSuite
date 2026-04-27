@@ -1140,11 +1140,17 @@ export function CanvasEditor({
         }
         updateElement(d.elementId, updates, d.groupId);
       } else if (d.type === 'rotate' && d.elementId) {
-        // Rotation: directly update the rotation field. Path geometry stays
-        // in element-local (unrotated) coords; CSS rotate on the outer div
-        // is what makes the element appear rotated.
-        const cxScreen = pan.x + (d.origX + d.origW / 2) * scale;
-        const cyScreen = pan.y + (d.origY + d.origH / 2) * scale;
+        // Rotation pivot in screen coords = element's transform-origin.
+        // Element coords are frame-local (or canvas-relative if no frame),
+        // so add the frame offset when computing the screen pivot.
+        const el = findElementById(d.elementId);
+        const originFx = el?.rotationOriginX ?? 0.5;
+        const originFy = el?.rotationOriginY ?? 0.5;
+        const dragFrame = d.frameId && data ? data.pages.find(p => p.page_id === d.frameId) : null;
+        const fx = dragFrame?.frame_x ?? 0;
+        const fy = dragFrame?.frame_y ?? 0;
+        const cxScreen = pan.x + (fx + d.origX + originFx * d.origW) * scale;
+        const cyScreen = pan.y + (fy + d.origY + originFy * d.origH) * scale;
         const startAngle = Math.atan2(d.startY - cyScreen, d.startX - cxScreen);
         const currentAngle = Math.atan2(pos.clientY - cyScreen, pos.clientX - cxScreen);
         let deltaDeg = ((currentAngle - startAngle) * 180) / Math.PI;

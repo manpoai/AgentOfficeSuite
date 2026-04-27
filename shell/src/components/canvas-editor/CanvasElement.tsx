@@ -285,41 +285,39 @@ export function CanvasElementView({ element, selected, hovered, scale, editing, 
           }}
         />
       ))}
-      {selected && !element.locked && !editing && !vectorEditing && onRotateStart && (
-        <div
-          style={{
-            position: 'absolute',
-            top: -28 / scale,
-            left: '50%',
-            transform: `translateX(-50%) rotate(${-(element.rotation || 0)}deg)`,
-            transformOrigin: 'center center',
-            width: handleSize * 1.4,
-            height: handleSize * 1.4,
-            background: '#fff',
-            border: '2px solid #3b82f6',
-            borderRadius: '50%',
-            cursor: 'grab',
-            zIndex: 11,
-            pointerEvents: 'auto',
-            touchAction: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#3b82f6',
-            fontSize: handleSize * 0.9,
-            lineHeight: 1,
-          }}
-          onMouseDown={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
-          onTouchStart={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
-          title="Rotate"
-        >
-          <svg width={handleSize * 0.85} height={handleSize * 0.85} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3" />
-            <polyline points="12 2 12 5 9 5" />
-            <polyline points="4 14 4 11 7 11" />
-          </svg>
-        </div>
-      )}
+      {/* Figma-style rotation zones: invisible squares just outside the four
+          corners. Hovering shows a rotation cursor; pressing starts rotation. */}
+      {selected && !element.locked && !editing && !vectorEditing && onRotateStart && (() => {
+        const zoneSize = Math.max(16, 18 / scale);
+        const offset = Math.max(8, 8 / scale);
+        const rotateCursor = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'><g fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 10a6 6 0 0 1 11-3.5'/><path d='M16 10a6 6 0 0 1-11 3.5'/><path d='M14 4l1 2.5 2.5-1'/><path d='M6 16l-1-2.5-2.5 1'/></g></svg>") 10 10, grab`;
+        const corners: { key: string; top: string; left: string; transform: string }[] = [
+          { key: 'rot-nw', top: '0',    left: '0',    transform: `translate(calc(-100% - ${offset}px), calc(-100% - ${offset}px))` },
+          { key: 'rot-ne', top: '0',    left: '100%', transform: `translate(${offset}px, calc(-100% - ${offset}px))` },
+          { key: 'rot-se', top: '100%', left: '100%', transform: `translate(${offset}px, ${offset}px)` },
+          { key: 'rot-sw', top: '100%', left: '0',    transform: `translate(calc(-100% - ${offset}px), ${offset}px)` },
+        ];
+        return corners.map(c => (
+          <div
+            key={c.key}
+            style={{
+              position: 'absolute',
+              top: c.top,
+              left: c.left,
+              width: zoneSize,
+              height: zoneSize,
+              transform: c.transform,
+              cursor: rotateCursor,
+              zIndex: 9,
+              pointerEvents: 'auto',
+              touchAction: 'none',
+              background: 'transparent',
+            }}
+            onMouseDown={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
+            onTouchStart={(e) => { e.stopPropagation(); onRotateStart(element.id, e); }}
+          />
+        ));
+      })()}
     </div>
   );
 }
