@@ -44,7 +44,7 @@ import { FramePresetPanel } from './FramePresetPanel';
 import { SubElementEditor, type SubElementSelection } from '@/components/shared/SubElementEditor';
 import { extractDesignTokens, updateDesignToken, applyProjection } from './projection';
 import { useUndoRedo } from './use-undo-redo';
-import { uploadImageFile, createImageHtml, extractDroppedImageFiles, isSvgFile } from '@/components/shared/image-upload';
+import { uploadImageFile, createImageHtml, extractDroppedImageFiles, isSvgFile, probeImageSize, resolveUploadUrl } from '@/components/shared/image-upload';
 import { parseSvgFileContent } from '@/components/shared/svg-import';
 import type { CanvasData, CanvasPage, CanvasElement } from './types';
 import { createEmptyPage, DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from './types';
@@ -1868,20 +1868,54 @@ export function CanvasEditor({
 
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  const insertImageElement = useCallback((url: string, name?: string) => {
+  const insertImageFromFile = useCallback(async (file: File, name?: string) => {
     const target = getTargetFrame();
     if (!target) return;
+    let probed: { w: number; h: number; objectUrl: string };
+    try {
+      probed = await probeImageSize(file);
+    } catch (err) {
+      showError('Failed to read image', err);
+      return;
+    }
+    // Fit longest side to 800px, preserve aspect ratio
+    const MAX_SIZE = 800;
+    const ratio = probed.w / probed.h;
+    let w = probed.w, h = probed.h;
+    if (w > MAX_SIZE || h > MAX_SIZE) {
+      if (ratio >= 1) { w = MAX_SIZE; h = Math.round(MAX_SIZE / ratio); }
+      else { h = MAX_SIZE; w = Math.round(MAX_SIZE * ratio); }
+    }
+    const elId = `el-${crypto.randomUUID().slice(0, 8)}`;
     const newEl: CanvasElement = {
-      id: `el-${crypto.randomUUID().slice(0, 8)}`,
-      x: target.frame.width / 2 - 150, y: target.frame.height / 2 - 100,
-      w: 300, h: 200,
-      html: createImageHtml(url),
+      id: elId,
+      x: Math.round(target.frame.width / 2 - w / 2),
+      y: Math.round(target.frame.height / 2 - h / 2),
+      w, h,
+      html: createImageHtml(probed.objectUrl, w, h),
       locked: false, z_index: target.frame.elements.length + 1,
       name: name ?? 'Image',
     };
     updateFrame(target.frameId, page => ({ ...page, elements: [...page.elements, newEl] }));
-    setSelectedIds(new Set([newEl.id]));
-  }, [getTargetFrame, updateFrame]);
+    setSelectedIds(new Set([elId]));
+
+    // Background: upload to server, preload server image into browser cache,
+    // then swap blob URL → server URL so the visible swap is from cache (no
+    // top-to-bottom progressive repaint).
+    uploadImageFile(file).then(serverUrl => {
+      const preload = new Image();
+      const swap = () => {
+        updateElement(elId, { html: createImageHtml(serverUrl, w, h) });
+        requestAnimationFrame(() => URL.revokeObjectURL(probed.objectUrl));
+      };
+      preload.onload = swap;
+      preload.onerror = swap;
+      preload.src = resolveUploadUrl(serverUrl);
+    }).catch(err => {
+      showError('Failed to upload image', err);
+      URL.revokeObjectURL(probed.objectUrl);
+    });
+  }, [getTargetFrame, updateFrame, updateElement]);
 
   const handleAddImage = useCallback(() => {
     imageInputRef.current?.click();
@@ -1916,15 +1950,10 @@ export function CanvasEditor({
       const parsed = parseSvgFileContent(text);
       insertSvgElement(parsed, file.name.replace(/\.[^.]+$/, ''));
     } else {
-      try {
-        const url = await uploadImageFile(file);
-        insertImageElement(url, file.name.replace(/\.[^.]+$/, ''));
-      } catch (err) {
-        showError('Failed to upload image', err);
-      }
+      await insertImageFromFile(file, file.name.replace(/\.[^.]+$/, ''));
     }
     e.target.value = '';
-  }, [insertImageElement, insertSvgElement]);
+  }, [insertImageFromFile, insertSvgElement]);
 
   const handleSvgFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1944,15 +1973,10 @@ export function CanvasEditor({
         const parsed = parseSvgFileContent(text);
         insertSvgElement(parsed, file.name.replace(/\.[^.]+$/, ''));
       } else {
-        try {
-          const url = await uploadImageFile(file);
-          insertImageElement(url, file.name.replace(/\.[^.]+$/, ''));
-        } catch (err) {
-          showError('Failed to upload image', err);
-        }
+        await insertImageFromFile(file, file.name.replace(/\.[^.]+$/, ''));
       }
     }
-  }, [insertImageElement, insertSvgElement]);
+  }, [insertImageFromFile, insertSvgElement]);
 
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
