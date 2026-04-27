@@ -209,10 +209,10 @@ function ColorRow({ label, value, onChange, allowNone, onClear }: {
 type ImageFitMode = 'cover' | 'contain' | 'stretch';
 
 function getImageFitMode(html: string): ImageFitMode {
-  const parMatch = html.match(/preserveAspectRatio="([^"]*)"/);
-  if (parMatch) {
-    if (parMatch[1] === 'none') return 'stretch';
-    if (parMatch[1].includes('meet')) return 'contain';
+  const imgParMatch = html.match(/<image\b[^>]*\spreserveAspectRatio="([^"]*)"/);
+  if (imgParMatch) {
+    if (imgParMatch[1] === 'none') return 'stretch';
+    if (imgParMatch[1].includes('meet')) return 'contain';
     return 'cover';
   }
   const bgSizeMatch = html.match(/background-size:\s*([\w%-]+)/);
@@ -227,7 +227,7 @@ function applyImageFitMode(html: string, mode: ImageFitMode): string {
   const isSvg = html.includes('<svg');
   if (isSvg) {
     const par = mode === 'stretch' ? 'none' : mode === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice';
-    return html.replace(/preserveAspectRatio="[^"]*"/, `preserveAspectRatio="${par}"`);
+    return html.replace(/(<image\b[^>]*?\s)preserveAspectRatio="[^"]*"/, `$1preserveAspectRatio="${par}"`);
   }
   const bgSize = mode === 'stretch' ? '100% 100%' : mode === 'contain' ? 'contain' : 'cover';
   return html.replace(/background-size:[^;]+;?/, `background-size:${bgSize};`);
