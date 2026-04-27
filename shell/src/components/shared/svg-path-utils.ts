@@ -414,10 +414,13 @@ export function extractPathD(html: string): string | null {
 }
 
 export function extractAllPathDs(html: string): string[] {
+  // Strip <defs>...</defs> first so marker/pattern interior paths don't leak
+  // into the user-visible path list.
+  const stripped = html.replace(/<defs>[\s\S]*?<\/defs>/g, '');
   const re = /<path\b[^>]*\sd="([^"]*)"/g;
   const results: string[] = [];
   let m;
-  while ((m = re.exec(html)) !== null) results.push(m[1]);
+  while ((m = re.exec(stripped)) !== null) results.push(m[1]);
   return results;
 }
 
@@ -540,7 +543,15 @@ function copyAttrs(origTag: string, exclude: string[]): string {
 }
 
 export function convertShapesToPaths(html: string): string {
-  return html
+  // Skip <defs>...</defs> block — markers and patterns inside it must keep
+  // their original element types so they don't pollute path extraction.
+  const defsRe = /<defs>[\s\S]*?<\/defs>/;
+  const defsMatch = html.match(defsRe);
+  const defsBlock = defsMatch ? defsMatch[0] : '';
+  const placeholder = ' DEFS ';
+  const stripped = defsMatch ? html.replace(defsRe, placeholder) : html;
+
+  const converted = stripped
     .replace(/<circle\b([^>]*)\/?>(\s*<\/circle>)?/g, (match, attrs) => {
       const tag = `<circle ${attrs}>`;
       const d = circleToPath(getAttr(tag, 'cx'), getAttr(tag, 'cy'), getAttr(tag, 'r'));
@@ -577,6 +588,8 @@ export function convertShapesToPaths(html: string): string {
       const other = copyAttrs(tag, ['points']);
       return `<path d="${d}" ${other}/>`;
     });
+
+  return defsBlock ? converted.replace(placeholder, defsBlock) : converted;
 }
 
 export function roundPathCorners(d: string, radius: number): string {

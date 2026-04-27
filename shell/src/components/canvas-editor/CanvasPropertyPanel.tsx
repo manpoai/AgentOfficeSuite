@@ -1272,8 +1272,8 @@ export function CanvasPropertyPanel({
         </>
       )}
 
-      {/* Stroke Endpoints (SVG single) */}
-      {isSingle && isSvg && projected && (
+      {/* Stroke Endpoints (SVG single, open paths only) */}
+      {isSingle && isSvg && projected && projected.isOpenPath && (
         <>
           <SectionHeader>Stroke Endpoints</SectionHeader>
           <div className="p-3 space-y-2">

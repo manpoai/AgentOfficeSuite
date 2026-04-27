@@ -94,7 +94,7 @@ export function LineDrawTool({
     const ly2 = pt.y - y1 + pad;
 
     const d = `M${Math.round(lx1)},${Math.round(ly1)} L${Math.round(lx2)},${Math.round(ly2)}`;
-    const html = `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(w)} ${Math.round(h)}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><path d="${d}" fill="none" stroke="#374151" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg></div>`;
+    const html = `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${Math.round(w)} ${Math.round(h)}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><path d="${d}" fill="none" stroke="#374151" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>`;
 
     onComplete(html, Math.round(x1 - pad), Math.round(y1 - pad), Math.round(w), Math.round(h));
   };

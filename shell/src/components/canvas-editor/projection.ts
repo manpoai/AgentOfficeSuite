@@ -40,6 +40,10 @@ export interface ProjectedProps {
   svgDropShadow?: SvgDropShadow | null;
   boxShadow?: string;
   isSvgShape?: boolean;
+  /** True if the SVG shape is an open path (line, polyline, or path that
+   * doesn't close with Z). Stroke endpoints (cap, start/end markers) only
+   * make sense for open paths. */
+  isOpenPath?: boolean;
   subLeft?: number;
   subTop?: number;
   subWidth?: number;
@@ -154,13 +158,28 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
   let svgMarkerStart: MarkerType | undefined;
   let svgMarkerEnd: MarkerType | undefined;
   let svgDropShadow: SvgDropShadow | null | undefined;
+  let isOpenPath: boolean | undefined;
   if (isSvgShape) {
-    const lcMatch = html.match(/stroke-linecap="([^"]*)"/);
+    // Strip <defs> when looking up shape-level attributes, so a marker
+    // definition's interior doesn't accidentally match.
+    const htmlWithoutDefs = html.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+    const lcMatch = htmlWithoutDefs.match(/stroke-linecap="([^"]*)"/);
     svgStrokeLinecap = lcMatch ? lcMatch[1] as 'butt' | 'round' | 'square' : undefined;
-    const msMatch = html.match(/marker-start="url\(#marker-(\w+)\)"/);
+    const msMatch = htmlWithoutDefs.match(/marker-start="url\(#marker-([\w-]+)-start\)"/);
     svgMarkerStart = msMatch ? msMatch[1] as MarkerType : 'none';
-    const meMatch = html.match(/marker-end="url\(#marker-(\w+)\)"/);
+    const meMatch = htmlWithoutDefs.match(/marker-end="url\(#marker-([\w-]+)-end\)"/);
     svgMarkerEnd = meMatch ? meMatch[1] as MarkerType : 'none';
+    // Open path detection: lines, polylines, or path d not ending with Z/z.
+    if (html.includes('<line') || html.includes('<polyline')) {
+      isOpenPath = true;
+    } else {
+      const pathDMatch = html.match(/<path\b[^>]*\sd="([^"]*)"/);
+      if (pathDMatch) {
+        isOpenPath = !/[zZ]\s*$/.test(pathDMatch[1].trim());
+      } else {
+        isOpenPath = false;
+      }
+    }
     const filterMatch = html.match(/feDropShadow[^>]*dx="([^"]*)"[^>]*dy="([^"]*)"[^>]*stdDeviation="([^"]*)"[^>]*flood-color="([^"]*)"[^>]*flood-opacity="([^"]*)"/);
     if (filterMatch) {
       svgDropShadow = { dx: parseFloat(filterMatch[1]), dy: parseFloat(filterMatch[2]), stdDeviation: parseFloat(filterMatch[3]), color: filterMatch[4], opacity: parseFloat(filterMatch[5]) };
@@ -242,6 +261,7 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
     svgDropShadow,
     boxShadow,
     isSvgShape,
+    isOpenPath,
     rawHTML: html,
   };
 }
@@ -481,7 +501,17 @@ export function applySvgMarker(html: string, end: 'start' | 'end', type: MarkerT
   const attrName = end === 'start' ? 'marker-start' : 'marker-end';
   const markerId = `marker-${type}`;
 
-  result = result.replace(new RegExp(`\\s*${attrName}="[^"]*"`, 'g'), '');
+  // Remove any existing marker-start/end on the user-visible shape (NOT
+  // inside defs, where marker definitions live).
+  // Strip defs so we only touch the outer shape.
+  const defsRe = /<defs>[\s\S]*?<\/defs>/;
+  const defsMatch = result.match(defsRe);
+  const defsBlock = defsMatch ? defsMatch[0] : '';
+  const stripped = defsMatch ? result.replace(defsRe, '__DEFS__') : result;
+  const cleanedShape = stripped.replace(new RegExp(`\\s${attrName}="[^"]*"`, 'g'), '');
+  result = defsBlock ? cleanedShape.replace('__DEFS__', defsBlock) : cleanedShape;
+
+  // Remove any prior marker definition for this end.
   result = result.replace(new RegExp(`<marker id="marker-[^"]*-${end}"[^>]*>[\\s\\S]*?<\\/marker>`, 'g'), '');
 
   if (type === 'none') return result;
@@ -493,10 +523,17 @@ export function applySvgMarker(html: string, end: 'start' | 'end', type: MarkerT
   } else {
     result = result.replace(/<svg([^>]*)>/, `<svg$1><defs>${def}</defs>`);
   }
+  // Find the user-visible shape AFTER the defs block (avoid matching the
+  // polyline/polygon inside markers).
+  const defsEndIdx = result.indexOf('</defs>');
+  const searchStart = defsEndIdx >= 0 ? defsEndIdx + '</defs>'.length : 0;
+  const after = result.slice(searchStart);
   const shapeTag = /<(path|line|polyline)\b([^>]*)>/;
-  const m = result.match(shapeTag);
-  if (m) {
-    result = result.replace(shapeTag, `<${m[1]}${m[2]} ${attrName}="url(#${fullId})">`);
+  const m = after.match(shapeTag);
+  if (m && m.index !== undefined) {
+    const absIdx = searchStart + m.index;
+    const replaced = `<${m[1]}${m[2]} ${attrName}="url(#${fullId})">`;
+    result = result.slice(0, absIdx) + replaced + result.slice(absIdx + m[0].length);
   }
   return result;
 }
