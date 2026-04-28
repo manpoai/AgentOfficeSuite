@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
 import {
@@ -728,6 +729,11 @@ export function CanvasEditor({
     origHtml?: string;
     origChildren?: CanvasElement[];
     createType?: PendingInsert;
+    /** Alt+drag duplicate intent. When set, the first mousemove with any
+     *  non-zero pixel movement clones the selection into the same pool and
+     *  retargets the drag onto the clones. If the user releases without
+     *  moving, no clones are created. */
+    altPendingClone?: { selectionIds: string[]; primaryId: string; frameId: string | null; groupId: string | null };
   } | null>(null);
 
   const { data: canvasResp } = useQuery({
@@ -1099,6 +1105,91 @@ export function CanvasEditor({
       }
 
       const dx = (pos.clientX - d.startX) / scale, dy = (pos.clientY - d.startY) / scale;
+
+      // Alt+drag: first non-zero movement → clone the selection now and
+      // retarget the drag onto the clones. Originals stay put; copies
+      // move with the cursor.
+      if (d.type === 'move' && d.altPendingClone && (Math.abs(pos.clientX - d.startX) > 0 || Math.abs(pos.clientY - d.startY) > 0)) {
+        const { selectionIds, primaryId, frameId: pendFrameId, groupId: pendGroupId } = d.altPendingClone;
+        d.altPendingClone = undefined;
+
+        // Resolve the source pool for the clone source/destination.
+        // Group: clones go into the group's children.
+        // Frame: clones go into the frame's elements.
+        // Canvas top: clones go into data.elements.
+        let pool: CanvasElement[] = [];
+        if (pendGroupId) {
+          const ctx = resolveGroupByPath();
+          pool = ctx?.group.children ?? [];
+        } else if (pendFrameId) {
+          pool = data?.pages.find(p => p.page_id === pendFrameId)?.elements ?? [];
+        } else {
+          pool = data?.elements ?? [];
+        }
+
+        const idMap = new Map<string, string>();
+        const cloneEl = (src: CanvasElement): CanvasElement => {
+          const newId = `el-${crypto.randomUUID().slice(0, 8)}`;
+          idMap.set(src.id, newId);
+          return {
+            ...src,
+            id: newId,
+            children: src.children ? src.children.map(cloneEl) : undefined,
+          };
+        };
+        const sources = pool.filter(el => selectionIds.includes(el.id) && !el.locked);
+        if (sources.length > 0) {
+          const clones = sources.map(cloneEl);
+          const draggedCloneId = idMap.get(primaryId);
+          if (draggedCloneId) {
+            const draggedClone = clones.find(c => c.id === draggedCloneId)!;
+            // Retarget dragRef onto the clones
+            d.elementId = draggedClone.id;
+            d.origX = draggedClone.x;
+            d.origY = draggedClone.y;
+            const newOrigPositions = new Map<string, { x: number; y: number }>();
+            if (clones.length > 1) {
+              for (const c of clones) newOrigPositions.set(c.id, { x: c.x, y: c.y });
+            }
+            d.origPositions = newOrigPositions;
+
+            const cloneIdSet = new Set(clones.map(c => c.id));
+            flushSync(() => {
+              if (pendGroupId) {
+                // Insert clones into the deepest group's children via nested update.
+                const path = activeGroupPath;
+                const insertIntoPath = (els: CanvasElement[], remaining: string[]): CanvasElement[] => {
+                  if (remaining.length === 0) return [...els, ...clones];
+                  const [head, ...rest] = remaining;
+                  return els.map(el => el.id === head && el.children
+                    ? { ...el, children: insertIntoPath(el.children, rest) }
+                    : el);
+                };
+                if (pendFrameId) {
+                  updateData(prev => ({
+                    ...prev,
+                    pages: prev.pages.map(p => p.page_id === pendFrameId
+                      ? { ...p, elements: insertIntoPath(p.elements, path) }
+                      : p),
+                  }));
+                } else {
+                  updateData(prev => ({ ...prev, elements: insertIntoPath(prev.elements ?? [], path) }));
+                }
+              } else if (pendFrameId) {
+                updateData(prev => ({
+                  ...prev,
+                  pages: prev.pages.map(p => p.page_id === pendFrameId
+                    ? { ...p, elements: [...p.elements, ...clones] }
+                    : p),
+                }));
+              } else {
+                updateData(prev => ({ ...prev, elements: [...(prev.elements ?? []), ...clones] }));
+              }
+              setSelectedIds(cloneIdSet);
+            });
+          }
+        }
+      }
 
       if (d.type === 'move' && d.elementId) {
         let newX = Math.round(d.origX + dx), newY = Math.round(d.origY + dy);
@@ -1745,20 +1836,44 @@ export function CanvasEditor({
     setEditingElementId(id);
   }, [data, updateElement]);
 
-  const handleDragStart = useCallback((frameId: string | null, id: string, e: React.MouseEvent | React.TouchEvent) => {
+  const handleDragStart = useCallback((frameId: string | null, id: string, e: React.MouseEvent | React.TouchEvent, groupId?: string, elOverride?: CanvasElement) => {
     if (editingElementId === id || subTextEditingRef.current) return;
-    const el = elementContext.elements.find(el => el.id === id);
+    const el = elOverride ?? elementContext.elements.find(el => el.id === id);
     if (!el || el.locked) return;
     const pos = getClientPos(e); if (!pos) return;
+
     const origPositions = new Map<string, { x: number; y: number }>();
     if (selectedIds.size > 1 && selectedIds.has(id)) {
-      for (const oel of elementContext.elements) {
+      const sourceList = groupId
+        ? (resolveGroupByPath()?.group.children ?? [])
+        : elementContext.elements;
+      for (const oel of sourceList) {
         if (selectedIds.has(oel.id)) origPositions.set(oel.id, { x: oel.x, y: oel.y });
       }
     }
     undoRedo.beginBatch();
-    dragRef.current = { type: 'move', elementId: id, frameId: frameId ?? undefined, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origPositions };
-  }, [elementContext.elements, editingElementId, selectedIds, undoRedo]);
+
+    // Alt/Option held at mousedown → Figma-style duplicate-on-drag.
+    // Defer the actual clone until the first mousemove with any non-zero
+    // movement, so an Alt+click without drag leaves the canvas unchanged.
+    // The cross-frame reparent logic in the drop handler (1283-1361) handles
+    // dropping clones into a different frame automatically.
+    const isAlt = 'altKey' in e && (e as React.MouseEvent).altKey;
+    const selectionIds = selectedIds.has(id) ? Array.from(selectedIds) : [id];
+
+    dragRef.current = {
+      type: 'move',
+      elementId: id,
+      frameId: frameId ?? undefined,
+      groupId,
+      startX: pos.clientX, startY: pos.clientY,
+      origX: el.x, origY: el.y, origW: el.w, origH: el.h,
+      origPositions,
+      altPendingClone: isAlt
+        ? { selectionIds, primaryId: id, frameId: frameId ?? null, groupId: groupId ?? null }
+        : undefined,
+    };
+  }, [elementContext, editingElementId, selectedIds, undoRedo, resolveGroupByPath]);
 
   const handleResizeStart = useCallback((frameId: string | null, id: string, handle: string, e: React.MouseEvent | React.TouchEvent) => {
     const el = findElementById(id);
@@ -3137,9 +3252,7 @@ export function CanvasEditor({
                                 onSelect={(id, e) => isDeepest ? handleSelectElement(frame.page_id, id, e) : undefined}
                                 onDragStart={(id, e) => {
                                   if (!isDeepest) return;
-                                  const pos = getClientPos(e); if (!pos) return;
-                                  undoRedo.beginBatch();
-                                  dragRef.current = { type: 'move', elementId: id, frameId: frame.page_id, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h };
+                                  handleDragStart(frame.page_id, id, e, activeGroupId!, child);
                                 }}
                                 onResizeStart={(id, handle, e) => {
                                   if (!isDeepest) return;
@@ -3306,9 +3419,7 @@ export function CanvasEditor({
                           onSelect={(id, e) => isDeepest ? handleSelectElement(null, id, e) : undefined}
                           onDragStart={(id, e) => {
                             if (!isDeepest) return;
-                            const pos = getClientPos(e); if (!pos) return;
-                            undoRedo.beginBatch();
-                            dragRef.current = { type: 'move', elementId: id, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, groupId: activeGroupId! };
+                            handleDragStart(null, id, e, activeGroupId!, child);
                           }}
                           onResizeStart={(id, handle, e) => {
                             if (!isDeepest) return;
