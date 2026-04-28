@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   X, Upload, ChevronDown, ChevronRight, Ban, Plus, Trash2,
   Copy, Trash, Group, Ungroup, Lock, Unlock,
@@ -11,7 +11,7 @@ import {
   Download,
   MoveHorizontal, MoveVertical, Square,
   SquaresUnite, SquaresSubtract, SquaresIntersect, SquaresExclude,
-  SquareRoundCorner, Loader, Eclipse,
+  SquareRoundCorner, Loader, Eclipse, Settings2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -135,8 +135,10 @@ function FrameShadowSection({ frame, onUpdateFrame }: {
 // Divider sits ABOVE the header (border-t). Title is mixed-case medium foreground.
 // Figma-style: section header reads as a label below the dividing line.
 
-function SectionHeader({ children, collapsed, onToggle }: {
+function SectionHeader({ children, collapsed, onToggle, trailing }: {
   children: React.ReactNode; collapsed?: boolean; onToggle?: () => void;
+  /** Optional element rendered right-aligned on the same row as the title */
+  trailing?: React.ReactNode;
 }) {
   return (
     <div className={cn('px-3 pt-3 pb-1.5 border-t border-border', onToggle && 'cursor-pointer hover:bg-accent/30')}
@@ -144,6 +146,11 @@ function SectionHeader({ children, collapsed, onToggle }: {
       <div className="flex items-center gap-1">
         {onToggle && (collapsed ? <ChevronRight className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />)}
         <span className="text-[11px] font-medium text-foreground">{children}</span>
+        {trailing && (
+          <div className="ml-auto" onClick={e => e.stopPropagation()}>
+            {trailing}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -342,6 +349,288 @@ function applyImageFitMode(html: string, mode: ImageFitMode): string {
 
 type FillMode = 'solid' | 'image' | 'none';
 
+// Returns the current fill mode of an element from its html.
+function readFillMode(element: CanvasElement, projected: ReturnType<typeof projectElement>): FillMode {
+  const isSvg = projected.isSvgShape;
+  const currentColor = isSvg ? (projected.svgFill || '') : (projected.backgroundColor || '');
+  const isSvgHtml = element.html.includes('<svg');
+  const patternMatch = element.html.match(/href="([^"]+)"/);
+  const bgMatch = element.html.match(/background-image:\s*url\(["']?([^"')]+)["']?\)/);
+  const currentUrl = (isSvgHtml ? patternMatch?.[1] : bgMatch?.[1]) || '';
+  let mode: FillMode = currentColor === 'none' ? 'none' : 'solid';
+  if (currentUrl) mode = 'image';
+  return mode;
+}
+
+// Small dropdown that switches fill mode. Used in the §7 Fill section header.
+function FillModeSelect({ element, projected, onApply, onUpdateElement }: {
+  element: CanvasElement;
+  projected: ReturnType<typeof projectElement>;
+  onApply: (changes: Partial<ProjectedProps>) => void;
+  onUpdateElement: (id: string, updates: Partial<CanvasElement>) => void;
+}) {
+  const isSvg = projected.isSvgShape;
+  const isSvgHtml = element.html.includes('<svg');
+  const fillMode = readFillMode(element, projected);
+
+  const handleUpload = async () => {
+    try {
+      const files = await pickFile({ accept: 'image/*' });
+      const file = files[0];
+      if (!file) return;
+      const blobUrl = URL.createObjectURL(file);
+      const applyImageFill = (url: string) => {
+        let html = element.html;
+        if (isSvgHtml) {
+          html = html.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+          const pathEl = html.match(/<(path|rect|circle|ellipse|polygon)\s/);
+          if (pathEl) {
+            if (url) {
+              const defsBlock = `<defs><pattern id="img-fill" patternUnits="objectBoundingBox" width="1" height="1"><image href="${url}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"/></pattern></defs>`;
+              html = html.replace(/<svg([^>]*)>/, `<svg$1>${defsBlock}`);
+              html = html.replace(/fill="[^"]*"/, 'fill="url(#img-fill)"');
+            }
+          }
+        } else {
+          const wrapperStyleMatch = html.match(/^<div\s+style="([^"]*)"/);
+          if (wrapperStyleMatch) {
+            let style = wrapperStyleMatch[1];
+            style = style.replace(/background-image:[^;]+;?\s*/g, '');
+            style = style.replace(/background-size:[^;]+;?\s*/g, '');
+            style = style.replace(/background-position:[^;]+;?\s*/g, '');
+            style = style.replace(/background-repeat:[^;]+;?\s*/g, '');
+            if (url) style += `background-image:url('${url}');background-size:cover;background-position:center;`;
+            html = html.replace(wrapperStyleMatch[0], `<div style="${style}"`);
+          }
+        }
+        onUpdateElement(element.id, { html });
+      };
+      applyImageFill(blobUrl);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+        const respData = await resp.json();
+        const rawUrl = respData.url as string;
+        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `/api/gateway${rawUrl?.replace(/^\/api/, '')}`;
+        await new Promise<void>(resolve => {
+          const img = new Image();
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+          img.src = serverUrl;
+        });
+        applyImageFill(serverUrl);
+        requestAnimationFrame(() => URL.revokeObjectURL(blobUrl));
+      } catch (err) {
+        URL.revokeObjectURL(blobUrl);
+        throw err;
+      }
+    } catch (err) {
+      showError('Failed to upload image', err);
+    }
+  };
+
+  const switchTo = (m: FillMode) => {
+    if (m === fillMode) return;
+    const wasImage = fillMode === 'image';
+    if (m === 'image') { handleUpload(); return; }
+    let cleared = element.html;
+    if (wasImage) {
+      if (isSvgHtml) {
+        cleared = cleared.replace(/<defs>[\s\S]*?<\/defs>/g, '');
+        cleared = cleared.replace(/fill="url\(#img-fill\)"/, 'fill="#e0e7ff"');
+      } else {
+        const wrapperStyleMatch = cleared.match(/^<div\s+style="([^"]*)"/);
+        if (wrapperStyleMatch) {
+          let style = wrapperStyleMatch[1];
+          style = style.replace(/background-image:[^;]+;?\s*/g, '');
+          style = style.replace(/background-size:[^;]+;?\s*/g, '');
+          style = style.replace(/background-position:[^;]+;?\s*/g, '');
+          style = style.replace(/background-repeat:[^;]+;?\s*/g, '');
+          cleared = cleared.replace(wrapperStyleMatch[0], `<div style="${style}"`);
+        }
+      }
+    }
+    const targetColor = m === 'none' ? 'none' : (isSvg ? '#e0e7ff' : '#ffffff');
+    const next = applyProjection(cleared, isSvg ? { svgFill: targetColor } : { backgroundColor: targetColor }, undefined);
+    onUpdateElement(element.id, { html: next });
+  };
+
+  return (
+    <select
+      value={fillMode}
+      onChange={e => switchTo(e.target.value as FillMode)}
+      className="text-[10px] pl-1.5 pr-1 h-6 rounded bg-transparent hover:bg-accent/30 border-0 text-foreground focus:outline-none cursor-pointer"
+    >
+      <option value="solid">Solid</option>
+      <option value="image">Image</option>
+      <option value="none">None</option>
+    </select>
+  );
+}
+
+// Stroke mode = Line (visible stroke) | None.
+type StrokeMode = 'line' | 'none';
+
+function readStrokeMode(projected: ReturnType<typeof projectElement>): StrokeMode {
+  // SVG: stroke attribute. HTML: borderColor + borderWidth.
+  if (projected.isSvgShape) {
+    const s = projected.svgStroke;
+    return (!s || s === 'none') ? 'none' : 'line';
+  }
+  const c = projected.borderColor;
+  const w = projected.borderWidth ?? 0;
+  return (!c || c === 'none' || w === 0) ? 'none' : 'line';
+}
+
+function StrokeModeSelect({ projected, onApply }: {
+  projected: ReturnType<typeof projectElement>;
+  onApply: (changes: Partial<ProjectedProps>) => void;
+}) {
+  const mode = readStrokeMode(projected);
+  const isSvg = projected.isSvgShape;
+  const switchTo = (next: StrokeMode) => {
+    if (next === mode) return;
+    if (next === 'none') {
+      isSvg ? onApply({ svgStroke: 'none' }) : onApply({ borderColor: 'none', borderWidth: 0 });
+    } else {
+      // line: pick a usable default
+      isSvg ? onApply({ svgStroke: '#000000', svgStrokeWidth: 1 }) : onApply({ borderColor: '#000000', borderWidth: 1, borderStyle: 'solid' });
+    }
+  };
+  return (
+    <select
+      value={mode}
+      onChange={e => switchTo(e.target.value as StrokeMode)}
+      className="text-[10px] pl-1.5 pr-1 h-6 rounded bg-transparent hover:bg-accent/30 border-0 text-foreground focus:outline-none cursor-pointer"
+    >
+      <option value="line">Line</option>
+      <option value="none">None</option>
+    </select>
+  );
+}
+
+// Settings popover trigger + content for stroke detail (dash, cap, markers).
+function StrokeSettingsPopover({
+  isSvg, isHtmlBlock, projected, applyChange, element, onUpdateElement,
+}: {
+  isSvg: boolean;
+  isHtmlBlock: boolean;
+  projected: ReturnType<typeof projectElement>;
+  applyChange: (changes: Partial<ProjectedProps>) => void;
+  element: CanvasElement;
+  onUpdateElement: (id: string, updates: Partial<CanvasElement>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (popRef.current?.contains(e.target as Node)) return;
+      if (btnRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDocDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        onClick={() => setOpen(v => !v)}
+        title="Stroke settings"
+      >
+        <Settings2 className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={popRef}
+          className="absolute right-0 top-7 z-50 w-[220px] rounded-md border border-border bg-card shadow-lg p-3 space-y-2"
+        >
+          {isSvg && (
+            <>
+              <div>
+                <SubsectionHeader>Dash</SubsectionHeader>
+                <select value={projected.svgStrokeDasharray || ''}
+                  onChange={e => applyChange({ svgStrokeDasharray: e.target.value })}
+                  className={SELECT_CLASS}>
+                  <option value="">Solid</option>
+                  <option value="8 4">Dashed</option>
+                  <option value="2 2">Dotted</option>
+                  <option value="12 4 4 4">Dash-dot</option>
+                </select>
+              </div>
+              {projected.isOpenPath && (
+                <>
+                  <div>
+                    <SubsectionHeader>Cap</SubsectionHeader>
+                    <select value={projected.svgStrokeLinecap || 'butt'}
+                      onChange={e => {
+                        const cap = e.target.value as 'butt' | 'round' | 'square';
+                        onUpdateElement(element.id, { html: applyStrokeLinecap(element.html, cap) });
+                      }}
+                      className={SELECT_CLASS}>
+                      <option value="butt">Butt</option>
+                      <option value="round">Round</option>
+                      <option value="square">Square</option>
+                    </select>
+                  </div>
+                  <div>
+                    <SubsectionHeader>Start</SubsectionHeader>
+                    <select value={projected.svgMarkerStart || 'none'}
+                      onChange={e => onUpdateElement(element.id, { html: applySvgMarker(element.html, 'start', e.target.value as MarkerType) })}
+                      className={SELECT_CLASS}>
+                      <option value="none">None</option>
+                      <option value="arrow">Arrow</option>
+                      <option value="triangle">Triangle</option>
+                      <option value="triangle-reversed">Triangle Rev.</option>
+                      <option value="circle">Circle</option>
+                      <option value="diamond">Diamond</option>
+                    </select>
+                  </div>
+                  <div>
+                    <SubsectionHeader>End</SubsectionHeader>
+                    <select value={projected.svgMarkerEnd || 'none'}
+                      onChange={e => onUpdateElement(element.id, { html: applySvgMarker(element.html, 'end', e.target.value as MarkerType) })}
+                      className={SELECT_CLASS}>
+                      <option value="none">None</option>
+                      <option value="arrow">Arrow</option>
+                      <option value="triangle">Triangle</option>
+                      <option value="triangle-reversed">Triangle Rev.</option>
+                      <option value="circle">Circle</option>
+                      <option value="diamond">Diamond</option>
+                    </select>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {isHtmlBlock && (
+            <div>
+              <SubsectionHeader>Dash</SubsectionHeader>
+              <select value={projected.borderStyle || 'solid'}
+                onChange={e => applyChange({ borderStyle: e.target.value as 'solid' | 'dashed' | 'dotted' })}
+                className={SELECT_CLASS}>
+                <option value="solid">Solid</option>
+                <option value="dashed">Dashed</option>
+                <option value="dotted">Dotted</option>
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FillSection({ element, projected, onApply, onUpdateElement }: {
   element: CanvasElement;
   projected: ReturnType<typeof projectElement>;
@@ -452,48 +741,9 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
 
   return (
     <div className="space-y-2 min-w-0">
-      {/* Mode selector — three buttons + 24px placeholder for icon column alignment */}
-      <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-        <div className="col-span-2 flex gap-1">
-          {(['solid', 'image', 'none'] as FillMode[]).map(m => (
-            <button key={m}
-              className={cn('flex-1 h-6 text-[10px] flex items-center justify-center rounded transition-colors',
-                fillMode === m ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
-              onClick={() => {
-                if (m === fillMode) return;
-                const wasImage = fillMode === 'image';
-                if (m === 'image') {
-                  handleUpload();
-                  return;
-                }
-                let cleared = element.html;
-                if (wasImage) {
-                  if (isSvgHtml) {
-                    cleared = cleared.replace(/<defs>[\s\S]*?<\/defs>/g, '');
-                    cleared = cleared.replace(/fill="url\(#img-fill\)"/, 'fill="#e0e7ff"');
-                  } else {
-                    const wrapperStyleMatch = cleared.match(/^<div\s+style="([^"]*)"/);
-                    if (wrapperStyleMatch) {
-                      let style = wrapperStyleMatch[1];
-                      style = style.replace(/background-image:[^;]+;?\s*/g, '');
-                      style = style.replace(/background-size:[^;]+;?\s*/g, '');
-                      style = style.replace(/background-position:[^;]+;?\s*/g, '');
-                      style = style.replace(/background-repeat:[^;]+;?\s*/g, '');
-                      cleared = cleared.replace(wrapperStyleMatch[0], `<div style="${style}"`);
-                    }
-                  }
-                }
-                const targetColor = m === 'none' ? 'none' : (isSvg ? '#e0e7ff' : '#ffffff');
-                const next = applyProjection(cleared, isSvg ? { svgFill: targetColor } : { backgroundColor: targetColor }, undefined);
-                onUpdateElement(element.id, { html: next });
-              }}>
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div />
-      </div>
-
+      {/* Mode selector lives in the section header; this section just renders
+          the body for the current mode. */}
+      {fillMode === 'none' && null}
       {fillMode === 'solid' && !isGradient && (
         <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
           <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
@@ -1502,7 +1752,9 @@ export function CanvasPropertyPanel({
       {/* §7 Fill */}
       {((isSingle && projected && element) || (isMulti && support.fill)) && (
         <>
-          <SectionHeader>Fill</SectionHeader>
+          <SectionHeader trailing={isSingle && projected && element ? (
+            <FillModeSelect element={element} projected={projected} onApply={applyChange} onUpdateElement={onUpdateElement} />
+          ) : undefined}>Fill</SectionHeader>
           <div className="px-3 pb-3 space-y-2">
             {isSingle && projected && element && (
               <FillSection element={element} projected={projected} onApply={applyChange} onUpdateElement={onUpdateElement} />
@@ -1522,113 +1774,150 @@ export function CanvasPropertyPanel({
         </>
       )}
 
-      {/* §8 Stroke (svg / html-block border / multi) + endpoints (svg open path) */}
-      {((isSingle && projected?.isSvgShape) || (isSingle && isHtmlBlock && projected) || (isMulti && support.stroke)) && (
-        <>
-          <SectionHeader>Stroke</SectionHeader>
-          <div className="px-3 pb-3 space-y-2">
-            {isSingle && projected?.isSvgShape && (
-              <>
-                <ColorRow label="Color" value={projected.svgStroke || ''}
-                  onChange={v => applyChange({ svgStroke: v })}
-                  allowNone onClear={() => applyChange({ svgStroke: 'none' })} />
-                <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                  <LabeledNumberInput label="W" value={projected.svgStrokeWidth ?? 2} min={0} step={0.5}
-                    onChange={v => applyChange({ svgStrokeWidth: v })} />
-                  <select value={projected.svgStrokeDasharray || ''}
-                    onChange={e => applyChange({ svgStrokeDasharray: e.target.value })}
-                    className={SELECT_CLASS}>
-                    <option value="">Solid</option>
-                    <option value="8 4">Dashed</option>
-                    <option value="2 2">Dotted</option>
-                    <option value="12 4 4 4">Dash-dot</option>
-                  </select>
-                  <div />
-                </div>
-                <select value={projected.svgStrokeAlignment || 'center'}
-                  onChange={e => applyChange({ svgStrokeAlignment: e.target.value as 'center' | 'inside' | 'outside' })}
-                  className={SELECT_CLASS}>
-                  <option value="center">Center</option>
-                  <option value="inside">Inside</option>
-                  <option value="outside">Outside</option>
-                </select>
-                {projected.isOpenPath && (
+      {/* §8 Stroke — header has Line/None mode select; body shows controls when 'line' */}
+      {((isSingle && projected?.isSvgShape) || (isSingle && isHtmlBlock && projected) || (isMulti && support.stroke)) && (() => {
+        const strokeMode: StrokeMode = isSingle && projected ? readStrokeMode(projected) : 'line';
+        // Resolve colors / opacity for the active branch.
+        const isSvg = !!(isSingle && projected?.isSvgShape);
+        const strokeColor = isSvg ? (projected?.svgStroke || '') : (projected?.borderColor || '');
+        const strokeHex = strokeColor && strokeColor.startsWith('#') ? strokeColor.slice(1).toUpperCase() : (strokeColor || '').toUpperCase();
+        const strokeAlpha = isSvg ? (projected?.svgStrokeOpacity ?? 1) : 1; // no html stroke alpha modeled
+        const strokeAlphaPct = Math.round(strokeAlpha * 100);
+        const setStrokeAlpha = (pct: number) => {
+          const clamped = Math.max(0, Math.min(100, Math.round(pct))) / 100;
+          if (isSvg) applyChange({ svgStrokeOpacity: clamped });
+          // HTML borders: not modeled
+        };
+        const handleHexCommit = (raw: string) => {
+          const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
+          if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
+          const next = '#' + cleaned;
+          if (isSvg) applyChange({ svgStroke: next });
+          else applyChange({ borderColor: next });
+        };
+        return (
+          <>
+            <SectionHeader trailing={isSingle && projected ? (
+              <StrokeModeSelect projected={projected} onApply={applyChange} />
+            ) : undefined}>Stroke</SectionHeader>
+            {strokeMode === 'line' && (
+              <div className="px-3 pb-3 space-y-2">
+                {isSingle && projected?.isSvgShape && element && (
                   <>
-                    <SubsectionHeader>Endpoints</SubsectionHeader>
-                    <select value={projected.svgStrokeLinecap || 'butt'}
-                      onChange={e => {
-                        const cap = e.target.value as 'butt' | 'round' | 'square';
-                        onUpdateElement(element!.id, { html: applyStrokeLinecap(element!.html, cap) });
-                      }}
-                      className={SELECT_CLASS}>
-                      <option value="butt">Cap: Butt</option>
-                      <option value="round">Cap: Round</option>
-                      <option value="square">Cap: Square</option>
-                    </select>
+                    {/* Row 1: color swatch + hex + opacity */}
                     <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                      <select value={projected.svgMarkerStart || 'none'}
-                        onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'start', e.target.value as MarkerType) })}
+                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                        <button
+                          className="w-4 h-4 rounded border border-border shrink-0 relative overflow-hidden"
+                          style={strokeColor && strokeColor !== 'none' ? { backgroundColor: strokeColor } : undefined}
+                          onClick={() => {
+                            const inp = document.createElement('input');
+                            inp.type = 'color';
+                            inp.value = strokeColor && strokeColor.startsWith('#') ? strokeColor : '#000000';
+                            inp.onchange = () => applyChange({ svgStroke: inp.value });
+                            inp.click();
+                          }}
+                          title={strokeColor || 'Pick stroke color'}
+                        />
+                        <input
+                          type="text"
+                          value={strokeHex}
+                          onChange={e => handleHexCommit(e.target.value)}
+                          onBlur={e => handleHexCommit(e.target.value)}
+                          className="flex-1 min-w-0 bg-transparent border-0 text-[10px] text-foreground font-mono tabular-nums uppercase tracking-wide focus:outline-none"
+                          spellCheck={false}
+                        />
+                      </div>
+                      <LabeledNumberInput label="" value={strokeAlphaPct} min={0} max={100} step={1} suffix="%" onChange={setStrokeAlpha} />
+                      <div />
+                    </div>
+                    {/* Row 2: Position + Weight + Settings */}
+                    <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                      <select value={projected.svgStrokeAlignment || 'center'}
+                        onChange={e => applyChange({ svgStrokeAlignment: e.target.value as 'center' | 'inside' | 'outside' })}
                         className={SELECT_CLASS}>
-                        <option value="none">Start: —</option>
-                        <option value="arrow">Start: Arrow</option>
-                        <option value="triangle">Start: Triangle</option>
-                        <option value="triangle-reversed">Start: Triangle Rev.</option>
-                        <option value="circle">Start: Circle</option>
-                        <option value="diamond">Start: Diamond</option>
+                        <option value="center">Center</option>
+                        <option value="inside">Inside</option>
+                        <option value="outside">Outside</option>
                       </select>
-                      <select value={projected.svgMarkerEnd || 'none'}
-                        onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'end', e.target.value as MarkerType) })}
-                        className={SELECT_CLASS}>
-                        <option value="none">End: —</option>
-                        <option value="arrow">End: Arrow</option>
-                        <option value="triangle">End: Triangle</option>
-                        <option value="triangle-reversed">End: Triangle Rev.</option>
-                        <option value="circle">End: Circle</option>
-                        <option value="diamond">End: Diamond</option>
-                      </select>
+                      <LabeledNumberInput label="W" value={projected.svgStrokeWidth ?? 2} min={0} step={0.5}
+                        onChange={v => applyChange({ svgStrokeWidth: v })} />
+                      <StrokeSettingsPopover
+                        isSvg
+                        isHtmlBlock={false}
+                        projected={projected}
+                        applyChange={applyChange}
+                        element={element}
+                        onUpdateElement={onUpdateElement}
+                      />
+                    </div>
+                  </>
+                )}
+                {isSingle && isHtmlBlock && projected && element && (
+                  <>
+                    {/* Row 1: color + (no opacity for html border) */}
+                    <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                        <button
+                          className="w-4 h-4 rounded border border-border shrink-0 relative overflow-hidden"
+                          style={strokeColor && strokeColor !== 'none' ? { backgroundColor: strokeColor } : undefined}
+                          onClick={() => {
+                            const inp = document.createElement('input');
+                            inp.type = 'color';
+                            inp.value = strokeColor && strokeColor.startsWith('#') ? strokeColor : '#000000';
+                            inp.onchange = () => applyChange({ borderColor: inp.value });
+                            inp.click();
+                          }}
+                          title={strokeColor || 'Pick border color'}
+                        />
+                        <input
+                          type="text"
+                          value={strokeHex}
+                          onChange={e => handleHexCommit(e.target.value)}
+                          onBlur={e => handleHexCommit(e.target.value)}
+                          className="flex-1 min-w-0 bg-transparent border-0 text-[10px] text-foreground font-mono tabular-nums uppercase tracking-wide focus:outline-none"
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div />
+                      <div />
+                    </div>
+                    {/* Row 2: Weight + Settings (HTML border has no Position) */}
+                    <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                      <LabeledNumberInput label="W" value={projected.borderWidth ?? 0} min={0} step={0.5}
+                        onChange={v => applyChange({ borderWidth: v })} />
+                      <div />
+                      <StrokeSettingsPopover
+                        isSvg={false}
+                        isHtmlBlock
+                        projected={projected}
+                        applyChange={applyChange}
+                        element={element}
+                        onUpdateElement={onUpdateElement}
+                      />
+                    </div>
+                  </>
+                )}
+                {isMulti && support.stroke && (
+                  <>
+                    <ColorRow label="Color"
+                      value={aggregated.svgStroke === 'mixed' ? '' : (aggregated.svgStroke || '')}
+                      onChange={v => applyToAll({ svgStroke: v })}
+                      allowNone onClear={() => applyToAll({ svgStroke: 'none' })} />
+                    <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                      <LabeledNumberInput label="W"
+                        value={aggregated.svgStrokeWidth === 'mixed' ? null : (aggregated.svgStrokeWidth ?? null)} min={0} step={0.5}
+                        onChange={v => applyToAll({ svgStrokeWidth: v })} placeholder="Mixed" />
+                      <div />
                       <div />
                     </div>
                   </>
                 )}
-              </>
+              </div>
             )}
-            {isSingle && isHtmlBlock && projected && (
-              <>
-                <ColorRow label="Color" value={projected.borderColor || ''}
-                  onChange={v => applyChange({ borderColor: v })}
-                  allowNone onClear={() => applyChange({ borderColor: 'none', borderWidth: 0 })} />
-                <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                  <LabeledNumberInput label="W" value={projected.borderWidth ?? 0} min={0} step={0.5}
-                    onChange={v => applyChange({ borderWidth: v })} />
-                  <select value={projected.borderStyle || 'solid'}
-                    onChange={e => applyChange({ borderStyle: e.target.value as 'solid' | 'dashed' | 'dotted' })}
-                    className={SELECT_CLASS}>
-                    <option value="solid">Solid</option>
-                    <option value="dashed">Dashed</option>
-                    <option value="dotted">Dotted</option>
-                  </select>
-                  <div />
-                </div>
-              </>
-            )}
-            {isMulti && support.stroke && (
-              <>
-                <ColorRow label="Color"
-                  value={aggregated.svgStroke === 'mixed' ? '' : (aggregated.svgStroke || '')}
-                  onChange={v => applyToAll({ svgStroke: v })}
-                  allowNone onClear={() => applyToAll({ svgStroke: 'none' })} />
-                <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                  <LabeledNumberInput label="W"
-                    value={aggregated.svgStrokeWidth === 'mixed' ? null : (aggregated.svgStrokeWidth ?? null)} min={0} step={0.5}
-                    onChange={v => applyToAll({ svgStrokeWidth: v })} placeholder="Mixed" />
-                  <div />
-                  <div />
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {/* §9 Shadow (single + multi) */}
       {((isSingle && element && projected) || (isMulti && support.shadow)) && (

@@ -36,6 +36,8 @@ export interface ProjectedProps {
    *  4th channel of an rgba() background-color when below 1. */
   backgroundColorAlpha?: number;
   svgStroke?: string;
+  /** SVG stroke alpha (0..1). Maps to <stroke-opacity> attribute. */
+  svgStrokeOpacity?: number;
   svgStrokeWidth?: number;
   svgStrokeDasharray?: string;
   svgStrokeAlignment?: 'center' | 'inside' | 'outside';
@@ -129,6 +131,7 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
   let svgFill: string | undefined;
   let svgFillOpacity: number | undefined;
   let svgStroke: string | undefined;
+  let svgStrokeOpacity: number | undefined;
   let svgStrokeWidth: number | undefined;
   if (isSvgShape) {
     const resolveColor = (c: string | undefined): string | undefined => {
@@ -145,6 +148,11 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
       if (!isNaN(v)) svgFillOpacity = v;
     }
     svgStroke = resolveColor(strokeMatch?.[1]);
+    const strokeOpacityMatch = html.match(/<(?:path|rect|circle|ellipse|polygon)[^>]*?\sstroke-opacity="([^"]*)"/);
+    if (strokeOpacityMatch) {
+      const v = parseFloat(strokeOpacityMatch[1]);
+      if (!isNaN(v)) svgStrokeOpacity = v;
+    }
     if (!svgFill) {
       const svgFillMatch = html.match(/<svg[^>]*?\sfill="([^"]*)"/);
       svgFill = resolveColor(svgFillMatch?.[1]);
@@ -276,6 +284,7 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
     svgFillOpacity,
     backgroundColorAlpha,
     svgStroke,
+    svgStrokeOpacity,
     svgStrokeWidth,
     svgStrokeDasharray,
     svgStrokeAlignment,
@@ -342,6 +351,14 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
   }
   if (changes.svgStroke !== undefined) {
     html = replaceAttrOnShapeOrSvg(html, 'stroke', changes.svgStroke);
+  }
+  if (changes.svgStrokeOpacity !== undefined) {
+    const v = Math.max(0, Math.min(1, changes.svgStrokeOpacity));
+    if (v >= 1) {
+      html = html.replace(/(<(?:path|rect|circle|ellipse|polygon)\b[^>]*?)\s+stroke-opacity="[^"]*"/, '$1');
+    } else {
+      html = replaceAttrOnShapeOrSvg(html, 'stroke-opacity', String(v));
+    }
   }
   if (changes.svgStrokeWidth !== undefined) {
     const currentAlign = html.match(/data-stroke-align="([^"]*)"/)?.[1];
