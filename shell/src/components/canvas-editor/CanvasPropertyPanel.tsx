@@ -140,7 +140,7 @@ function FrameShadowSection({ frame, onUpdateFrame }: {
 // Divider sits ABOVE the header (border-t). Title is mixed-case medium foreground.
 // Figma-style: section header reads as a label below the dividing line.
 
-function SectionHeader({ children, collapsed, onToggle, trailing }: {
+export function SectionHeader({ children, collapsed, onToggle, trailing }: {
   children: React.ReactNode; collapsed?: boolean; onToggle?: () => void;
   /** Optional element rendered right-aligned on the same row as the title */
   trailing?: React.ReactNode;
@@ -163,7 +163,7 @@ function SectionHeader({ children, collapsed, onToggle, trailing }: {
 
 // ── Subsection header (small muted label inside a section) ────────────────────
 
-function SubsectionHeader({ children }: { children: React.ReactNode }) {
+export function SubsectionHeader({ children }: { children: React.ReactNode }) {
   return (
     <div className="text-[10px] text-muted-foreground mt-1 mb-1">{children}</div>
   );
@@ -174,7 +174,7 @@ function SubsectionHeader({ children }: { children: React.ReactNode }) {
 // Used for X/Y/W/H/Rotation/Opacity/Radius and similar across sections.
 
 // Tailwind class string used by selects to match LabeledNumberInput visual.
-const SELECT_CLASS = 'w-full text-[10px] pl-2 pr-5 h-6 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none cursor-pointer';
+export const SELECT_CLASS = 'w-full text-[10px] pl-2 pr-5 h-6 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none cursor-pointer';
 
 // Wraps a <select> so the chevron sits a few pixels in from the right edge
 // rather than glued to the border (Figma-style). Use this anywhere we'd
@@ -195,7 +195,7 @@ function MutedSelect({ value, onChange, children, className }: {
   );
 }
 
-function LabeledNumberInput({
+export function LabeledNumberInput({
   label, value, onChange, min, max, step, suffix, placeholder,
 }: {
   label: React.ReactNode;
@@ -227,7 +227,7 @@ function LabeledNumberInput({
 // to prop only when prop actually changes (e.g. swatch picker), commit on
 // blur / Enter.
 
-function HexTextInput({ value, onCommit, className }: {
+export function HexTextInput({ value, onCommit, className }: {
   value: string; onCommit: (raw: string) => void; className?: string;
 }) {
   const [draft, setDraft] = useState(value);
@@ -258,9 +258,34 @@ function HexTextInput({ value, onCommit, className }: {
   );
 }
 
+// ── Corner radius input (label + subsection header) ──────────────────────────
+// Single source of truth for the "Corner radius" labeled input used by
+// element Appearance, Frame Appearance, and Vector anchor Appearance.
+// Returns just `<SubsectionHeader>Corner radius</SubsectionHeader>` plus a
+// LabeledNumberInput — caller wraps in whatever grid it needs.
+
+export function CornerRadiusField({ value, onChange, placeholder }: {
+  value: number | null;
+  onChange: (v: number) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <SubsectionHeader>Corner radius</SubsectionHeader>
+      <LabeledNumberInput
+        label={<SquareRoundCorner className="w-3 h-3" />}
+        value={value}
+        min={0}
+        onChange={onChange}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
 // ── Small icon button ─────────────────────────────────────────────────────────
 
-function IconBtn({ icon: Icon, onClick, title, active, danger }: {
+export function IconBtn({ icon: Icon, onClick, title, active, danger }: {
   icon: React.ElementType; onClick: () => void; title: string; active?: boolean; danger?: boolean;
 }) {
   return (
@@ -1545,70 +1570,133 @@ export function CanvasPropertyPanel({
                 <div />
               </div>
             </div>
-            {/* §4 Appearance: Radius (frame has no opacity yet) */}
+            {/* §4 Appearance: Corner radius (frame has no opacity yet — only Radius) */}
             <SectionHeader>Appearance</SectionHeader>
             <div className="px-3 pb-3">
-              <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                <LabeledNumberInput label="⌒" value={frame.border_radius ?? 0} min={0} onChange={v => onUpdateFrame(frame.page_id, { border_radius: v })} />
+              <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-end">
+                <CornerRadiusField
+                  value={frame.border_radius ?? 0}
+                  onChange={v => onUpdateFrame(frame.page_id, { border_radius: v })}
+                />
                 <div />
                 <div />
               </div>
             </div>
-            {/* §5 Fill: Solid / Image / None toggle (mirrors element FillSection) */}
-            <SectionHeader>Fill</SectionHeader>
-            <div className="px-3 pb-3 space-y-2">
-              {(() => {
-                const isNone = !frame.background_image && (!frame.background_color || frame.background_color === 'transparent');
-                const fillMode: 'solid' | 'image' | 'none' = frame.background_image
-                  ? 'image'
-                  : isNone
-                    ? 'none'
-                    : 'solid';
-                return (
-                  <>
-                    <div className="flex gap-1">
-                      {(['solid', 'image', 'none'] as const).map(m => (
-                        <button key={m}
-                          className={cn('flex-1 h-6 text-[10px] flex items-center justify-center rounded transition-colors',
-                            fillMode === m ? 'bg-white text-foreground ring-1 ring-border' : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
-                          onClick={() => {
-                            if (m === fillMode) return;
-                            if (m === 'solid') {
-                              const next = (frame.background_color && frame.background_color !== 'transparent') ? frame.background_color : '#ffffff';
-                              onUpdateFrame(frame.page_id, { background_color: next, background_image: '' });
-                            } else if (m === 'image') {
-                              onUpdateFrame(frame.page_id, { background_image: frame.background_image || '' });
-                            } else {
-                              onUpdateFrame(frame.page_id, { background_color: 'transparent', background_image: '' });
-                            }
-                          }}>
-                          {m === 'solid' ? 'Solid' : m === 'image' ? 'Image' : 'None'}
-                        </button>
-                      ))}
+            {/* §5 Fill: header trailing dropdown + body */}
+            {(() => {
+              const isNone = !frame.background_image && (!frame.background_color || frame.background_color === 'transparent');
+              const fillMode: 'solid' | 'image' | 'none' = frame.background_image
+                ? 'image'
+                : isNone
+                  ? 'none'
+                  : 'solid';
+              const switchTo = (next: 'solid' | 'image' | 'none') => {
+                if (next === fillMode) return;
+                if (next === 'solid') {
+                  const c = (frame.background_color && frame.background_color !== 'transparent') ? frame.background_color : '#ffffff';
+                  onUpdateFrame(frame.page_id, { background_color: c, background_image: '' });
+                } else if (next === 'image') {
+                  onUpdateFrame(frame.page_id, { background_image: frame.background_image || '' });
+                } else {
+                  onUpdateFrame(frame.page_id, { background_color: 'transparent', background_image: '' });
+                }
+              };
+              const bg = frame.background_color || '#ffffff';
+              const hexNoHash = bg.startsWith('#') ? bg.slice(1).toUpperCase() : (() => {
+                const m = bg.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+                if (m) {
+                  const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+                  return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+                }
+                return '';
+              })();
+              const handleHexCommit = (raw: string) => {
+                const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
+                if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
+                const expanded = cleaned.length === 3 ? cleaned.split('').map(c => c + c).join('') : cleaned;
+                onUpdateFrame(frame.page_id, { background_color: '#' + expanded });
+              };
+              return (
+                <>
+                  <SectionHeader trailing={(
+                    <select
+                      value={fillMode}
+                      onChange={e => switchTo(e.target.value as 'solid' | 'image' | 'none')}
+                      className="text-[10px] pl-1.5 pr-1 h-6 rounded bg-transparent hover:bg-accent/30 border-0 text-foreground focus:outline-none cursor-pointer text-right"
+                    >
+                      <option value="solid">Solid</option>
+                      <option value="image">Image</option>
+                      <option value="none">None</option>
+                    </select>
+                  )}>Fill</SectionHeader>
+                  {fillMode !== 'none' && (
+                    <div className="px-3 pb-3 space-y-2">
+                      {fillMode === 'solid' && (
+                        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                          <div className="col-span-2 flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                            <ColorPicker
+                              value={bg}
+                              onChange={c => onUpdateFrame(frame.page_id, { background_color: c })}
+                            />
+                            <HexTextInput
+                              value={hexNoHash}
+                              onCommit={handleHexCommit}
+                              className="flex-1 min-w-0 bg-transparent border-0 text-[10px] text-foreground font-mono tabular-nums uppercase tracking-wide focus:outline-none"
+                            />
+                          </div>
+                          <div />
+                        </div>
+                      )}
+                      {fillMode === 'image' && (
+                        <FrameImageInput frame={frame} onUpdateFrame={onUpdateFrame} />
+                      )}
                     </div>
-                    {fillMode === 'solid' && (
-                      <ColorRow label="Color" value={frame.background_color || '#ffffff'}
-                        onChange={v => onUpdateFrame(frame.page_id, { background_color: v })} />
-                    )}
-                    {fillMode === 'image' && (
-                      <FrameImageInput frame={frame} onUpdateFrame={onUpdateFrame} />
-                    )}
-                  </>
-                );
-              })()}
-            </div>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
-        {!frame && onUpdateCanvasBackground && (
-          <>
-            <SectionHeader>Appearance</SectionHeader>
-            <div className="px-3 pb-3 space-y-2">
-              <ColorRow label="Background" value={canvasBackgroundColor || '#e8e8e8'}
-                onChange={v => onUpdateCanvasBackground(v)} />
-            </div>
-          </>
-        )}
-        {designTokens.length > 0 && (
+        {!frame && onUpdateCanvasBackground && (() => {
+          const bg = canvasBackgroundColor || '#e8e8e8';
+          const hex = bg.startsWith('#') ? bg.slice(1).toUpperCase() : (() => {
+            const m = bg.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+            if (m) {
+              const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+              return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+            }
+            return '';
+          })();
+          const handleHexCommit = (raw: string) => {
+            const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
+            if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
+            const expanded = cleaned.length === 3 ? cleaned.split('').map(c => c + c).join('') : cleaned;
+            onUpdateCanvasBackground('#' + expanded);
+          };
+          return (
+            <>
+              <SectionHeader>Background</SectionHeader>
+              <div className="px-3 pb-3">
+                <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+                  <div className="col-span-2 flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                    <ColorPicker
+                      value={bg}
+                      onChange={c => onUpdateCanvasBackground(c)}
+                    />
+                    <HexTextInput
+                      value={hex}
+                      onCommit={handleHexCommit}
+                      className="flex-1 min-w-0 bg-transparent border-0 text-[10px] text-foreground font-mono tabular-nums uppercase tracking-wide focus:outline-none"
+                    />
+                  </div>
+                  <div />
+                </div>
+              </div>
+            </>
+          );
+        })()}
+        {/* Design Tokens + Export only show for frame (canvas-empty has Background only) */}
+        {frame && designTokens.length > 0 && (
           <>
             <SectionHeader>Design Tokens</SectionHeader>
             <div className="px-3 pb-3 space-y-2">
@@ -1619,7 +1707,7 @@ export function CanvasPropertyPanel({
             </div>
           </>
         )}
-        {onExportPng && (
+        {frame && onExportPng && (
           <>
             <SectionHeader>Export</SectionHeader>
             <div className="px-3 pb-3 flex gap-2">
@@ -1967,19 +2055,14 @@ export function CanvasPropertyPanel({
                   />
                 </div>
                 {hasRadius ? (
-                  <div>
-                    <SubsectionHeader>Corner radius</SubsectionHeader>
-                    <LabeledNumberInput
-                      label={<SquareRoundCorner className="w-3 h-3" />}
-                      value={radiusValue}
-                      min={0}
-                      onChange={v => {
-                        const clamped = Math.max(0, v);
-                        isSingle ? applyChange({ borderRadius: clamped }) : applyToAll({ borderRadius: clamped });
-                      }}
-                      placeholder={radiusPlaceholder}
-                    />
-                  </div>
+                  <CornerRadiusField
+                    value={radiusValue}
+                    onChange={v => {
+                      const clamped = Math.max(0, v);
+                      isSingle ? applyChange({ borderRadius: clamped }) : applyToAll({ borderRadius: clamped });
+                    }}
+                    placeholder={radiusPlaceholder}
+                  />
                 ) : <div />}
                 <div />
               </div>
