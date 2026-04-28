@@ -1453,9 +1453,17 @@ export function CanvasEditor({
           elH = 32;
           elX = d.origX;
           elY = d.origY;
+        } else if (d.createType.type === 'frame') {
+          // Click without drag: inherit last frame's size, or fall back to 800x600.
+          // Click point becomes the top-left of the new frame (per moonyaan 2026-04-28).
+          const lastFrame = data.pages[data.pages.length - 1];
+          elW = lastFrame ? lastFrame.width : 800;
+          elH = lastFrame ? lastFrame.height : 600;
+          elX = d.origX;
+          elY = d.origY;
         } else {
-          elW = d.createType.type === 'frame' ? 1920 : 200;
-          elH = d.createType.type === 'frame' ? 1080 : 200;
+          elW = 200;
+          elH = 200;
           elX = d.origX - elW / 2;
           elY = d.origY - elH / 2;
         }
@@ -2927,7 +2935,7 @@ export function CanvasEditor({
               onAddSvg={handleAddSvg}
               canUndo={undoRedo.canUndo} canRedo={undoRedo.canRedo}
               onUndo={handleUndo} onRedo={handleRedo}
-              rightOffsetPx={showPropertyPanel && pendingInsert?.type !== 'frame' ? 240 : 0}
+              rightOffsetPx={pendingInsert?.type === 'frame' ? 240 : (showPropertyPanel ? 240 : 0)}
             />
             <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageFileSelected} />
             <input ref={svgInputRef} type="file" accept=".svg,image/svg+xml" className="hidden" onChange={handleSvgFileSelected} />
@@ -3669,7 +3677,7 @@ export function CanvasEditor({
             <ZoomBar zoom={scale} onZoomIn={() => zoomAroundCenter(1.25)} onZoomOut={() => zoomAroundCenter(0.8)} onResetZoom={fitAllFrames} />
             {/* Frame preset panel (overlay) — shown when frame insert mode is active */}
             {pendingInsert?.type === 'frame' && (
-              <div className="absolute top-0 right-0 bottom-0 w-[220px] bg-background border-l overflow-y-auto" style={{ zIndex: 10000 }} onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+              <div className="absolute top-0 right-0 bottom-0 w-[240px] border-l border-border bg-card shadow-lg" style={{ zIndex: 10000 }} onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
                 <FramePresetPanel onSelect={(w, h, _name) => {
                   const pages = data?.pages ?? [];
                   const lastFrame = pages[pages.length - 1];
