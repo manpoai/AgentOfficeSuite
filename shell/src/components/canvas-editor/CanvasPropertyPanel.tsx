@@ -10,6 +10,7 @@ import {
   ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
   Download,
   MoveHorizontal, MoveVertical, Square,
+  SquaresUnite, SquaresSubtract, SquaresIntersect, SquaresExclude,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -742,9 +743,10 @@ export function CanvasPropertyPanel({
     : frame ? 'Frame'
     : 'Canvas';
 
-  const panelClass = 'w-[280px] min-w-[280px] border-l border-border flex flex-col shrink-0 bg-card h-full shadow-lg';
+  const panelClass = 'w-[240px] min-w-[240px] border-l border-border flex flex-col shrink-0 bg-card h-full shadow-lg';
 
-  const [aspectLocked, setAspectLocked] = useState(false);
+  // Aspect lock lives on the element (so drag-resize in CanvasEditor can read it).
+  const aspectLocked = element?.aspect_locked === true;
   const aspectRatio = useRef<number>(1);
 
   const selectionBounds = useMemo(() => {
@@ -764,56 +766,84 @@ export function CanvasPropertyPanel({
   if (!element && selectedCount === 0) {
     return (
       <div className={panelClass} onWheel={e => e.stopPropagation()}>
-        <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
-          {frame && onRenameFrame ? (
-            <InlineEditHeader value={frame.title || 'Frame'} onSave={v => onRenameFrame(frame.page_id, v)} />
-          ) : (
-            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Canvas</span>
-          )}
+        {/* Header: "1 selected" / "Canvas" + actions on same row, right-aligned */}
+        <div className="px-3 py-2 border-b border-border flex items-center gap-1 shrink-0">
+          <span className="text-[12px] font-medium text-foreground">
+            {frame ? '1 selected' : 'Canvas'}
+          </span>
+          <div className="flex-1" />
+          {frame && onDuplicateFrame && <IconBtn icon={Copy} onClick={() => onDuplicateFrame(frame.page_id)} title="Duplicate Frame" />}
+          {frame && onDeleteFrame && <IconBtn icon={Trash} onClick={() => onDeleteFrame(frame.page_id)} title="Delete Frame" danger />}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
         {frame && (
           <>
-            {(onDuplicateFrame || onDeleteFrame) && (
-              <div className="px-3 py-1.5 flex items-center gap-0.5 border-b border-border">
-                {onDuplicateFrame && <ToolBtn icon={Copy} onClick={() => onDuplicateFrame(frame.page_id)} title="Duplicate Frame" />}
-                {onDeleteFrame && <ToolBtn icon={Trash2} onClick={() => onDeleteFrame(frame.page_id)} title="Delete Frame" />}
-              </div>
-            )}
-            <SectionHeader>Position & Size</SectionHeader>
+            {/* §2 Position */}
+            <SectionHeader>Position</SectionHeader>
             <div className="p-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <Row label="X"><NumberInput value={frame.frame_x ?? 0} onChange={v => onUpdateFrame(frame.page_id, { frame_x: v })} /></Row>
                 <Row label="Y"><NumberInput value={frame.frame_y ?? 0} onChange={v => onUpdateFrame(frame.page_id, { frame_y: v })} /></Row>
+              </div>
+            </div>
+            {/* §3 Dimensions */}
+            <SectionHeader>Dimensions</SectionHeader>
+            <div className="p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Row label="W"><NumberInput value={frame.width} min={100} onChange={w => onUpdateFrame(frame.page_id, { width: w })} /></Row>
                 <Row label="H"><NumberInput value={frame.height} min={100} onChange={h => onUpdateFrame(frame.page_id, { height: h })} /></Row>
               </div>
             </div>
+            {/* §4 Appearance: Radius (frame has no opacity yet) */}
             <SectionHeader>Appearance</SectionHeader>
             <div className="p-3 space-y-2">
-              <ColorRow label="Bg Color" value={frame.background_color || '#ffffff'}
-                onChange={v => onUpdateFrame(frame.page_id, { background_color: v })} />
               <Row label="Radius">
                 <NumberInput value={frame.border_radius ?? 0} min={0} onChange={v => onUpdateFrame(frame.page_id, { border_radius: v })} />
               </Row>
-              <ColorRow label="Border" value={frame.border_color || ''} allowNone
-                onChange={v => onUpdateFrame(frame.page_id, { border_color: v })}
-                onClear={() => onUpdateFrame(frame.page_id, { border_color: '' })} />
-              <Row label="Border W">
-                <NumberInput value={frame.border_width ?? 0} min={0} step={0.5}
-                  onChange={v => onUpdateFrame(frame.page_id, { border_width: v })} />
-              </Row>
-              <Row label="Border Style">
-                <select value={frame.border_style || 'solid'}
-                  onChange={e => onUpdateFrame(frame.page_id, { border_style: e.target.value as 'solid' | 'dashed' | 'dotted' })}
-                  className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
-                </select>
-              </Row>
-              <FrameShadowSection frame={frame} onUpdateFrame={onUpdateFrame} />
-              <FrameImageInput frame={frame} onUpdateFrame={onUpdateFrame} />
+            </div>
+            {/* §5 Fill: Solid / Image / None toggle (mirrors element FillSection) */}
+            <SectionHeader>Fill</SectionHeader>
+            <div className="p-3 space-y-2">
+              {(() => {
+                const isNone = !frame.background_image && (!frame.background_color || frame.background_color === 'transparent');
+                const fillMode: 'solid' | 'image' | 'none' = frame.background_image
+                  ? 'image'
+                  : isNone
+                    ? 'none'
+                    : 'solid';
+                return (
+                  <>
+                    <div className="flex gap-1">
+                      {(['solid', 'image', 'none'] as const).map(m => (
+                        <button key={m}
+                          className={cn('flex-1 text-[11px] px-2 py-1 rounded border transition-colors',
+                            fillMode === m ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-muted-foreground')}
+                          onClick={() => {
+                            if (m === fillMode) return;
+                            if (m === 'solid') {
+                              // From None or Image: pick a usable color (don't keep 'transparent').
+                              const next = (frame.background_color && frame.background_color !== 'transparent') ? frame.background_color : '#ffffff';
+                              onUpdateFrame(frame.page_id, { background_color: next, background_image: '' });
+                            } else if (m === 'image') {
+                              onUpdateFrame(frame.page_id, { background_image: frame.background_image || '' });
+                            } else {
+                              onUpdateFrame(frame.page_id, { background_color: 'transparent', background_image: '' });
+                            }
+                          }}>
+                          {m === 'solid' ? 'Solid' : m === 'image' ? 'Image' : 'None'}
+                        </button>
+                      ))}
+                    </div>
+                    {fillMode === 'solid' && (
+                      <ColorRow label="Color" value={frame.background_color || '#ffffff'}
+                        onChange={v => onUpdateFrame(frame.page_id, { background_color: v })} />
+                    )}
+                    {fillMode === 'image' && (
+                      <FrameImageInput frame={frame} onUpdateFrame={onUpdateFrame} />
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </>
         )}
@@ -917,294 +947,228 @@ export function CanvasPropertyPanel({
 
   return (
     <div className={panelClass} onWheel={e => e.stopPropagation()}>
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0">
-        {isSingle && element && onRenameElement ? (
-          <InlineEditHeader value={element.name || (isGroup ? 'Group' : 'Element')} onSave={v => onRenameElement(element.id, v)} />
-        ) : (
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{headerTitle}</span>
-        )}
-      </div>
-
-      {/* Operations */}
-      <div className="px-2 py-1.5 border-b border-border flex flex-wrap gap-0.5 shrink-0">
+      {/* Header: "N selected" + actions on same row, right-aligned */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-1 shrink-0">
+        <span className="text-[12px] font-medium text-foreground">
+          {selectedCount} selected
+        </span>
+        <div className="flex-1" />
         {onDuplicate && <IconBtn icon={Copy} onClick={onDuplicate} title="Duplicate" />}
         {onDelete && <IconBtn icon={Trash} onClick={onDelete} title="Delete" danger />}
         {onLock && element && <IconBtn icon={element.locked ? Unlock : Lock} onClick={onLock} title={element.locked ? 'Unlock' : 'Lock'} />}
         {isMulti && onGroup && <IconBtn icon={Group} onClick={onGroup} title="Group (Cmd+G)" />}
         {isGroup && onUngroup && <IconBtn icon={Ungroup} onClick={onUngroup} title="Ungroup (Cmd+Shift+G)" />}
-        {isMulti && onAlign && (
-          <>
-            <div className="w-px bg-border mx-0.5 self-stretch" />
-            <IconBtn icon={AlignStartHorizontal} onClick={() => onAlign('left')} title="Align left" />
-            <IconBtn icon={AlignHorizontalJustifyCenter} onClick={() => onAlign('center-h')} title="Center horizontal" />
-            <IconBtn icon={AlignEndHorizontal} onClick={() => onAlign('right')} title="Align right" />
-            <IconBtn icon={AlignStartVertical} onClick={() => onAlign('top')} title="Align top" />
-            <IconBtn icon={AlignVerticalJustifyCenter} onClick={() => onAlign('center-v')} title="Center vertical" />
-            <IconBtn icon={AlignEndVertical} onClick={() => onAlign('bottom')} title="Align bottom" />
-            {selectedCount >= 3 && (
-              <>
-                <IconBtn icon={AlignHorizontalSpaceAround} onClick={() => onAlign('distribute-h')} title="Distribute horizontally" />
-                <IconBtn icon={AlignVerticalSpaceAround} onClick={() => onAlign('distribute-v')} title="Distribute vertically" />
-              </>
-            )}
-          </>
-        )}
-        {isMulti && allSvg && onBooleanOp && (
-          <>
-            <div className="w-px bg-border mx-0.5 self-stretch" />
-            <IconBtn icon={Group} onClick={() => onBooleanOp('union')} title="Union" />
-            <IconBtn icon={Ban} onClick={() => onBooleanOp('difference')} title="Subtract" />
-            <IconBtn icon={Copy} onClick={() => onBooleanOp('intersection')} title="Intersect" />
-            <IconBtn icon={X} onClick={() => onBooleanOp('exclusion')} title="Exclude" />
-          </>
-        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-      {/* Position & Size (for non-sub-element single selection) */}
-      {isSingle && !subElementSelection && element && (
+
+      {/* §2 Boolean ops (multi-svg only) — no header, just 4 icons */}
+      {isMulti && allSvg && onBooleanOp && (
+        <div className="px-3 py-2 flex items-center gap-0.5 border-b border-border">
+          <IconBtn icon={SquaresUnite} onClick={() => onBooleanOp('union')} title="Union" />
+          <IconBtn icon={SquaresSubtract} onClick={() => onBooleanOp('difference')} title="Subtract" />
+          <IconBtn icon={SquaresIntersect} onClick={() => onBooleanOp('intersection')} title="Intersect" />
+          <IconBtn icon={SquaresExclude} onClick={() => onBooleanOp('exclusion')} title="Exclude" />
+        </div>
+      )}
+
+      {/* §3 Position: align (multi) + X/Y + Z + Rotation */}
+      {((isMulti && onAlign) || (isSingle && !subElementSelection && element) || (isMulti && selectionBounds)) && (
         <>
-          <SectionHeader>Position & Size</SectionHeader>
+          <SectionHeader>Position</SectionHeader>
           <div className="p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <Row label="X"><NumberInput value={element.x} onChange={v => onUpdateElement(element.id, { x: v })} /></Row>
-              <Row label="Y"><NumberInput value={element.y} onChange={v => onUpdateElement(element.id, { y: v })} /></Row>
-              <Row label="W"><NumberInput value={element.w} min={20} onChange={v => {
-                // Text element: changing width manually flips auto-width into
-                // fixed-width (auto-height) and re-measures height.
-                const textMode = getTextResizeMode(element.html);
-                const updates: Partial<CanvasElement> = aspectLocked
-                  ? { w: v, h: Math.round(v / aspectRatio.current) }
-                  : { w: v };
-                if (textMode && textMode !== 'fixed') {
-                  let newHtml = element.html;
-                  if (textMode === 'auto') {
-                    newHtml = setTextResizeMode(newHtml, 'fixed-width');
-                  }
-                  updates.html = newHtml;
-                  if (typeof document !== 'undefined') {
-                    const measurer = document.createElement('div');
-                    measurer.style.cssText = `position:absolute;left:-9999px;top:-9999px;visibility:hidden;width:${v}px;`;
-                    measurer.innerHTML = newHtml;
-                    document.body.appendChild(measurer);
-                    const inner = measurer.firstElementChild as HTMLElement | null;
-                    if (inner) {
-                      inner.style.width = `${v}px`;
-                      const rect = inner.getBoundingClientRect();
-                      updates.h = Math.max(20, Math.ceil(rect.height));
-                    }
-                    if (measurer.isConnected) document.body.removeChild(measurer);
-                  }
-                }
-                onUpdateElement(element.id, updates);
-              }} /></Row>
-              <Row label="H"><NumberInput value={element.h} min={20} onChange={v => {
-                if (aspectLocked) {
-                  onUpdateElement(element.id, { h: v, w: Math.round(v * aspectRatio.current) });
-                } else {
-                  onUpdateElement(element.id, { h: v });
-                }
-              }} /></Row>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className={cn('p-0.5 rounded', aspectLocked ? 'text-primary' : 'text-muted-foreground')}
-                onClick={() => {
-                  if (!aspectLocked && element) aspectRatio.current = element.w / element.h;
-                  setAspectLocked(!aspectLocked);
-                }}
-                title={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
-              >
-                {aspectLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-              </button>
-              <span className="text-[10px] text-muted-foreground">{aspectLocked ? 'Aspect locked' : 'Aspect unlocked'}</span>
-            </div>
-            <Row label="Z-Index">
-              <div className="flex items-center gap-1">
-                <NumberInput value={element.z_index ?? 0} onChange={v => onUpdateElement(element.id, { z_index: v })} />
-                <button className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50" title="Send to back" onClick={() => onSendToBack?.(element.id)}><ChevronsDown className="w-3 h-3" /></button>
-                <button className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50" title="Send backward" onClick={() => onSendBackward?.(element.id)}><ArrowDown className="w-3 h-3" /></button>
-                <button className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50" title="Bring forward" onClick={() => onBringForward?.(element.id)}><ArrowUp className="w-3 h-3" /></button>
-                <button className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50" title="Bring to front" onClick={() => onBringToFront?.(element.id)}><ChevronsUp className="w-3 h-3" /></button>
+            {isMulti && onAlign && (
+              <div className="flex items-center gap-0.5 flex-wrap">
+                <IconBtn icon={AlignStartHorizontal} onClick={() => onAlign('left')} title="Align left" />
+                <IconBtn icon={AlignHorizontalJustifyCenter} onClick={() => onAlign('center-h')} title="Center horizontal" />
+                <IconBtn icon={AlignEndHorizontal} onClick={() => onAlign('right')} title="Align right" />
+                <IconBtn icon={AlignStartVertical} onClick={() => onAlign('top')} title="Align top" />
+                <IconBtn icon={AlignVerticalJustifyCenter} onClick={() => onAlign('center-v')} title="Center vertical" />
+                <IconBtn icon={AlignEndVertical} onClick={() => onAlign('bottom')} title="Align bottom" />
+                {selectedCount >= 3 && (
+                  <>
+                    <IconBtn icon={AlignHorizontalSpaceAround} onClick={() => onAlign('distribute-h')} title="Distribute horizontally" />
+                    <IconBtn icon={AlignVerticalSpaceAround} onClick={() => onAlign('distribute-v')} title="Distribute vertically" />
+                  </>
+                )}
               </div>
-            </Row>
-            <Row label="Rotation"><NumberInput value={element.rotation ?? 0} step={1} suffix="°" onChange={v => {
-              const normalized = ((v % 360) + 360) % 360;
-              onUpdateElement(element.id, { rotation: normalized });
-            }} /></Row>
-            {/* Text Resize mode: only for text elements */}
-            {(() => {
-              const mode = getTextResizeMode(element.html);
-              if (!mode) return null;
-              const modes: { key: TextResizeMode; icon: typeof MoveHorizontal; title: string }[] = [
-                { key: 'auto', icon: MoveHorizontal, title: 'Auto width' },
-                { key: 'fixed-width', icon: MoveVertical, title: 'Auto height' },
-                { key: 'fixed', icon: Square, title: 'Fixed size' },
-              ];
-              return (
-                <Row label="Resize">
-                  <div className="flex gap-1">
-                    {modes.map(m => {
-                      const Icon = m.icon;
-                      const active = mode === m.key;
-                      return (
-                        <button key={m.key} title={m.title}
-                          className={cn('flex-1 h-7 flex items-center justify-center rounded border transition-colors',
-                            active ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-muted-foreground')}
-                          onClick={() => {
-                            const newHtml = setTextResizeMode(element.html, m.key);
-                            const updates: Partial<CanvasElement> = { html: newHtml };
-                            // Re-measure to fit content under the new mode (except 'fixed').
-                            if (m.key !== 'fixed' && typeof document !== 'undefined') {
-                              const measurer = document.createElement('div');
-                              measurer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
-                              if (m.key === 'fixed-width') measurer.style.width = `${element.w}px`;
-                              measurer.innerHTML = newHtml;
-                              document.body.appendChild(measurer);
-                              const inner = measurer.firstElementChild as HTMLElement | null;
-                              if (inner) {
-                                if (m.key === 'auto') { inner.style.width = 'auto'; inner.style.whiteSpace = 'nowrap'; }
-                                else { inner.style.width = `${element.w}px`; }
-                                const rect = inner.getBoundingClientRect();
-                                if (m.key === 'auto') updates.w = Math.max(20, Math.ceil(rect.width));
-                                updates.h = Math.max(20, Math.ceil(rect.height));
-                              }
-                              if (measurer.isConnected) document.body.removeChild(measurer);
-                            }
-                            onUpdateElement(element.id, updates);
-                          }}>
-                          <Icon className="w-3.5 h-3.5" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </Row>
-              );
-            })()}
+            )}
+            {isSingle && !subElementSelection && element && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Row label="X"><NumberInput value={element.x} onChange={v => onUpdateElement(element.id, { x: v })} /></Row>
+                  <Row label="Y"><NumberInput value={element.y} onChange={v => onUpdateElement(element.id, { y: v })} /></Row>
+                </div>
+                <Row label="Rotation"><NumberInput value={element.rotation ?? 0} step={1} suffix="°" onChange={v => {
+                  const normalized = ((v % 360) + 360) % 360;
+                  onUpdateElement(element.id, { rotation: normalized });
+                }} /></Row>
+              </>
+            )}
+            {isMulti && selectionBounds && (
+              <div className="grid grid-cols-2 gap-2">
+                <Row label="X"><NumberInput value={selectionBounds.x} onChange={v => {
+                  const dx = v - selectionBounds.x;
+                  if (dx !== 0 && onMoveSelection) onMoveSelection(dx, 0);
+                }} /></Row>
+                <Row label="Y"><NumberInput value={selectionBounds.y} onChange={v => {
+                  const dy = v - selectionBounds.y;
+                  if (dy !== 0 && onMoveSelection) onMoveSelection(0, dy);
+                }} /></Row>
+              </div>
+            )}
           </div>
         </>
       )}
 
-      {/* Multi-selection: position & size */}
-      {isMulti && selectionBounds && (
+      {/* §4 Dimensions: W/H + aspect lock + (text resize mode) + (polygon sides/points) */}
+      {((isSingle && !subElementSelection && element) || (isMulti && selectionBounds)) && (
         <>
-          <SectionHeader>Position & Size</SectionHeader>
+          <SectionHeader>Dimensions</SectionHeader>
           <div className="p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <Row label="X"><NumberInput value={selectionBounds.x} onChange={v => {
-                const dx = v - selectionBounds.x;
-                if (dx !== 0 && onMoveSelection) onMoveSelection(dx, 0);
-              }} /></Row>
-              <Row label="Y"><NumberInput value={selectionBounds.y} onChange={v => {
-                const dy = v - selectionBounds.y;
-                if (dy !== 0 && onMoveSelection) onMoveSelection(0, dy);
-              }} /></Row>
-              <Row label="W"><span className="text-[11px] text-muted-foreground">{Math.round(selectionBounds.w)}</span></Row>
-              <Row label="H"><span className="text-[11px] text-muted-foreground">{Math.round(selectionBounds.h)}</span></Row>
-            </div>
+            {isSingle && !subElementSelection && element && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Row label="W"><NumberInput value={element.w} min={20} onChange={v => {
+                    const textMode = getTextResizeMode(element.html);
+                    const updates: Partial<CanvasElement> = aspectLocked
+                      ? { w: v, h: Math.round(v / aspectRatio.current) }
+                      : { w: v };
+                    if (textMode && textMode !== 'fixed') {
+                      let newHtml = element.html;
+                      if (textMode === 'auto') {
+                        newHtml = setTextResizeMode(newHtml, 'fixed-width');
+                      }
+                      updates.html = newHtml;
+                      if (typeof document !== 'undefined') {
+                        const measurer = document.createElement('div');
+                        measurer.style.cssText = `position:absolute;left:-9999px;top:-9999px;visibility:hidden;width:${v}px;`;
+                        measurer.innerHTML = newHtml;
+                        document.body.appendChild(measurer);
+                        const inner = measurer.firstElementChild as HTMLElement | null;
+                        if (inner) {
+                          inner.style.width = `${v}px`;
+                          const rect = inner.getBoundingClientRect();
+                          updates.h = Math.max(20, Math.ceil(rect.height));
+                        }
+                        if (measurer.isConnected) document.body.removeChild(measurer);
+                      }
+                    }
+                    onUpdateElement(element.id, updates);
+                  }} /></Row>
+                  <Row label="H"><NumberInput value={element.h} min={20} onChange={v => {
+                    if (aspectLocked) {
+                      onUpdateElement(element.id, { h: v, w: Math.round(v * aspectRatio.current) });
+                    } else {
+                      onUpdateElement(element.id, { h: v });
+                    }
+                  }} /></Row>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className={cn('p-0.5 rounded', aspectLocked ? 'text-primary' : 'text-muted-foreground')}
+                    onClick={() => {
+                      if (!aspectLocked && element) aspectRatio.current = element.w / element.h;
+                      onUpdateElement(element.id, { aspect_locked: !aspectLocked });
+                    }}
+                    title={aspectLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+                  >
+                    {aspectLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">{aspectLocked ? 'Aspect locked' : 'Aspect unlocked'}</span>
+                </div>
+                {/* Text Resize mode: only for text elements */}
+                {(() => {
+                  const mode = getTextResizeMode(element.html);
+                  if (!mode) return null;
+                  const modes: { key: TextResizeMode; icon: typeof MoveHorizontal; title: string }[] = [
+                    { key: 'auto', icon: MoveHorizontal, title: 'Auto width' },
+                    { key: 'fixed-width', icon: MoveVertical, title: 'Auto height' },
+                    { key: 'fixed', icon: Square, title: 'Fixed size' },
+                  ];
+                  return (
+                    <Row label="Resize">
+                      <div className="flex gap-1">
+                        {modes.map(m => {
+                          const Icon = m.icon;
+                          const active = mode === m.key;
+                          return (
+                            <button key={m.key} title={m.title}
+                              className={cn('flex-1 h-7 flex items-center justify-center rounded border transition-colors',
+                                active ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:border-muted-foreground')}
+                              onClick={() => {
+                                const newHtml = setTextResizeMode(element.html, m.key);
+                                const updates: Partial<CanvasElement> = { html: newHtml };
+                                if (m.key !== 'fixed' && typeof document !== 'undefined') {
+                                  const measurer = document.createElement('div');
+                                  measurer.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+                                  if (m.key === 'fixed-width') measurer.style.width = `${element.w}px`;
+                                  measurer.innerHTML = newHtml;
+                                  document.body.appendChild(measurer);
+                                  const inner = measurer.firstElementChild as HTMLElement | null;
+                                  if (inner) {
+                                    if (m.key === 'auto') { inner.style.width = 'auto'; inner.style.whiteSpace = 'nowrap'; }
+                                    else { inner.style.width = `${element.w}px`; }
+                                    const rect = inner.getBoundingClientRect();
+                                    if (m.key === 'auto') updates.w = Math.max(20, Math.ceil(rect.width));
+                                    updates.h = Math.max(20, Math.ceil(rect.height));
+                                  }
+                                  if (measurer.isConnected) document.body.removeChild(measurer);
+                                }
+                                onUpdateElement(element.id, updates);
+                              }}>
+                              <Icon className="w-3.5 h-3.5" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </Row>
+                  );
+                })()}
+                {/* SVG: polygon sides / star points */}
+                {(() => {
+                  const ps = getParametricShape(element.html);
+                  if (!ps) return null;
+                  const label = ps.kind === 'polygon' ? 'Sides' : 'Points';
+                  return (
+                    <Row label={label}>
+                      <NumberInput value={ps.count} min={3} max={60} step={1} onChange={v => {
+                        const clamped = Math.max(3, Math.min(60, Math.round(v)));
+                        const newHtml = updateParametricShape(element.html, ps.kind, clamped, element.w, element.h);
+                        onUpdateElement(element.id, { html: newHtml });
+                      }} />
+                    </Row>
+                  );
+                })()}
+              </>
+            )}
+            {isMulti && selectionBounds && (
+              <div className="grid grid-cols-2 gap-2">
+                <Row label="W"><span className="text-[11px] text-muted-foreground">{Math.round(selectionBounds.w)}</span></Row>
+                <Row label="H"><span className="text-[11px] text-muted-foreground">{Math.round(selectionBounds.h)}</span></Row>
+              </div>
+            )}
           </div>
         </>
       )}
 
-      {/* Appearance */}
+      {/* §5 Appearance: opacity + corner radius */}
       {(isSingle || isMulti) && (
         <>
           <SectionHeader>Appearance</SectionHeader>
           <div className="p-3 space-y-2">
-
-            {/* SVG: Fill */}
-            {isSingle && projected?.isSvgShape && element && (
-              <FillSection element={element} projected={projected} onApply={applyChange} onUpdateElement={onUpdateElement} />
-            )}
-
-            {/* Multi SVG: fill */}
-            {isMulti && support.fill && (
-              <ColorRow label="Fill"
-                value={aggregated.svgFill === 'mixed' ? '' : (aggregated.svgFill || aggregated.backgroundColor || '')}
+            <Row label="Opacity">
+              <NumberInput
+                value={isSingle ? (projected?.opacity ?? 1) : (aggregated.opacity === 'mixed' ? null : (aggregated.opacity ?? null))}
+                min={0} max={1} step={0.1}
                 onChange={v => {
-                  const hasSvg = leaves.some(l => l.html.includes('<svg'));
-                  const hasNonSvg = leaves.some(l => !l.html.includes('<svg'));
-                  if (hasSvg) applyToAll({ svgFill: v });
-                  if (hasNonSvg) applyToAll({ backgroundColor: v });
+                  const clamped = Math.min(1, Math.max(0, v));
+                  isSingle ? applyChange({ opacity: clamped }) : applyToAll({ opacity: clamped });
                 }}
+                placeholder="Mixed"
               />
-            )}
-
-            {/* Non-SVG single: fill */}
-            {isSingle && projected && !projected.isSvgShape && element && (
-              <FillSection element={element} projected={projected} onApply={applyChange} onUpdateElement={onUpdateElement} />
-            )}
-
-            {/* SVG single: stroke */}
-            {isSingle && projected?.isSvgShape && (
-              <>
-                <ColorRow label="Stroke" value={projected.svgStroke || ''}
-                  onChange={v => applyChange({ svgStroke: v })}
-                  allowNone onClear={() => applyChange({ svgStroke: 'none' })} />
-                <Row label="Stroke W">
-                  <NumberInput value={projected.svgStrokeWidth ?? 2} min={0} step={0.5}
-                    onChange={v => applyChange({ svgStrokeWidth: v })} />
-                </Row>
-                <Row label="Dash">
-                  <select value={projected.svgStrokeDasharray || ''}
-                    onChange={e => applyChange({ svgStrokeDasharray: e.target.value })}
-                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                    <option value="">Solid</option>
-                    <option value="8 4">Dashed</option>
-                    <option value="2 2">Dotted</option>
-                    <option value="12 4 4 4">Dash-dot</option>
-                  </select>
-                </Row>
-                <Row label="Align">
-                  <select value={projected.svgStrokeAlignment || 'center'}
-                    onChange={e => applyChange({ svgStrokeAlignment: e.target.value as 'center' | 'inside' | 'outside' })}
-                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                    <option value="center">Center</option>
-                    <option value="inside">Inside</option>
-                    <option value="outside">Outside</option>
-                  </select>
-                </Row>
-              </>
-            )}
-
-            {/* HTML Block: CSS border (#9) */}
-            {isSingle && isHtmlBlock && projected && (
-              <>
-                <ColorRow label="Border" value={projected.borderColor || ''}
-                  onChange={v => applyChange({ borderColor: v })}
-                  allowNone onClear={() => applyChange({ borderColor: 'none', borderWidth: 0 })} />
-                <Row label="Border W">
-                  <NumberInput value={projected.borderWidth ?? 0} min={0} step={0.5}
-                    onChange={v => applyChange({ borderWidth: v })} />
-                </Row>
-                <Row label="Border S">
-                  <select value={projected.borderStyle || 'solid'}
-                    onChange={e => applyChange({ borderStyle: e.target.value as 'solid' | 'dashed' | 'dotted' })}
-                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                    <option value="solid">Solid</option>
-                    <option value="dashed">Dashed</option>
-                    <option value="dotted">Dotted</option>
-                  </select>
-                </Row>
-              </>
-            )}
-
-            {/* Multi-select: stroke (#10) */}
-            {isMulti && support.stroke && (
-              <>
-                <ColorRow label="Stroke"
-                  value={aggregated.svgStroke === 'mixed' ? '' : (aggregated.svgStroke || '')}
-                  onChange={v => applyToAll({ svgStroke: v })}
-                  allowNone onClear={() => applyToAll({ svgStroke: 'none' })} />
-                <Row label="Stroke W">
-                  <NumberInput value={aggregated.svgStrokeWidth === 'mixed' ? null : (aggregated.svgStrokeWidth ?? null)} min={0} step={0.5}
-                    onChange={v => applyToAll({ svgStrokeWidth: v })} placeholder="Mixed" />
-                </Row>
-              </>
-            )}
-
-            {/* SVG: corner radius */}
+            </Row>
+            {/* Radius: SVG single (with mixed handling) */}
             {isSingle && projected?.isSvgShape && (
               <Row label="Radius">
                 {projected.borderRadius === -1 ? (
@@ -1219,30 +1183,32 @@ export function CanvasPropertyPanel({
                 )}
               </Row>
             )}
+            {/* Radius: non-SVG single (HTML block / image / text — when borderRadius defined) */}
+            {isSingle && projected && !projected.isSvgShape && projected.borderRadius !== undefined && (
+              <Row label="Radius"><NumberInput value={projected.borderRadius} min={0} onChange={v => applyChange({ borderRadius: v })} /></Row>
+            )}
+            {/* Radius: multi */}
+            {isMulti && (
+              <Row label="Radius">
+                <NumberInput value={aggregated.borderRadius === 'mixed' ? null : (aggregated.borderRadius ?? null)} min={0}
+                  onChange={v => applyToAll({ borderRadius: v })} placeholder="Mixed" />
+              </Row>
+            )}
+          </div>
+        </>
+      )}
 
-            {/* SVG: polygon sides / star points */}
-            {isSingle && element && (() => {
-              const ps = getParametricShape(element.html);
-              if (!ps) return null;
-              const label = ps.kind === 'polygon' ? 'Sides' : 'Points';
-              return (
-                <Row label={label}>
-                  <NumberInput value={ps.count} min={3} max={60} step={1} onChange={v => {
-                    const clamped = Math.max(3, Math.min(60, Math.round(v)));
-                    const newHtml = updateParametricShape(element.html, ps.kind, clamped, element.w, element.h);
-                    onUpdateElement(element.id, { html: newHtml });
-                  }} />
-                </Row>
-              );
-            })()}
-
-            {/* Non-SVG: text color, font */}
+      {/* §6 Text properties (non-svg single with font, or multi with font support) */}
+      {((isSingle && projected && !projected.isSvgShape && projected.fontSize !== undefined) || (isMulti && support.font)) && (
+        <>
+          <SectionHeader>Text</SectionHeader>
+          <div className="p-3 space-y-2">
             {isSingle && projected && !projected.isSvgShape && (
               <>
-                <ColorRow label="Text" value={projected.color || ''}
+                <ColorRow label="Color" value={projected.color || ''}
                   onChange={v => applyChange({ color: v })} />
                 {projected.fontSize !== undefined && (
-                  <Row label="Font Size"><NumberInput value={projected.fontSize} min={1} onChange={v => applyChange({ fontSize: v })} /></Row>
+                  <Row label="Size"><NumberInput value={projected.fontSize} min={1} onChange={v => applyChange({ fontSize: v })} /></Row>
                 )}
                 {projected.fontFamily !== undefined && (
                   <Row label="Font">
@@ -1335,115 +1301,173 @@ export function CanvasPropertyPanel({
                     </Row>
                   </>
                 )}
-                {projected.borderRadius !== undefined && (
-                  <Row label="Radius"><NumberInput value={projected.borderRadius} min={0} onChange={v => applyChange({ borderRadius: v })} /></Row>
-                )}
               </>
             )}
-
-            {/* Multi: common props */}
-            {isMulti && (
+            {isMulti && support.font && (
               <>
-                {support.font && (
-                  <>
-                    <ColorRow label="Text"
-                      value={aggregated.color === 'mixed' ? '' : (aggregated.color || '')}
-                      onChange={v => applyToAll({ color: v })} />
-                    <Row label="Font Size">
-                      <NumberInput value={aggregated.fontSize === 'mixed' ? null : (aggregated.fontSize ?? null)} min={1}
-                        onChange={v => applyToAll({ fontSize: v })} placeholder="Mixed" />
-                    </Row>
-                  </>
-                )}
-                <Row label="Radius">
-                  <NumberInput value={aggregated.borderRadius === 'mixed' ? null : (aggregated.borderRadius ?? null)} min={0}
-                    onChange={v => applyToAll({ borderRadius: v })} placeholder="Mixed" />
+                <ColorRow label="Color"
+                  value={aggregated.color === 'mixed' ? '' : (aggregated.color || '')}
+                  onChange={v => applyToAll({ color: v })} />
+                <Row label="Size">
+                  <NumberInput value={aggregated.fontSize === 'mixed' ? null : (aggregated.fontSize ?? null)} min={1}
+                    onChange={v => applyToAll({ fontSize: v })} placeholder="Mixed" />
                 </Row>
               </>
             )}
-
-            {/* Opacity — always shown */}
-            <Row label="Opacity">
-              <NumberInput
-                value={isSingle ? (projected?.opacity ?? 1) : (aggregated.opacity === 'mixed' ? null : (aggregated.opacity ?? null))}
-                min={0} max={1} step={0.1}
-                onChange={v => {
-                  const clamped = Math.min(1, Math.max(0, v));
-                  isSingle ? applyChange({ opacity: clamped }) : applyToAll({ opacity: clamped });
-                }}
-                placeholder="Mixed"
-              />
-            </Row>
           </div>
         </>
       )}
 
-      {/* Stroke Endpoints (SVG single, open paths only) */}
-      {isSingle && isSvg && projected && projected.isOpenPath && (
+      {/* §7 Fill */}
+      {((isSingle && projected && element) || (isMulti && support.fill)) && (
         <>
-          <SectionHeader>Stroke Endpoints</SectionHeader>
+          <SectionHeader>Fill</SectionHeader>
           <div className="p-3 space-y-2">
-            <Row label="Cap">
-              <select value={projected.svgStrokeLinecap || 'butt'}
-                onChange={e => {
-                  const cap = e.target.value as 'butt' | 'round' | 'square';
-                  onUpdateElement(element!.id, { html: applyStrokeLinecap(element!.html, cap) });
+            {isSingle && projected && element && (
+              <FillSection element={element} projected={projected} onApply={applyChange} onUpdateElement={onUpdateElement} />
+            )}
+            {isMulti && support.fill && (
+              <ColorRow label="Fill"
+                value={aggregated.svgFill === 'mixed' ? '' : (aggregated.svgFill || aggregated.backgroundColor || '')}
+                onChange={v => {
+                  const hasSvg = leaves.some(l => l.html.includes('<svg'));
+                  const hasNonSvg = leaves.some(l => !l.html.includes('<svg'));
+                  if (hasSvg) applyToAll({ svgFill: v });
+                  if (hasNonSvg) applyToAll({ backgroundColor: v });
                 }}
-                className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                <option value="butt">Butt</option>
-                <option value="round">Round</option>
-                <option value="square">Square</option>
-              </select>
-            </Row>
-            <Row label="Start">
-              <select value={projected.svgMarkerStart || 'none'}
-                onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'start', e.target.value as MarkerType) })}
-                className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                <option value="none">None</option>
-                <option value="arrow">Arrow</option>
-                <option value="triangle">Triangle</option>
-                <option value="triangle-reversed">Triangle Rev.</option>
-                <option value="circle">Circle</option>
-                <option value="diamond">Diamond</option>
-              </select>
-            </Row>
-            <Row label="End">
-              <select value={projected.svgMarkerEnd || 'none'}
-                onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'end', e.target.value as MarkerType) })}
-                className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
-                <option value="none">None</option>
-                <option value="arrow">Arrow</option>
-                <option value="triangle">Triangle</option>
-                <option value="triangle-reversed">Triangle Rev.</option>
-                <option value="circle">Circle</option>
-                <option value="diamond">Diamond</option>
-              </select>
-            </Row>
+              />
+            )}
           </div>
         </>
       )}
 
-      {/* Effects / Shadow */}
-      {isSingle && element && projected && (
+      {/* §8 Stroke (svg / html-block border / multi) + endpoints (svg open path) */}
+      {((isSingle && projected?.isSvgShape) || (isSingle && isHtmlBlock && projected) || (isMulti && support.stroke)) && (
         <>
-          <SectionHeader>Effects</SectionHeader>
-          <div className="p-3">
-            <ShadowSection element={element} projected={projected} onUpdateElement={onUpdateElement} />
+          <SectionHeader>Stroke</SectionHeader>
+          <div className="p-3 space-y-2">
+            {isSingle && projected?.isSvgShape && (
+              <>
+                <ColorRow label="Color" value={projected.svgStroke || ''}
+                  onChange={v => applyChange({ svgStroke: v })}
+                  allowNone onClear={() => applyChange({ svgStroke: 'none' })} />
+                <Row label="Width">
+                  <NumberInput value={projected.svgStrokeWidth ?? 2} min={0} step={0.5}
+                    onChange={v => applyChange({ svgStrokeWidth: v })} />
+                </Row>
+                <Row label="Dash">
+                  <select value={projected.svgStrokeDasharray || ''}
+                    onChange={e => applyChange({ svgStrokeDasharray: e.target.value })}
+                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                    <option value="">Solid</option>
+                    <option value="8 4">Dashed</option>
+                    <option value="2 2">Dotted</option>
+                    <option value="12 4 4 4">Dash-dot</option>
+                  </select>
+                </Row>
+                <Row label="Align">
+                  <select value={projected.svgStrokeAlignment || 'center'}
+                    onChange={e => applyChange({ svgStrokeAlignment: e.target.value as 'center' | 'inside' | 'outside' })}
+                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                    <option value="center">Center</option>
+                    <option value="inside">Inside</option>
+                    <option value="outside">Outside</option>
+                  </select>
+                </Row>
+                {projected.isOpenPath && (
+                  <>
+                    <Row label="Cap">
+                      <select value={projected.svgStrokeLinecap || 'butt'}
+                        onChange={e => {
+                          const cap = e.target.value as 'butt' | 'round' | 'square';
+                          onUpdateElement(element!.id, { html: applyStrokeLinecap(element!.html, cap) });
+                        }}
+                        className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                        <option value="butt">Butt</option>
+                        <option value="round">Round</option>
+                        <option value="square">Square</option>
+                      </select>
+                    </Row>
+                    <Row label="Start">
+                      <select value={projected.svgMarkerStart || 'none'}
+                        onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'start', e.target.value as MarkerType) })}
+                        className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                        <option value="none">None</option>
+                        <option value="arrow">Arrow</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="triangle-reversed">Triangle Rev.</option>
+                        <option value="circle">Circle</option>
+                        <option value="diamond">Diamond</option>
+                      </select>
+                    </Row>
+                    <Row label="End">
+                      <select value={projected.svgMarkerEnd || 'none'}
+                        onChange={e => onUpdateElement(element!.id, { html: applySvgMarker(element!.html, 'end', e.target.value as MarkerType) })}
+                        className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                        <option value="none">None</option>
+                        <option value="arrow">Arrow</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="triangle-reversed">Triangle Rev.</option>
+                        <option value="circle">Circle</option>
+                        <option value="diamond">Diamond</option>
+                      </select>
+                    </Row>
+                  </>
+                )}
+              </>
+            )}
+            {isSingle && isHtmlBlock && projected && (
+              <>
+                <ColorRow label="Color" value={projected.borderColor || ''}
+                  onChange={v => applyChange({ borderColor: v })}
+                  allowNone onClear={() => applyChange({ borderColor: 'none', borderWidth: 0 })} />
+                <Row label="Width">
+                  <NumberInput value={projected.borderWidth ?? 0} min={0} step={0.5}
+                    onChange={v => applyChange({ borderWidth: v })} />
+                </Row>
+                <Row label="Style">
+                  <select value={projected.borderStyle || 'solid'}
+                    onChange={e => applyChange({ borderStyle: e.target.value as 'solid' | 'dashed' | 'dotted' })}
+                    className="w-full text-[11px] px-1.5 py-1 rounded border bg-background">
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </Row>
+              </>
+            )}
+            {isMulti && support.stroke && (
+              <>
+                <ColorRow label="Color"
+                  value={aggregated.svgStroke === 'mixed' ? '' : (aggregated.svgStroke || '')}
+                  onChange={v => applyToAll({ svgStroke: v })}
+                  allowNone onClear={() => applyToAll({ svgStroke: 'none' })} />
+                <Row label="Width">
+                  <NumberInput value={aggregated.svgStrokeWidth === 'mixed' ? null : (aggregated.svgStrokeWidth ?? null)} min={0} step={0.5}
+                    onChange={v => applyToAll({ svgStrokeWidth: v })} placeholder="Mixed" />
+                </Row>
+              </>
+            )}
           </div>
         </>
       )}
 
-      {/* Multi-select: shadow (#11) */}
-      {isMulti && support.shadow && (
+      {/* §9 Shadow (single + multi) */}
+      {((isSingle && element && projected) || (isMulti && support.shadow)) && (
         <>
-          <SectionHeader>Effects</SectionHeader>
+          <SectionHeader>Shadow</SectionHeader>
           <div className="p-3">
-            <span className="text-[11px] text-muted-foreground italic">Shadow: {aggregated.boxShadow === 'mixed' ? 'Mixed' : (aggregated.boxShadow ? 'Active' : 'None')}</span>
+            {isSingle && element && projected && (
+              <ShadowSection element={element} projected={projected} onUpdateElement={onUpdateElement} />
+            )}
+            {isMulti && support.shadow && (
+              <span className="text-[11px] text-muted-foreground italic">Shadow: {aggregated.boxShadow === 'mixed' ? 'Mixed' : (aggregated.boxShadow ? 'Active' : 'None')}</span>
+            )}
           </div>
         </>
       )}
 
-      {/* HTML Code */}
+      {/* §10 HTML Code (single, non-group) */}
       {isSingle && !isGroup && (
         <>
           <SectionHeader collapsed={!showCode} onToggle={() => setShowCode(v => !v)}>HTML Code</SectionHeader>
@@ -1460,7 +1484,7 @@ export function CanvasPropertyPanel({
         </>
       )}
 
-      {/* Export */}
+      {/* §11 Export */}
       {onExportPng && (
         <>
           <SectionHeader>Export</SectionHeader>
@@ -1484,7 +1508,8 @@ export function CanvasPropertyPanel({
           </div>
         </>
       )}
-      </div>
+
+      </div>{/* /flex-1 overflow-y-auto */}
     </div>
   );
 }

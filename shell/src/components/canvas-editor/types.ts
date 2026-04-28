@@ -9,6 +9,8 @@ export interface CanvasElement {
   locked?: boolean;
   z_index?: number;
   rotation?: number;
+  /** When true, drag-resize keeps the original aspect ratio without needing Shift. Toggled by the property panel "Lock aspect ratio" button. */
+  aspect_locked?: boolean;
   // CSS transform-origin offset relative to element top-left (0..1 fractions
   // along the element's width and height). Defaults to 0.5/0.5 (center center)
   // when undefined. Used after vector-edit reassemble so the rotation pivot

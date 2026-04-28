@@ -27,6 +27,8 @@ import { getPublicOrigin } from '@/lib/remote-access';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
 import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
+import { ActorInlineAvatar } from '@/components/shared/ActorInlineAvatar';
+import { formatRelativeTime } from '@/lib/utils/time';
 import { ShapePicker, SHAPE_MAP, regularPolygonPath, regularStarPath, type ShapeType } from '@/components/shared/ShapeSet';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -682,6 +684,7 @@ export function CanvasEditor({
     startX: number; startY: number;
     origX: number; origY: number; origW: number; origH: number;
     origRotation?: number; // only used by 'rotate' drag type
+    origAspectLocked?: boolean; // only used by 'resize' drag type
     origPanX?: number; origPanY?: number;
     origPositions?: Map<string, { x: number; y: number }>;
     origHtml?: string;
@@ -696,8 +699,13 @@ export function CanvasEditor({
     refetchOnWindowFocus: false,
   });
 
+  // Only seed local state from the first fetch. Subsequent refetches (e.g.
+  // from invalidate-after-save to refresh the topbar's updated_at) must NOT
+  // overwrite in-flight local edits.
+  const initializedFromServerRef = useRef(false);
   useEffect(() => {
-    if (canvasResp?.data) {
+    if (canvasResp?.data && !initializedFromServerRef.current) {
+      initializedFromServerRef.current = true;
       const d = canvasResp.data;
       if (d.pages.length > 0 && !d.pages[0].frame_x && !d.pages[0].frame_y) {
         let x = 0;
@@ -734,10 +742,16 @@ export function CanvasEditor({
       if (!toSave) return;
       pendingDataRef.current = null;
       setSaveStatus('Saving...');
-      try { await gw.saveCanvas(canvasId, toSave); setSaveStatus('Saved'); setTimeout(() => setSaveStatus(''), 2000); }
+      try {
+        await gw.saveCanvas(canvasId, toSave);
+        setSaveStatus('Saved');
+        setTimeout(() => setSaveStatus(''), 2000);
+        // Refresh updated_at / updated_by in the topbar's metaLine.
+        queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
+      }
       catch (e) { setSaveStatus('Save failed'); showError('Failed to save canvas', e); }
     }, 800);
-  }, [canvasId]);
+  }, [canvasId, queryClient]);
 
   const updateData = useCallback((updater: (prev: CanvasData) => CanvasData) => {
     setData(prev => {
@@ -1094,28 +1108,45 @@ export function CanvasEditor({
         if (d.handle.includes('w')) { nW = Math.max(20, d.origW - localDx); nXLocal = d.origX + d.origW - nW; }
         if (d.handle.includes('s')) nH = Math.max(20, d.origH + localDy);
         if (d.handle.includes('n')) { nH = Math.max(20, d.origH - localDy); nYLocal = d.origY + d.origH - nH; }
-        if (e instanceof MouseEvent && e.shiftKey && d.origW > 0 && d.origH > 0 && d.handle.length === 2) {
+        const aspectLockActive = (e instanceof MouseEvent && e.shiftKey) || d.origAspectLocked === true;
+        if (aspectLockActive && d.origW > 0 && d.origH > 0) {
           const ratio = d.origW / d.origH;
-          const dw = Math.abs(nW - d.origW);
-          const dh = Math.abs(nH - d.origH);
-          if (dw >= dh) {
-            nH = nW / ratio;
-            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+          const isCorner = d.handle.length === 2;
+          if (isCorner) {
+            // Corner: pick the larger delta as the driver, derive the other.
+            const dw = Math.abs(nW - d.origW);
+            const dh = Math.abs(nH - d.origH);
+            if (dw >= dh) {
+              nH = nW / ratio;
+              if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+            } else {
+              nW = nH * ratio;
+              if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
+            }
+            if (nW < 20) {
+              nW = 20;
+              nH = nW / ratio;
+              if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+              if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
+            }
+            if (nH < 20) {
+              nH = 20;
+              nW = nH * ratio;
+              if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
+              if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+            }
           } else {
-            nW = nH * ratio;
-            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
-          }
-          if (nW < 20) {
-            nW = 20;
-            nH = nW / ratio;
-            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
-            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
-          }
-          if (nH < 20) {
-            nH = 20;
-            nW = nH * ratio;
-            if (d.handle.includes('w')) nXLocal = d.origX + d.origW - nW;
-            if (d.handle.includes('n')) nYLocal = d.origY + d.origH - nH;
+            // Edge: derive the orthogonal dimension and grow it symmetrically
+            // around the original midline so the dragged edge feels anchored.
+            if (d.handle === 'e' || d.handle === 'w') {
+              nH = Math.max(20, nW / ratio);
+              if (nH * ratio !== nW) nW = nH * ratio;
+              nYLocal = d.origY + (d.origH - nH) / 2;
+            } else if (d.handle === 'n' || d.handle === 's') {
+              nW = Math.max(20, nH * ratio);
+              if (nW / ratio !== nH) nH = nW / ratio;
+              nXLocal = d.origX + (d.origW - nW) / 2;
+            }
           }
         }
         // Map the new center from local-frame delta back to world.
@@ -1690,7 +1721,7 @@ export function CanvasEditor({
     const deepCloneChildren = (children: CanvasElement[]): CanvasElement[] =>
       children.map(c => ({ ...c, children: c.children ? deepCloneChildren(c.children) : undefined }));
     undoRedo.beginBatch();
-    dragRef.current = { type: 'resize', elementId: id, frameId: frameId ?? undefined, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origRotation: el.rotation, origHtml: el.html?.includes('<svg') ? el.html : undefined, origChildren: el.type === 'group' && el.children ? deepCloneChildren(el.children) : undefined };
+    dragRef.current = { type: 'resize', elementId: id, frameId: frameId ?? undefined, handle, startX: pos.clientX, startY: pos.clientY, origX: el.x, origY: el.y, origW: el.w, origH: el.h, origRotation: el.rotation, origAspectLocked: el.aspect_locked === true, origHtml: el.html?.includes('<svg') ? el.html : undefined, origChildren: el.type === 'group' && el.children ? deepCloneChildren(el.children) : undefined };
   }, [data, undoRedo]);
 
   const handleRotateStart = useCallback((frameId: string | null, id: string, e: React.MouseEvent | React.TouchEvent) => {
@@ -2652,6 +2683,15 @@ export function CanvasEditor({
             statusText={saveStatus}
             actions={renderFixedTopBarActions(fixedActions, { t, ctx: topBarCtx as any })}
             menuItems={menuItems}
+            metaLine={canvasResp ? (
+              <button
+                onClick={() => setShowRevisions(true)}
+                className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer"
+              >
+                {t('content.lastModified')}: {formatRelativeTime(canvasResp.updated_at, t)}
+                {canvasResp.updated_by && <span> {t('content.by')} <ActorInlineAvatar name={canvasResp.updated_by} /> {canvasResp.updated_by}</span>}
+              </button>
+            ) : undefined}
             onHistory={() => setShowRevisions(v => !v)} onComments={onToggleComments} />
         </div>
 
@@ -2955,7 +2995,7 @@ export function CanvasEditor({
                                   if (!isDeepest) return;
                                   const pos = getClientPos(e); if (!pos) return;
                                   undoRedo.beginBatch();
-                                  dragRef.current = { type: 'resize', elementId: id, frameId: frame.page_id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                                  dragRef.current = { type: 'resize', elementId: id, frameId: frame.page_id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origAspectLocked: child.aspect_locked === true, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
                                 }}
                                 onRotateStart={(id, e) => {
                                   if (!isDeepest) return;
@@ -3124,7 +3164,7 @@ export function CanvasEditor({
                             if (!isDeepest) return;
                             const pos = getClientPos(e); if (!pos) return;
                             undoRedo.beginBatch();
-                            dragRef.current = { type: 'resize', elementId: id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
+                            dragRef.current = { type: 'resize', elementId: id, handle, groupId: activeGroupId!, startX: pos.clientX, startY: pos.clientY, origX: child.x, origY: child.y, origW: child.w, origH: child.h, origRotation: child.rotation, origAspectLocked: child.aspect_locked === true, origHtml: child.html?.includes('<svg') ? child.html : undefined, origChildren: child.type === 'group' && child.children ? child.children : undefined };
                           }}
                           onRotateStart={(id, e) => {
                             if (!isDeepest) return;
