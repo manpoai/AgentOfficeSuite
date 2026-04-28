@@ -8,8 +8,9 @@ import {
   Type, Minus as LineIcon, ChevronDown, ChevronRight,
   Undo2, Redo2, X, Settings, Copy, Diamond, Ban,
   ArrowUp, ArrowDown, Lock, Unlock, Hexagon, ImagePlus,
-  Eye, EyeOff,
+  Eye, EyeOff, Download,
 } from 'lucide-react';
+import { exportVideoToBlob, downloadExport } from './videoExport';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
@@ -369,6 +370,10 @@ export function VideoEditor({
     playheadLocal: number;
   } | null>(null);
 
+  // Export state.
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+
   // Timeline tracks expanded into per-property sub-rows.
   const [expandedTracks, setExpandedTracks] = useState<Set<string>>(new Set());
   const toggleTrackExpanded = useCallback((id: string) => {
@@ -692,6 +697,38 @@ export function VideoEditor({
       elements: d.elements.map(e => e.id === elementId ? { ...e, name: name.trim() || undefined } : e),
     }));
   }, [updateData]);
+
+  /** Run the client-side export pipeline. Outputs webm in iteration 1; mp4
+   *  transcoding deferred. */
+  const handleExport = useCallback(async () => {
+    if (!data || data.elements.length === 0) {
+      showError('Nothing to export', new Error('Add at least one element first.'));
+      return;
+    }
+    if (exportProgress) return;  // already running
+    setPlaying(false);  // stop preview playback during export
+    const ac = new AbortController();
+    exportAbortRef.current = ac;
+    try {
+      setExportProgress({ current: 0, total: 1 });
+      const result = await exportVideoToBlob(data, {
+        onProgress: (current, total) => setExportProgress({ current, total }),
+        signal: ac.signal,
+      });
+      downloadExport(result, title || `video-${videoId}`);
+    } catch (e) {
+      if ((e as any)?.name !== 'AbortError') {
+        showError('Export failed', e);
+      }
+    } finally {
+      setExportProgress(null);
+      exportAbortRef.current = null;
+    }
+  }, [data, exportProgress, title, videoId]);
+
+  const cancelExport = useCallback(() => {
+    exportAbortRef.current?.abort();
+  }, []);
 
   /** Bump z-index — moves element up (toward front) or down (toward back) by
    *  swapping z-index values with the immediate neighbor in z-index order. */
@@ -1097,6 +1134,8 @@ export function VideoEditor({
                 <ToolBtn icon={Redo2} onClick={handleRedo} disabled={!undoRedo.canRedo} title="Redo" />
                 <div className="w-px h-6 bg-black/10 dark:bg-white/10 mx-0.5" />
                 <ToolBtn icon={Settings} onClick={() => setShowSettings(v => !v)} active={showSettings} title="Canvas Settings" />
+                <div className="w-px h-6 bg-black/10 dark:bg-white/10 mx-0.5" />
+                <ToolBtn icon={Download} onClick={handleExport} disabled={!!exportProgress} title="Export video (webm)" />
               </div>
 
               {/* Image upload button (hidden) */}
@@ -1373,6 +1412,38 @@ export function VideoEditor({
           onPick={resolveIntent}
           onCancel={() => setPendingIntent(null)} />
       )}
+
+      {/* Export progress modal (Phase 6). */}
+      {exportProgress && (
+        <ExportProgressDialog
+          current={exportProgress.current}
+          total={exportProgress.total}
+          onCancel={cancelExport} />
+      )}
+    </div>
+  );
+}
+
+// ─── Export Progress Dialog ────────
+
+function ExportProgressDialog({ current, total, onCancel }: { current: number; total: number; onCancel: () => void }) {
+  const pct = Math.round((current / Math.max(1, total)) * 100);
+  return (
+    <div className="fixed inset-0 z-[10100] bg-black/40 flex items-center justify-center">
+      <div className="bg-card rounded-lg shadow-2xl w-[420px] p-5 border border-border">
+        <h3 className="text-sm font-semibold mb-2">Exporting video…</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Frame {current} / {total} · {pct}%
+        </p>
+        <div className="w-full h-2 bg-muted rounded overflow-hidden mb-4">
+          <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
