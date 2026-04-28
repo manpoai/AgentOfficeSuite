@@ -297,8 +297,8 @@ export function ContentTopBar({
                   </button>
                   {showDesktopMenu && (
                     <>
-                      <div className="fixed inset-0 z-40" onClick={() => setShowDesktopMenu(false)} />
-                      <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-52">
+                      <div className="fixed inset-0 z-[10010]" onClick={() => setShowDesktopMenu(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-[10020] bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 w-52">
                         {menuItems.map((item, i) => (
                           <div key={i}>
                             {item.separator && <div className="border-t border-black/10 dark:border-border my-0.5" />}
