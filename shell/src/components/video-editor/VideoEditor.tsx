@@ -8,6 +8,7 @@ import {
   Type, Minus as LineIcon, ChevronDown, ChevronRight,
   Undo2, Redo2, X, Settings, Copy, Diamond, Ban,
   ArrowUp, ArrowDown, Lock, Unlock, Hexagon, ImagePlus,
+  Eye, EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -69,6 +70,80 @@ function NumberInput({ label, value, onChange, min, max, step = 1 }: {
       <input type="number" value={Math.round(value * 100) / 100} min={min} max={max} step={step}
         onChange={e => onChange(parseFloat(e.target.value) || 0)}
         className="flex-1 text-[11px] px-1.5 py-1 rounded border bg-background font-mono" />
+    </div>
+  );
+}
+
+/** Timeline track label cell. Carries the layer-panel responsibilities that
+ *  Canvas keeps in a separate Layers sidebar: visibility toggle, lock toggle,
+ *  inline rename, z-index reorder. */
+function TrackLabel({
+  el, isHidden, isLocked, canMoveUp, canMoveDown,
+  onToggleVisible, onToggleLock, onRename, onMoveUp, onMoveDown,
+}: {
+  el: VideoElement;
+  isHidden: boolean;
+  isLocked: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onToggleVisible: () => void;
+  onToggleLock: () => void;
+  onRename: (name: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  return (
+    <div className="w-[200px] shrink-0 px-2 flex items-center gap-1 truncate text-xs">
+      <button
+        className="p-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={(e) => { e.stopPropagation(); onToggleVisible(); }}
+        title={isHidden ? 'Show element' : 'Hide element'}>
+        {isHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+      </button>
+      <button
+        className={cn('p-0.5 shrink-0', isLocked ? 'text-foreground' : 'text-muted-foreground/40 hover:text-muted-foreground')}
+        onClick={(e) => { e.stopPropagation(); onToggleLock(); }}
+        title={isLocked ? 'Unlock element' : 'Lock element'}>
+        {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+      </button>
+      {el.type === 'text' ? <Type className="w-3 h-3 shrink-0 text-muted-foreground" /> : <Hexagon className="w-3 h-3 shrink-0 text-muted-foreground" />}
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={() => { onRename(draft); setEditing(false); }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { onRename(draft); setEditing(false); }
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          onClick={e => e.stopPropagation()}
+          className="flex-1 min-w-0 text-xs px-1 py-0.5 rounded border bg-background"
+        />
+      ) : (
+        <span
+          className="truncate flex-1 cursor-text"
+          onDoubleClick={(e) => { e.stopPropagation(); setDraft(el.name ?? el.type ?? ''); setEditing(true); }}
+          title="Double-click to rename">
+          {el.name ?? el.type ?? 'element'}
+        </span>
+      )}
+      <button
+        disabled={!canMoveUp}
+        className="p-0.5 shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+        onClick={(e) => { e.stopPropagation(); onMoveUp(); }}
+        title="Bring forward (higher z-index)">
+        <ArrowUp className="w-3 h-3" />
+      </button>
+      <button
+        disabled={!canMoveDown}
+        className="p-0.5 shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+        onClick={(e) => { e.stopPropagation(); onMoveDown(); }}
+        title="Send backward (lower z-index)">
+        <ArrowDown className="w-3 h-3" />
+      </button>
     </div>
   );
 }
@@ -572,6 +647,50 @@ export function VideoEditor({
     updateData(d => ({ ...d, elements: d.elements.map(e => e.id === elementId ? updated : e) }));
   }, [data, updateData]);
 
+  // ─── Layer / Track ops (Phase 4) ────
+  const toggleVisible = useCallback((elementId: string) => {
+    updateData(d => ({
+      ...d,
+      elements: d.elements.map(e => e.id === elementId ? { ...e, visible: e.visible === false ? true : false } : e),
+    }));
+  }, [updateData]);
+
+  const toggleLock = useCallback((elementId: string) => {
+    updateData(d => ({
+      ...d,
+      elements: d.elements.map(e => e.id === elementId ? { ...e, locked: !e.locked } : e),
+    }));
+  }, [updateData]);
+
+  const renameElement = useCallback((elementId: string, name: string) => {
+    updateData(d => ({
+      ...d,
+      elements: d.elements.map(e => e.id === elementId ? { ...e, name: name.trim() || undefined } : e),
+    }));
+  }, [updateData]);
+
+  /** Bump z-index — moves element up (toward front) or down (toward back) by
+   *  swapping z-index values with the immediate neighbor in z-index order. */
+  const moveZIndex = useCallback((elementId: string, direction: 'up' | 'down') => {
+    if (!data) return;
+    // Stable sort by z-index ascending
+    const ordered = [...data.elements].sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0));
+    const i = ordered.findIndex(e => e.id === elementId);
+    if (i < 0) return;
+    const j = direction === 'up' ? i + 1 : i - 1;  // up = higher z (toward front)
+    if (j < 0 || j >= ordered.length) return;
+    const a = ordered[i], b = ordered[j];
+    const az = a.z_index ?? 0, bz = b.z_index ?? 0;
+    updateData(d => ({
+      ...d,
+      elements: d.elements.map(e => {
+        if (e.id === a.id) return { ...e, z_index: bz };
+        if (e.id === b.id) return { ...e, z_index: az };
+        return e;
+      }),
+    }));
+  }, [data, updateData]);
+
   // ─── Playback ─────────────────────────
   useEffect(() => {
     if (!playing) { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); return; }
@@ -905,6 +1024,7 @@ export function VideoEditor({
   }
 
   const visibleElements = data.elements.filter(el => {
+    if (el.visible === false) return false;
     const relTime = currentTime - el.start;
     return relTime >= 0 && relTime <= el.duration;
   });
@@ -1050,7 +1170,7 @@ export function VideoEditor({
                 <span className="text-xs text-muted-foreground font-mono">{formatTime(currentTime)} / {formatTime(totalDuration)}</span>
               </div>
               <div className="flex-1 overflow-auto">
-                <div className="h-6 border-b border-border relative bg-muted/30 ml-[140px] cursor-pointer"
+                <div className="h-6 border-b border-border relative bg-muted/30 ml-[200px] cursor-pointer"
                   onClick={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     setCurrentTime(Math.max(0, Math.min(totalDuration, ((e.clientX - rect.left) / rect.width) * timelineDuration)));
@@ -1064,15 +1184,23 @@ export function VideoEditor({
                     <div className="w-2.5 h-2.5 bg-red-500 rounded-sm -ml-[4px] -mt-0.5" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%)' }} />
                   </div>
                 </div>
-                {data.elements.map(el => {
+                {[...data.elements].sort((a, b) => (b.z_index ?? 0) - (a.z_index ?? 0)).map((el, idx, sorted) => {
                   const markers = getMarkers(el);
+                  const isHidden = el.visible === false;
+                  const isLocked = !!el.locked;
+                  const canMoveUp = idx > 0;            // not at top of list (already highest z)
+                  const canMoveDown = idx < sorted.length - 1; // not at bottom
                   return (
-                    <div key={el.id} data-timeline-track className={cn("flex items-center h-8 border-b border-border/50", selectedElementId === el.id && "bg-accent/30")}
+                    <div key={el.id} data-timeline-track className={cn("flex items-center h-8 border-b border-border/50", selectedElementId === el.id && "bg-accent/30", isHidden && "opacity-50")}
                       onClick={() => { setSelectedElementId(el.id); setSelectedMarkerTime(null); }}>
-                      <div className="w-[140px] shrink-0 px-2 flex items-center gap-1.5 truncate text-xs">
-                        {el.type === 'text' ? <Type className="w-3 h-3 shrink-0" /> : <Hexagon className="w-3 h-3 shrink-0" />}
-                        <span className="truncate">{el.name ?? el.type ?? 'element'}</span>
-                      </div>
+                      <TrackLabel
+                        el={el} isHidden={isHidden} isLocked={isLocked}
+                        canMoveUp={canMoveUp} canMoveDown={canMoveDown}
+                        onToggleVisible={() => toggleVisible(el.id)}
+                        onToggleLock={() => toggleLock(el.id)}
+                        onRename={(name) => renameElement(el.id, name)}
+                        onMoveUp={() => moveZIndex(el.id, 'up')}
+                        onMoveDown={() => moveZIndex(el.id, 'down')} />
                       <div className="flex-1 relative h-full">
                         <div className={cn("absolute top-1 bottom-1 rounded-sm group", selectedElementId === el.id ? "bg-blue-500/60" : "bg-blue-500/30")}
                           style={{ left: `${(el.start / timelineDuration) * 100}%`, width: `${(el.duration / timelineDuration) * 100}%` }}>
