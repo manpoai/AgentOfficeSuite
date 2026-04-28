@@ -26,6 +26,7 @@ import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-comm
 import { getPublicOrigin } from '@/lib/remote-access';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
+import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
 import { ShapePicker, SHAPE_MAP, regularPolygonPath, regularStarPath, type ShapeType } from '@/components/shared/ShapeSet';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent,
@@ -640,6 +641,8 @@ export function CanvasEditor({
   const [pan, setPan] = useState({ x: 100, y: 100 });
   const [saveStatus, setSaveStatus] = useState('');
   const [showRevisions, setShowRevisions] = useState(false);
+  const [previewRevisionData, setPreviewRevisionData] = useState<CanvasData | null>(null);
+  const [previewRevisionMeta, setPreviewRevisionMeta] = useState<{ id: string; created_at: string } | null>(null);
   const [showPropertyPanel, setShowPropertyPanel] = useState(true);
   const [showLayers, setShowLayers] = useState(true);
   const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
@@ -2675,6 +2678,65 @@ export function CanvasEditor({
             onDrop={handleCanvasDrop} onDragOver={handleCanvasDragOver}
             onContextMenu={onBlankContextMenu}>
 
+            {/* Revision preview overlay — covers the live editor, read-only grid of frames */}
+            {previewRevisionData && previewRevisionMeta && (
+              <div
+                className="absolute inset-0 flex flex-col bg-card"
+                data-overlay-scrollable
+                style={{ zIndex: 11000 }}
+                onMouseDown={e => e.stopPropagation()}
+                onPointerDown={e => e.stopPropagation()}
+              >
+                <RevisionPreviewBanner
+                  createdAt={previewRevisionMeta.created_at}
+                  onExit={() => { setPreviewRevisionData(null); setPreviewRevisionMeta(null); }}
+                  onRestore={async () => {
+                    if (!confirm(t('content.restoreVersionWarning', { type: t('content.typeCanvas') }))) return;
+                    try {
+                      const result = await gw.restoreContentRevision(contentId, previewRevisionMeta.id);
+                      const restored = (result?.data ?? null) as CanvasData | null;
+                      if (restored) {
+                        setData(restored);
+                        scheduleSave(restored);
+                      }
+                      setPreviewRevisionData(null);
+                      setPreviewRevisionMeta(null);
+                      setShowRevisions(false);
+                    } catch (e: unknown) {
+                      alert(e instanceof Error ? e.message : t('content.restoreVersionFailed'));
+                    }
+                  }}
+                />
+                <div className="flex-1 overflow-auto p-6 bg-muted/30">
+                  {previewRevisionData.pages && previewRevisionData.pages.length > 0 ? (
+                    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+                      {previewRevisionData.pages.map(page => {
+                        const targetW = 800;
+                        const scale = page.width > 0 ? targetW / page.width : 1;
+                        const targetH = page.height * scale;
+                        return (
+                          <div key={page.page_id} className="rounded-lg border border-border shadow-sm overflow-hidden bg-card">
+                            <div className="px-3 py-2 border-b border-border bg-muted/30">
+                              <span className="text-xs font-medium">{page.title || 'Frame'}</span>
+                              <span className="ml-2 text-[11px] text-muted-foreground">{Math.round(page.width)} × {Math.round(page.height)}</span>
+                            </div>
+                            <div className="relative bg-white" style={{ width: targetW, height: targetH }}>
+                              <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+                                <CanvasFrameExportView frame={page} />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center text-sm text-muted-foreground py-8">{t('content.noPreviewData')}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+
             <CanvasToolbar
               pendingInsert={pendingInsert}
               onSetPending={setPendingInsert}
@@ -3525,9 +3587,25 @@ export function CanvasEditor({
       )}
       {showRevisions && (
         <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
-          <RevisionHistory contentId={contentId} contentType="canvas" onClose={() => setShowRevisions(false)}
+          <RevisionHistory
+            contentId={contentId}
+            contentType="canvas"
+            selectedRevisionId={previewRevisionMeta?.id ?? null}
+            onClose={() => { setShowRevisions(false); setPreviewRevisionData(null); setPreviewRevisionMeta(null); }}
             onCreateManualVersion={handleCreateManualVersion}
-            onRestore={(revisionData) => { setData(revisionData as CanvasData); scheduleSave(revisionData as CanvasData); setShowRevisions(false); }} />
+            onSelectRevision={(rev) => {
+              if (!rev) { setPreviewRevisionData(null); setPreviewRevisionMeta(null); return; }
+              setPreviewRevisionData(rev.data as CanvasData);
+              setPreviewRevisionMeta({ id: rev.id, created_at: rev.created_at });
+            }}
+            onRestore={(revisionData) => {
+              setData(revisionData as CanvasData);
+              scheduleSave(revisionData as CanvasData);
+              setShowRevisions(false);
+              setPreviewRevisionData(null);
+              setPreviewRevisionMeta(null);
+            }}
+          />
         </div>
       )}
     </div>
