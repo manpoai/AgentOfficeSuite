@@ -16,6 +16,7 @@ import {
   TextAlignStart, TextAlignCenter, TextAlignEnd, TextAlignJustify,
   ArrowUpToLine, SeparatorHorizontal, ArrowDownToLine,
   Minus, Underline, Strikethrough,
+  Grip,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
@@ -173,7 +174,7 @@ function SubsectionHeader({ children }: { children: React.ReactNode }) {
 // Used for X/Y/W/H/Rotation/Opacity/Radius and similar across sections.
 
 // Tailwind class string used by selects to match LabeledNumberInput visual.
-const SELECT_CLASS = 'w-full text-[10px] pl-2 pr-5 h-6 rounded bg-muted/60 hover:bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none cursor-pointer';
+const SELECT_CLASS = 'w-full text-[10px] pl-2 pr-5 h-6 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 appearance-none cursor-pointer';
 
 // Wraps a <select> so the chevron sits a few pixels in from the right edge
 // rather than glued to the border (Figma-style). Use this anywhere we'd
@@ -204,7 +205,7 @@ function LabeledNumberInput({
   suffix?: string; placeholder?: string;
 }) {
   return (
-    <label className="flex items-center gap-1.5 px-2 h-6 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 cursor-text">
+    <label className="flex items-center gap-1.5 px-2 h-6 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 cursor-text">
       <span className="text-[10px] text-muted-foreground shrink-0 select-none">{label}</span>
       <NumberInput
         value={value}
@@ -458,6 +459,15 @@ function applyTextFill(html: string, op:
     s += ` color: transparent;`;
   }
   return html.replace(full, `${head}${s.trim()}${tail}`);
+}
+
+/** Expand a short 3-digit hex (e.g. "FA0") to its 6-digit form ("FFAA00").
+ *  Returns the input unchanged if it isn't a valid 3- or 6-digit hex. */
+function expandHex(raw: string): string {
+  const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
+  if (/^[0-9A-F]{6}$/.test(cleaned)) return cleaned;
+  if (/^[0-9A-F]{3}$/.test(cleaned)) return cleaned.split('').map(c => c + c).join('');
+  return cleaned;
 }
 
 /** Convert any color string (hex/rgb/rgba) to rgba(r,g,b,alpha). */
@@ -851,8 +861,8 @@ function TextSettingsPopover({
             <button
               className={cn('w-full h-6 text-[10px] flex items-center justify-center rounded transition-colors',
                 projected.textAlign === 'justify'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                  ? 'bg-white text-foreground ring-1 ring-border'
+                  : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
               onClick={() => applyChange({ textAlign: projected.textAlign === 'justify' ? 'left' : 'justify' })}>
               {projected.textAlign === 'justify' ? 'On' : 'Off'}
             </button>
@@ -868,8 +878,8 @@ function TextSettingsPopover({
                 <button key={d}
                   className={cn('h-6 flex items-center justify-center rounded transition-colors',
                     (projected.textDecoration ?? 'none') === d
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                      ? 'bg-white text-foreground ring-1 ring-border'
+                      : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
                   onClick={() => applyChange({ textDecoration: d })}
                   title={title}>
                   <Icon className="w-3 h-3" />
@@ -1005,7 +1015,8 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
   const handleHexCommit = (raw: string) => {
     const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
     if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
-    const next = '#' + cleaned;
+    const expanded = expandHex(cleaned);
+    const next = '#' + expanded;
     if (isText) {
       // Preserve current alpha if user is using rgba
       const newColor = textColorAlpha < 1 ? hexOrRgbToRgba(next, textColorAlpha) : next;
@@ -1050,27 +1061,18 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
       {fillMode === 'none' && null}
       {fillMode === 'solid' && !isGradient && (
         <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-          <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
-            {/* Smaller swatch (16px) to match image thumbnail size */}
-            <button
-              className="w-4 h-4 rounded border border-border shrink-0 relative overflow-hidden"
-              style={currentColor && currentColor !== 'none' ? { backgroundColor: currentColor } : undefined}
-              onClick={() => {
-                const inp = document.createElement('input');
-                inp.type = 'color';
-                inp.value = currentColor && currentColor.startsWith('#') ? currentColor : '#000000';
-                inp.onchange = () => {
-                  if (isText) {
-                    onUpdateElement(element.id, { html: applyTextFill(element.html, { kind: 'solid', color: inp.value }) });
-                  } else if (isSvg) {
-                    onApply({ svgFill: inp.value });
-                  } else {
-                    onApply({ backgroundColor: inp.value });
-                  }
-                };
-                inp.click();
+          <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+            <ColorPicker
+              value={currentColor || '#000000'}
+              onChange={c => {
+                if (isText) {
+                  onUpdateElement(element.id, { html: applyTextFill(element.html, { kind: 'solid', color: c }) });
+                } else if (isSvg) {
+                  onApply({ svgFill: c });
+                } else {
+                  onApply({ backgroundColor: c });
+                }
               }}
-              title={currentColor || 'Pick color'}
             />
             <HexTextInput
               value={hexNoHash}
@@ -1090,7 +1092,7 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
       )}
       {fillMode === 'solid' && isGradient && (
         <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-          <div className="col-span-2 flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 text-[10px] text-muted-foreground">
+          <div className="col-span-2 flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] text-[10px] text-muted-foreground">
             <Lock className="w-3 h-3 shrink-0" />
             <span className="italic">Gradient (edit HTML)</span>
           </div>
@@ -1101,10 +1103,10 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
         <div className="grid grid-cols-[auto_1fr_1fr_24px] gap-2 items-center">
           <button
             onClick={handleUpload}
-            className="w-9 h-6 rounded bg-muted/60 hover:bg-muted flex items-center justify-center"
+            className="w-9 h-6 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] flex items-center justify-center"
             title="Click to replace image"
           >
-            <div className="w-4 h-4 rounded bg-cover bg-center shrink-0 border border-border"
+            <div className="w-4 h-4 rounded bg-cover bg-center shrink-0"
               style={{ backgroundImage: `url('${currentUrl}')` }} />
           </button>
           <LabeledNumberInput
@@ -1132,6 +1134,55 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
 }
 
 // ── Shadow section ────────────────────────────────────────────────────────────
+
+type ShadowMode = 'none' | 'drop';
+
+function readShadowMode(element: CanvasElement, projected: ReturnType<typeof projectElement>): ShadowMode {
+  const isSvg = element.html.includes('<svg');
+  if (isSvg) return projected.svgDropShadow ? 'drop' : 'none';
+  return projected.boxShadow ? 'drop' : 'none';
+}
+
+function ShadowModeSelect({ element, projected, onUpdateElement }: {
+  element: CanvasElement;
+  projected: ReturnType<typeof projectElement>;
+  onUpdateElement: (id: string, updates: Partial<CanvasElement>) => void;
+}) {
+  const isSvg = element.html.includes('<svg');
+  const mode = readShadowMode(element, projected);
+  const switchTo = (next: ShadowMode) => {
+    if (next === mode) return;
+    if (next === 'drop') {
+      if (isSvg) {
+        onUpdateElement(element.id, { html: applySvgDropShadow(element.html, { dx: 0, dy: 4, stdDeviation: 4, color: '#000000', opacity: 0.25 }) });
+      } else {
+        const div = document.createElement('div');
+        div.innerHTML = element.html;
+        const el = div.firstElementChild as HTMLElement | null;
+        if (el) { el.style.boxShadow = '0px 4px 4px 0px rgba(0, 0, 0, 0.25)'; onUpdateElement(element.id, { html: div.innerHTML }); }
+      }
+    } else {
+      if (isSvg) {
+        onUpdateElement(element.id, { html: applySvgDropShadow(element.html, null) });
+      } else {
+        const div = document.createElement('div');
+        div.innerHTML = element.html;
+        const el = div.firstElementChild as HTMLElement | null;
+        if (el) { el.style.boxShadow = ''; onUpdateElement(element.id, { html: div.innerHTML }); }
+      }
+    }
+  };
+  return (
+    <select
+      value={mode}
+      onChange={e => switchTo(e.target.value as ShadowMode)}
+      className="text-[10px] pl-1.5 pr-1 h-6 rounded bg-transparent hover:bg-accent/30 border-0 text-foreground focus:outline-none cursor-pointer text-right"
+    >
+      <option value="none">None</option>
+      <option value="drop">Drop Shadow</option>
+    </select>
+  );
+}
 
 function ShadowSection({ element, projected, onUpdateElement }: {
   element: CanvasElement;
@@ -1170,93 +1221,113 @@ function ShadowSection({ element, projected, onUpdateElement }: {
   };
 
   if (!hasShadow) {
-    return (
-      <button onClick={() => {
-        if (isSvg) {
-          const newHtml = applySvgDropShadow(element.html, { dx: 0, dy: 4, stdDeviation: 4, color: '#000000', opacity: 0.25 });
-          onUpdateElement(element.id, { html: newHtml });
-        } else {
-          applyHtmlShadow({ x: 0, y: 4, blur: 4, spread: 0, color: '#000000', opacity: 0.25 });
-        }
-      }}
-        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
-        <Plus className="h-3 w-3" /> Add shadow
-      </button>
-    );
+    // Mode is None — header dropdown drives toggling. No body content.
+    return null;
   }
 
-  const removeShadow = () => {
+  // Both SVG and HTML drop shadows now share the same UI shape:
+  // X / Y row, Blur / Spread row, Color row (swatch + hex + alpha %).
+  const xVal = isSvg && parsedShadow ? parsedShadow.dx : (sh as any).x ?? 0;
+  const yVal = isSvg && parsedShadow ? parsedShadow.dy : (sh as any).y ?? 0;
+  const blurVal = isSvg && parsedShadow ? parsedShadow.stdDeviation : (sh as any).blur ?? 0;
+  const spreadVal = isSvg && parsedShadow ? (parsedShadow.spread ?? 0) : (sh as any).spread ?? 0;
+  const colorVal = isSvg && parsedShadow ? parsedShadow.color : (sh as any).color ?? '#000000';
+  const alphaVal = isSvg && parsedShadow ? parsedShadow.opacity : (() => {
+    // Try to read alpha from rgba in stored color, fall back to 1.
+    const m = String(colorVal).match(/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([0-9.]+)\)/);
+    return m ? parseFloat(m[1]) : 1;
+  })();
+  const colorHex = (() => {
+    const c = String(colorVal);
+    if (c.startsWith('#')) return c.slice(1).slice(0, 6).toUpperCase();
+    const m = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (m) {
+      const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+      return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+    }
+    return '';
+  })();
+
+  const writeShadow = (next: { x: number; y: number; blur: number; spread: number; color: string; alpha: number }) => {
     if (isSvg) {
-      onUpdateElement(element.id, { html: applySvgDropShadow(element.html, null) });
+      applySvgShadowChange({ dx: next.x, dy: next.y, stdDeviation: Math.max(0, next.blur), spread: next.spread, color: next.color, opacity: next.alpha });
     } else {
-      const div = document.createElement('div');
-      div.innerHTML = element.html;
-      const el = div.firstElementChild as HTMLElement | null;
-      if (el) { el.style.boxShadow = ''; onUpdateElement(element.id, { html: div.innerHTML }); }
+      // Encode alpha into rgba on the color so box-shadow keeps it
+      const c = next.color;
+      const hex = c.replace(/^#/, '');
+      const full = hex.length === 3 ? hex.split('').map(ch => ch + ch).join('') : hex.slice(0, 6);
+      let rgba = c;
+      if (/^[0-9a-fA-F]{6}$/.test(full)) {
+        const r = parseInt(full.slice(0, 2), 16);
+        const g = parseInt(full.slice(2, 4), 16);
+        const b = parseInt(full.slice(4, 6), 16);
+        rgba = `rgba(${r}, ${g}, ${b}, ${next.alpha})`;
+      }
+      applyHtmlShadow({ x: next.x, y: next.y, blur: Math.max(0, next.blur), spread: next.spread, color: rgba, opacity: next.alpha });
     }
   };
 
-  if (isSvg && parsedShadow !== null) {
-    const sv = parsedShadow!;
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">Drop shadow</span>
-          <button onClick={removeShadow} className="p-0.5 text-muted-foreground/50 hover:text-destructive" title="Remove shadow">
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-1">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground w-4">X</span>
-            <NumberInput value={sv.dx} onChange={v => applySvgShadowChange({ ...sv, dx: v })} step={1} />
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground w-4">Y</span>
-            <NumberInput value={sv.dy} onChange={v => applySvgShadowChange({ ...sv, dy: v })} step={1} />
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground w-4">B</span>
-            <NumberInput value={sv.stdDeviation} onChange={v => applySvgShadowChange({ ...sv, stdDeviation: Math.max(0, v) })} min={0} />
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground w-4">O</span>
-            <NumberInput value={Math.round(sv.opacity * 100)} onChange={v => applySvgShadowChange({ ...sv, opacity: Math.min(1, Math.max(0, v / 100)) })} min={0} max={100} suffix="%" />
-          </div>
-        </div>
-        <ColorRow label="Color" value={sv.color} onChange={v => applySvgShadowChange({ ...sv, color: v })} />
-      </div>
-    );
-  }
+  const handleHexCommit = (raw: string) => {
+    const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
+    if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
+    const expanded = expandHex(cleaned);
+    const next = '#' + expanded;
+    writeShadow({ x: xVal, y: yVal, blur: blurVal, spread: spreadVal, color: next, alpha: alphaVal });
+  };
 
-  const hv = parseBoxShadow(boxShadow ?? '0px 4px 4px #00000040');
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground">Drop shadow</span>
-        <button onClick={removeShadow} className="p-0.5 text-muted-foreground/50 hover:text-destructive" title="Remove shadow">
-          <Trash2 className="h-3 w-3" />
-        </button>
-      </div>
-      <div className="grid grid-cols-2 gap-1">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground w-4">X</span>
-          <NumberInput value={hv.x} onChange={v => applyHtmlShadow({ ...hv, x: v })} step={1} />
+    <div className="space-y-2">
+      <div>
+        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 mb-1">
+          <SubsectionHeader>X offset</SubsectionHeader>
+          <SubsectionHeader>Y offset</SubsectionHeader>
+          <div />
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground w-4">Y</span>
-          <NumberInput value={hv.y} onChange={v => applyHtmlShadow({ ...hv, y: v })} step={1} />
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground w-4">Blur</span>
-          <NumberInput value={hv.blur} onChange={v => applyHtmlShadow({ ...hv, blur: Math.max(0, v) })} min={0} />
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-muted-foreground w-4">Spread</span>
-          <NumberInput value={hv.spread} onChange={v => applyHtmlShadow({ ...hv, spread: v })} />
+        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+          <LabeledNumberInput label="X" value={xVal} step={1} onChange={v => writeShadow({ x: v, y: yVal, blur: blurVal, spread: spreadVal, color: colorVal, alpha: alphaVal })} />
+          <LabeledNumberInput label="Y" value={yVal} step={1} onChange={v => writeShadow({ x: xVal, y: v, blur: blurVal, spread: spreadVal, color: colorVal, alpha: alphaVal })} />
+          <div />
         </div>
       </div>
-      <ColorRow label="Color" value={hv.color} onChange={v => applyHtmlShadow({ ...hv, color: v })} />
+      <div>
+        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 mb-1">
+          <SubsectionHeader>Blur</SubsectionHeader>
+          <SubsectionHeader>Spread</SubsectionHeader>
+          <div />
+        </div>
+        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+          <LabeledNumberInput label={<Grip className="w-3 h-3" />} value={blurVal} min={0} step={1} onChange={v => writeShadow({ x: xVal, y: yVal, blur: v, spread: spreadVal, color: colorVal, alpha: alphaVal })} />
+          <LabeledNumberInput label={<Loader className="w-3 h-3" />} value={spreadVal} step={1} onChange={v => writeShadow({ x: xVal, y: yVal, blur: blurVal, spread: v, color: colorVal, alpha: alphaVal })} />
+          <div />
+        </div>
+      </div>
+      <div>
+        <SubsectionHeader>Color</SubsectionHeader>
+        <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
+          <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+            <ColorPicker
+              value={'#' + (colorHex || '000000')}
+              onChange={c => writeShadow({ x: xVal, y: yVal, blur: blurVal, spread: spreadVal, color: c, alpha: alphaVal })}
+            />
+            <HexTextInput
+              value={colorHex}
+              onCommit={handleHexCommit}
+              className="flex-1 min-w-0 bg-transparent border-0 text-[10px] text-foreground font-mono tabular-nums uppercase tracking-wide focus:outline-none"
+            />
+          </div>
+          <LabeledNumberInput
+            label=""
+            value={Math.round(alphaVal * 100)}
+            min={0} max={100} step={1}
+            suffix="%"
+            onChange={v => {
+              const clamped = Math.max(0, Math.min(100, Math.round(v))) / 100;
+              writeShadow({ x: xVal, y: yVal, blur: blurVal, spread: spreadVal, color: colorVal, alpha: clamped });
+            }}
+          />
+          <div />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1499,7 +1570,7 @@ export function CanvasPropertyPanel({
                       {(['solid', 'image', 'none'] as const).map(m => (
                         <button key={m}
                           className={cn('flex-1 h-6 text-[10px] flex items-center justify-center rounded transition-colors',
-                            fillMode === m ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                            fillMode === m ? 'bg-white text-foreground ring-1 ring-border' : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
                           onClick={() => {
                             if (m === fillMode) return;
                             if (m === 'solid') {
@@ -1554,7 +1625,7 @@ export function CanvasPropertyPanel({
             <div className="px-3 pb-3 flex gap-2">
               <button
                 onClick={onExportPng}
-                className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-muted/60 hover:bg-muted text-foreground transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] text-foreground transition-colors"
               >
                 <Download className="h-3 w-3" />
                 PNG
@@ -1562,7 +1633,7 @@ export function CanvasPropertyPanel({
               {canExportSvg && onExportSvg && (
                 <button
                   onClick={onExportSvg}
-                  className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-muted/60 hover:bg-muted text-foreground transition-colors"
+                  className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] text-foreground transition-colors"
                 >
                   <Download className="h-3 w-3" />
                   SVG
@@ -1807,7 +1878,7 @@ export function CanvasPropertyPanel({
                           return (
                             <button key={m.key} title={m.title}
                               className={cn('flex-1 h-6 flex items-center justify-center rounded transition-colors',
-                                active ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                                active ? 'bg-white text-foreground ring-1 ring-border' : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
                               onClick={() => {
                                 const newHtml = setTextResizeMode(element.html, m.key);
                                 const updates: Partial<CanvasElement> = { html: newHtml };
@@ -1841,11 +1912,11 @@ export function CanvasPropertyPanel({
             )}
             {isMulti && selectionBounds && (
               <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                <div className="flex items-center gap-1.5 px-2 h-6 rounded bg-muted/60">
+                <div className="flex items-center gap-1.5 px-2 h-6 rounded bg-[#F5F5F5]">
                   <span className="text-[10px] text-muted-foreground select-none">W</span>
                   <span className="text-[10px] text-foreground font-mono tabular-nums">{Math.round(selectionBounds.w)}</span>
                 </div>
-                <div className="flex items-center gap-1.5 px-2 h-6 rounded bg-muted/60">
+                <div className="flex items-center gap-1.5 px-2 h-6 rounded bg-[#F5F5F5]">
                   <span className="text-[10px] text-muted-foreground select-none">H</span>
                   <span className="text-[10px] text-foreground font-mono tabular-nums">{Math.round(selectionBounds.h)}</span>
                 </div>
@@ -2033,8 +2104,8 @@ export function CanvasPropertyPanel({
                             <button key={a}
                               className={cn('h-6 flex items-center justify-center rounded transition-colors',
                                 projected.textAlign === a
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                                  ? 'bg-white text-foreground ring-1 ring-border'
+                                  : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
                               onClick={() => applyChange({ textAlign: a })}
                               title={`Align ${a}`}>
                               <Icon className="w-3 h-3" />
@@ -2050,8 +2121,8 @@ export function CanvasPropertyPanel({
                             <button key={a}
                               className={cn('h-6 flex items-center justify-center rounded transition-colors',
                                 (projected.verticalAlign ?? 'top') === a
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground')}
+                                  ? 'bg-white text-foreground ring-1 ring-border'
+                                  : 'bg-[#F5F5F5] text-muted-foreground hover:bg-muted hover:text-foreground')}
                               onClick={() => applyChange({ verticalAlign: a })}
                               title={`V-align ${a}`}>
                               <Icon className="w-3 h-3" />
@@ -2131,7 +2202,8 @@ export function CanvasPropertyPanel({
         const handleHexCommit = (raw: string) => {
           const cleaned = raw.trim().replace(/^#+/, '').toUpperCase();
           if (!/^[0-9A-F]{3}([0-9A-F]{3})?$/.test(cleaned)) return;
-          const next = '#' + cleaned;
+          const expanded = expandHex(cleaned);
+          const next = '#' + expanded;
           if (isSvg) applyChange({ svgStroke: next });
           else applyChange({ borderColor: next });
         };
@@ -2146,18 +2218,10 @@ export function CanvasPropertyPanel({
                   <>
                     {/* Row 1: color swatch + hex + opacity */}
                     <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
-                        <button
-                          className="w-4 h-4 rounded border border-border shrink-0 relative overflow-hidden"
-                          style={strokeColor && strokeColor !== 'none' ? { backgroundColor: strokeColor } : undefined}
-                          onClick={() => {
-                            const inp = document.createElement('input');
-                            inp.type = 'color';
-                            inp.value = strokeColor && strokeColor.startsWith('#') ? strokeColor : '#000000';
-                            inp.onchange = () => applyChange({ svgStroke: inp.value });
-                            inp.click();
-                          }}
-                          title={strokeColor || 'Pick stroke color'}
+                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                        <ColorPicker
+                          value={strokeColor || '#000000'}
+                          onChange={c => applyChange({ svgStroke: c })}
                         />
                         <HexTextInput
                           value={strokeHex}
@@ -2194,18 +2258,10 @@ export function CanvasPropertyPanel({
                   <>
                     {/* Row 1: color + (no opacity for html border) */}
                     <div className="grid grid-cols-[1fr_1fr_24px] gap-2 items-center">
-                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-muted/60 hover:bg-muted focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
-                        <button
-                          className="w-4 h-4 rounded border border-border shrink-0 relative overflow-hidden"
-                          style={strokeColor && strokeColor !== 'none' ? { backgroundColor: strokeColor } : undefined}
-                          onClick={() => {
-                            const inp = document.createElement('input');
-                            inp.type = 'color';
-                            inp.value = strokeColor && strokeColor.startsWith('#') ? strokeColor : '#000000';
-                            inp.onchange = () => applyChange({ borderColor: inp.value });
-                            inp.click();
-                          }}
-                          title={strokeColor || 'Pick border color'}
+                      <div className="flex items-center gap-1.5 h-6 px-2 rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] focus-within:ring-1 focus-within:ring-primary/40 min-w-0">
+                        <ColorPicker
+                          value={strokeColor || '#000000'}
+                          onChange={c => applyChange({ borderColor: c })}
                         />
                         <HexTextInput
                           value={strokeHex}
@@ -2256,7 +2312,9 @@ export function CanvasPropertyPanel({
       {/* §9 Shadow (single + multi) */}
       {((isSingle && element && projected) || (isMulti && support.shadow)) && (
         <>
-          <SectionHeader>Shadow</SectionHeader>
+          <SectionHeader trailing={isSingle && element && projected ? (
+            <ShadowModeSelect element={element} projected={projected} onUpdateElement={onUpdateElement} />
+          ) : undefined}>Shadow</SectionHeader>
           <div className="px-3 pb-3">
             {isSingle && element && projected && (
               <ShadowSection element={element} projected={projected} onUpdateElement={onUpdateElement} />
@@ -2277,7 +2335,7 @@ export function CanvasPropertyPanel({
               <textarea
                 value={element.html}
                 onChange={e => onUpdateElement(element.id, { html: e.target.value })}
-                className="w-full h-40 text-[10px] px-2 py-1.5 rounded bg-muted/60 border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 font-mono resize-y"
+                className="w-full h-40 text-[10px] px-2 py-1.5 rounded bg-[#F5F5F5] border-0 focus:outline-none focus:ring-1 focus:ring-primary/40 font-mono resize-y"
                 spellCheck={false}
               />
             </div>
@@ -2292,7 +2350,7 @@ export function CanvasPropertyPanel({
           <div className="px-3 pb-3 flex gap-2">
             <button
               onClick={onExportPng}
-              className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-muted/60 hover:bg-muted text-foreground transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] text-foreground transition-colors"
             >
               <Download className="h-3 w-3" />
               PNG
@@ -2300,7 +2358,7 @@ export function CanvasPropertyPanel({
             {canExportSvg && onExportSvg && (
               <button
                 onClick={onExportSvg}
-                className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-muted/60 hover:bg-muted text-foreground transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 h-7 text-[10px] font-medium rounded bg-[#F5F5F5] hover:bg-[#EBEBEB] text-foreground transition-colors"
               >
                 <Download className="h-3 w-3" />
                 SVG

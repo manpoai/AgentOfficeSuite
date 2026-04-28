@@ -7,6 +7,9 @@ export interface SvgDropShadow {
   dx: number;
   dy: number;
   stdDeviation: number;
+  /** Outward spread in user units (similar to CSS box-shadow's spread radius).
+   *  Implemented via feMorphology dilate before blur. */
+  spread?: number;
   color: string;
   opacity: number;
 }
@@ -213,9 +216,29 @@ export function projectElement(html: string, cssPath?: string): ProjectedProps &
         isOpenPath = false;
       }
     }
-    const filterMatch = html.match(/feDropShadow[^>]*dx="([^"]*)"[^>]*dy="([^"]*)"[^>]*stdDeviation="([^"]*)"[^>]*flood-color="([^"]*)"[^>]*flood-opacity="([^"]*)"/);
-    if (filterMatch) {
-      svgDropShadow = { dx: parseFloat(filterMatch[1]), dy: parseFloat(filterMatch[2]), stdDeviation: parseFloat(filterMatch[3]), color: filterMatch[4], opacity: parseFloat(filterMatch[5]) };
+    // New composite-filter form: feMorphology + feGaussianBlur + feOffset + feFlood
+    const compositeFilter = html.match(/<filter\s+id="drop-shadow"[\s\S]*?<\/filter>/);
+    if (compositeFilter) {
+      const block = compositeFilter[0];
+      const morph = block.match(/<feMorphology\b[^>]*radius="([^"]*)"/);
+      const blur = block.match(/<feGaussianBlur\b[^>]*stdDeviation="([^"]*)"/);
+      const offset = block.match(/<feOffset\b[^>]*dx="([^"]*)"[^>]*dy="([^"]*)"/);
+      const flood = block.match(/<feFlood\b[^>]*flood-color="([^"]*)"[^>]*flood-opacity="([^"]*)"/);
+      const dropEl = block.match(/<feDropShadow[^>]*dx="([^"]*)"[^>]*dy="([^"]*)"[^>]*stdDeviation="([^"]*)"[^>]*flood-color="([^"]*)"[^>]*flood-opacity="([^"]*)"/);
+      if (morph && blur && offset && flood) {
+        svgDropShadow = {
+          dx: parseFloat(offset[1]),
+          dy: parseFloat(offset[2]),
+          stdDeviation: parseFloat(blur[1]),
+          spread: parseFloat(morph[1]),
+          color: flood[1],
+          opacity: parseFloat(flood[2]),
+        };
+      } else if (dropEl) {
+        svgDropShadow = { dx: parseFloat(dropEl[1]), dy: parseFloat(dropEl[2]), stdDeviation: parseFloat(dropEl[3]), color: dropEl[4], opacity: parseFloat(dropEl[5]) };
+      } else {
+        svgDropShadow = null;
+      }
     } else {
       svgDropShadow = null;
     }
@@ -594,13 +617,36 @@ export function hasGradientFill(html: string): boolean {
 
 export function applySvgDropShadow(html: string, shadow: SvgDropShadow | null): string {
   let result = html;
-  result = result.replace(/<defs>\s*<filter[^>]*>[\s\S]*?<\/filter>\s*<\/defs>/g, '');
-  result = result.replace(/\s*filter="url\(#[^"]*\)"/g, '');
+  // Drop the existing drop-shadow filter (composite OR feDropShadow form)
+  result = result.replace(/<defs>\s*<filter\s+id="drop-shadow"[\s\S]*?<\/filter>\s*<\/defs>/g, '');
+  // If a defs block contained the filter alongside other things, surgically remove just the filter.
+  result = result.replace(/<filter\s+id="drop-shadow"[\s\S]*?<\/filter>/g, '');
+  // Strip any defs we just emptied.
+  result = result.replace(/<defs>\s*<\/defs>/g, '');
+  result = result.replace(/\s*filter="url\(#drop-shadow\)"/g, '');
 
   if (!shadow) return result;
 
   const filterId = 'drop-shadow';
-  const filterDef = `<defs><filter id="${filterId}" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="${shadow.dx}" dy="${shadow.dy}" stdDeviation="${shadow.stdDeviation}" flood-color="${shadow.color}" flood-opacity="${shadow.opacity}"/></filter></defs>`;
+  const spread = shadow.spread ?? 0;
+  // Pad the filter region generously so spread + blur + offset don't get clipped.
+  const pad = Math.max(50, Math.ceil((Math.abs(shadow.dx) + Math.abs(shadow.dy) + shadow.stdDeviation * 4 + Math.abs(spread)) * 2));
+  let filterBody: string;
+  if (spread > 0 || spread < 0) {
+    // Composite chain: dilate (spread) → blur → offset → flood-tint → composite-in → merge under SourceGraphic
+    filterBody =
+      `<feMorphology in="SourceAlpha" operator="${spread >= 0 ? 'dilate' : 'erode'}" radius="${Math.abs(spread)}" result="dilated"/>` +
+      `<feGaussianBlur in="dilated" stdDeviation="${shadow.stdDeviation}" result="blurred"/>` +
+      `<feOffset in="blurred" dx="${shadow.dx}" dy="${shadow.dy}" result="offset"/>` +
+      `<feFlood flood-color="${shadow.color}" flood-opacity="${shadow.opacity}" result="flood"/>` +
+      `<feComposite in="flood" in2="offset" operator="in" result="shadow"/>` +
+      `<feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge>`;
+  } else {
+    // Spread = 0 → use the simpler feDropShadow primitive (faster, identical result).
+    filterBody = `<feDropShadow dx="${shadow.dx}" dy="${shadow.dy}" stdDeviation="${shadow.stdDeviation}" flood-color="${shadow.color}" flood-opacity="${shadow.opacity}"/>`;
+  }
+  const padPct = pad;
+  const filterDef = `<defs><filter id="${filterId}" x="-${padPct}%" y="-${padPct}%" width="${100 + padPct * 2}%" height="${100 + padPct * 2}%">${filterBody}</filter></defs>`;
   result = result.replace(/<svg([^>]*)>/, `<svg$1>${filterDef}`);
   const shapeTag = /<(path|rect|circle|ellipse|polygon)\b([^>]*)>/;
   const m = result.match(shapeTag);
