@@ -1,9 +1,9 @@
-// Client-side video export — Phase 6 iteration 1.
+// Client-side video export — Phase 6.
 //
 // Renders the video into a hidden DOM tree, walks the timeline frame by frame,
 // rasterizes each frame to a canvas via html-to-image, captures the canvas as
-// a MediaStream, and records it with MediaRecorder. Outputs webm; mp4
-// transcoding is iteration 2.
+// a MediaStream, records it with MediaRecorder (webm), and optionally transcodes
+// the result to mp4 via ffmpeg.wasm.
 //
 // No server dependencies. See AgentOffice doc_55241d430df73876 §9 for design.
 
@@ -11,24 +11,32 @@ import { toCanvas } from 'html-to-image';
 import type { VideoData, VideoElement } from './types';
 import { getElementSnapshotAt, computeTotalDuration, TIME_EPSILON } from './types';
 
+export type ExportFormat = 'webm' | 'mp4';
+
+export type ExportPhase = 'capture' | 'transcode';
+
 export interface ExportOptions {
+  /** Output format. Defaults to 'mp4'. webm avoids the transcode step. */
+  format?: ExportFormat;
   /** Frames per second of the output. Defaults to settings.fps. */
   fps?: number;
   /** Override total duration (s). Defaults to computeTotalDuration(elements). */
   totalDuration?: number;
-  /** Progress callback fired after each frame. */
-  onProgress?: (current: number, total: number) => void;
+  /** Progress callback. `phase` is 'capture' during the frame-grab loop and
+   *  'transcode' during ffmpeg.wasm webm→mp4. `current` and `total` are
+   *  unitless (frames during capture, percent during transcode). */
+  onProgress?: (current: number, total: number, phase: ExportPhase) => void;
   /** AbortSignal to stop early. */
   signal?: AbortSignal;
 }
 
 export interface ExportResult {
   blob: Blob;
-  /** webm or mp4. Iteration 1: always webm. */
+  /** Final mime type (video/webm or video/mp4). */
   mimeType: string;
   /** File extension corresponding to mimeType. */
-  extension: 'webm' | 'mp4';
-  /** Total frames captured. */
+  extension: ExportFormat;
+  /** Total frames captured during the capture phase. */
   framesCaptured: number;
 }
 
@@ -128,6 +136,7 @@ export async function exportVideoToBlob(data: VideoData, opts: ExportOptions = {
   if (!data.elements.length) {
     throw new Error('Cannot export an empty video.');
   }
+  const format: ExportFormat = opts.format ?? 'mp4';
   const fps = opts.fps ?? data.settings.fps ?? 30;
   const totalDuration = opts.totalDuration ?? computeTotalDuration(data.elements);
   const totalFrames = Math.max(1, Math.ceil(totalDuration * fps));
@@ -158,7 +167,9 @@ export async function exportVideoToBlob(data: VideoData, opts: ExportOptions = {
     recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
   });
 
-  recorder.start();
+  // Emit a chunk every second so the main process doesn't hold the entire
+  // recording in memory before stop(). Helps with longer exports.
+  recorder.start(1000);
 
   try {
     // First pass: render at t=0 to let the browser materialize any inline CSS
@@ -193,19 +204,104 @@ export async function exportVideoToBlob(data: VideoData, opts: ExportOptions = {
         track.requestFrame();
       }
       captured++;
-      opts.onProgress?.(n + 1, totalFrames);
+      opts.onProgress?.(n + 1, totalFrames, 'capture');
     }
 
     // Allow the recorder to flush the last frame before stopping.
     await new Promise(r => setTimeout(r, 100));
     recorder.stop();
-    const blob = await finished;
+    const webmBlob = await finished;
 
-    return { blob, mimeType, extension: 'webm', framesCaptured: captured };
+    if (format === 'webm') {
+      return { blob: webmBlob, mimeType, extension: 'webm', framesCaptured: captured };
+    }
+
+    // Transcode webm → mp4 via ffmpeg.wasm.
+    const mp4Blob = await transcodeWebmToMp4(webmBlob, fps, opts.signal, (pct) => {
+      opts.onProgress?.(Math.round(pct), 100, 'transcode');
+    });
+    return { blob: mp4Blob, mimeType: 'video/mp4', extension: 'mp4', framesCaptured: captured };
   } finally {
     container.remove();
     try { recorder.state !== 'inactive' && recorder.stop(); } catch { /* ignore */ }
     track.stop?.();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ffmpeg.wasm transcode (Phase 6 iter 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Cached ffmpeg instance — reused across exports so the 30 MB wasm only loads
+ *  once per page session. */
+let _ffmpegPromise: Promise<import('@ffmpeg/ffmpeg').FFmpeg> | null = null;
+
+async function getFFmpeg(): Promise<import('@ffmpeg/ffmpeg').FFmpeg> {
+  if (_ffmpegPromise) return _ffmpegPromise;
+  _ffmpegPromise = (async () => {
+    const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+    const ffmpeg = new FFmpeg();
+    // Single-threaded core. Loaded from public/ffmpeg/ to avoid CORS and to
+    // sidestep the COOP/COEP requirement that the multi-threaded core has
+    // (which would break our iframe embeds).
+    await ffmpeg.load({
+      coreURL: '/ffmpeg/ffmpeg-core.js',
+      wasmURL: '/ffmpeg/ffmpeg-core.wasm',
+    });
+    return ffmpeg;
+  })();
+  try {
+    return await _ffmpegPromise;
+  } catch (e) {
+    _ffmpegPromise = null;
+    throw e;
+  }
+}
+
+async function transcodeWebmToMp4(
+  webm: Blob,
+  fps: number,
+  signal: AbortSignal | undefined,
+  onPct: (pct: number) => void,
+): Promise<Blob> {
+  const ffmpeg = await getFFmpeg();
+  const { fetchFile } = await import('@ffmpeg/util');
+
+  // Wire up progress events. ffmpeg.wasm reports 0..1 fractions.
+  const onProgress = ({ progress }: { progress: number }) => {
+    onPct(Math.max(0, Math.min(100, progress * 100)));
+  };
+  ffmpeg.on('progress', onProgress);
+
+  const inName = 'in.webm';
+  const outName = 'out.mp4';
+
+  try {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    await ffmpeg.writeFile(inName, await fetchFile(webm));
+
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    // libx264 fast preset, yuv420p for QuickTime / iMessage / WeChat compat,
+    // -movflags +faststart so the moov atom comes before mdat (browser plays
+    // before download finishes).
+    await ffmpeg.exec([
+      '-i', inName,
+      '-r', String(fps),
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart',
+      outName,
+    ]);
+
+    const data = await ffmpeg.readFile(outName);
+    const arr = data instanceof Uint8Array ? data : new Uint8Array(0);
+    // Cleanup virtual FS so a subsequent export doesn't bloat memory.
+    try { await ffmpeg.deleteFile(inName); } catch { /* noop */ }
+    try { await ffmpeg.deleteFile(outName); } catch { /* noop */ }
+    return new Blob([arr], { type: 'video/mp4' });
+  } finally {
+    ffmpeg.off('progress', onProgress);
   }
 }
 

@@ -1,1 +1,3 @@
 .worktrees/
+# Large vendor binaries copied at install time (see scripts/setup-ffmpeg.sh).
+public/ffmpeg/

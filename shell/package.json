@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3101",
-    "build": "next build",
+    "build": "node scripts/setup-ffmpeg.js && next build",
     "analyze": "ANALYZE=true next build",
-    "start": "next start -p 3101"
+    "start": "next start -p 3101",
+    "postinstall": "node scripts/setup-ffmpeg.js"
   },
   "dependencies": {
     "@antv/layout": "^1.2.13",
@@ -26,6 +27,9 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@fortawesome/free-brands-svg-icons": "^7.2.0",
     "@tanstack/react-query": "^5.91.3",
     "@types/dagre": "^0.7.54",

@@ -10,7 +10,7 @@ import {
   ArrowUp, ArrowDown, Lock, Unlock, Hexagon, ImagePlus,
   Eye, EyeOff, Download,
 } from 'lucide-react';
-import { exportVideoToBlob, downloadExport } from './videoExport';
+import { exportVideoToBlob, downloadExport, type ExportFormat, type ExportPhase } from './videoExport';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
@@ -371,7 +371,8 @@ export function VideoEditor({
   } | null>(null);
 
   // Export state.
-  const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number; phase: ExportPhase } | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const exportAbortRef = useRef<AbortController | null>(null);
 
   // Timeline tracks expanded into per-property sub-rows.
@@ -698,21 +699,24 @@ export function VideoEditor({
     }));
   }, [updateData]);
 
-  /** Run the client-side export pipeline. Outputs webm in iteration 1; mp4
-   *  transcoding deferred. */
-  const handleExport = useCallback(async () => {
+  /** Run the client-side export pipeline.
+   *  - format='webm': just the capture pipeline; no transcode.
+   *  - format='mp4': capture webm, then transcode via ffmpeg.wasm. */
+  const handleExport = useCallback(async (format: ExportFormat) => {
     if (!data || data.elements.length === 0) {
       showError('Nothing to export', new Error('Add at least one element first.'));
       return;
     }
     if (exportProgress) return;  // already running
     setPlaying(false);  // stop preview playback during export
+    setShowExportMenu(false);
     const ac = new AbortController();
     exportAbortRef.current = ac;
     try {
-      setExportProgress({ current: 0, total: 1 });
+      setExportProgress({ current: 0, total: 1, phase: 'capture' });
       const result = await exportVideoToBlob(data, {
-        onProgress: (current, total) => setExportProgress({ current, total }),
+        format,
+        onProgress: (current, total, phase) => setExportProgress({ current, total, phase }),
         signal: ac.signal,
       });
       downloadExport(result, title || `video-${videoId}`);
@@ -1135,7 +1139,28 @@ export function VideoEditor({
                 <div className="w-px h-6 bg-black/10 dark:bg-white/10 mx-0.5" />
                 <ToolBtn icon={Settings} onClick={() => setShowSettings(v => !v)} active={showSettings} title="Canvas Settings" />
                 <div className="w-px h-6 bg-black/10 dark:bg-white/10 mx-0.5" />
-                <ToolBtn icon={Download} onClick={handleExport} disabled={!!exportProgress} title="Export video (webm)" />
+                <div className="relative">
+                  <ToolBtn icon={Download} onClick={() => setShowExportMenu(v => !v)} disabled={!!exportProgress} active={showExportMenu} title="Export video" />
+                  {showExportMenu && !exportProgress && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                      <div className="absolute top-full right-0 mt-2 z-50 bg-card rounded border border-border shadow-lg w-44 py-1 text-xs">
+                        <button
+                          onClick={() => handleExport('mp4')}
+                          className="w-full text-left px-3 py-2 hover:bg-accent">
+                          <div className="font-medium">MP4 (H.264)</div>
+                          <div className="text-[10px] text-muted-foreground">Universal · slower</div>
+                        </button>
+                        <button
+                          onClick={() => handleExport('webm')}
+                          className="w-full text-left px-3 py-2 hover:bg-accent">
+                          <div className="font-medium">WebM (VP9)</div>
+                          <div className="text-[10px] text-muted-foreground">Faster · web-friendly</div>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Image upload button (hidden) */}
@@ -1418,6 +1443,7 @@ export function VideoEditor({
         <ExportProgressDialog
           current={exportProgress.current}
           total={exportProgress.total}
+          phase={exportProgress.phase}
           onCancel={cancelExport} />
       )}
     </div>
@@ -1426,15 +1452,19 @@ export function VideoEditor({
 
 // ─── Export Progress Dialog ────────
 
-function ExportProgressDialog({ current, total, onCancel }: { current: number; total: number; onCancel: () => void }) {
+function ExportProgressDialog({ current, total, phase, onCancel }: {
+  current: number; total: number; phase: ExportPhase; onCancel: () => void;
+}) {
   const pct = Math.round((current / Math.max(1, total)) * 100);
+  const heading = phase === 'capture' ? 'Capturing frames…' : 'Encoding mp4 (ffmpeg)…';
+  const detail = phase === 'capture'
+    ? `Frame ${current} / ${total} · ${pct}%`
+    : `${pct}% — ffmpeg.wasm encoding (single-thread)`;
   return (
     <div className="fixed inset-0 z-[10100] bg-black/40 flex items-center justify-center">
       <div className="bg-card rounded-lg shadow-2xl w-[420px] p-5 border border-border">
-        <h3 className="text-sm font-semibold mb-2">Exporting video…</h3>
-        <p className="text-xs text-muted-foreground mb-4">
-          Frame {current} / {total} · {pct}%
-        </p>
+        <h3 className="text-sm font-semibold mb-2">{heading}</h3>
+        <p className="text-xs text-muted-foreground mb-4">{detail}</p>
         <div className="w-full h-2 bg-muted rounded overflow-hidden mb-4">
           <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${pct}%` }} />
         </div>
