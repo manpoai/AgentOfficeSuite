@@ -392,23 +392,54 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
       html = replaceAttrOnShapeOrSvg(html, 'stroke-width', String(newPhysical));
     }
 
+    // Always strip any prior inside-mode artifacts before applying the new mode.
+    html = html.replace(/<clipPath\s+id="inside-stroke-clip"[\s\S]*?<\/clipPath>/g, '');
+    // Strip empty <defs></defs> created when only inside-clip was inside.
+    html = html.replace(/<defs>\s*<\/defs>/g, '');
+    html = html.replace(/(<(?:path|rect|circle|ellipse|polygon)\b[^>]*?)\s+clip-path="url\(#inside-stroke-clip\)"/g, '$1');
+
     const shapeTag = /<(path|rect|circle|ellipse|polygon)\b([^>]*)>/;
     const m = html.match(shapeTag);
     if (m) {
       let attrs = m[2];
       attrs = attrs.replace(/\spaint-order="[^"]*"/, '');
       if (changes.svgStrokeAlignment === 'outside') attrs += ' paint-order="stroke"';
+      // For inside mode, clip the doubled stroke against the path itself so
+      // the stroke's outer half follows the path's rounded outline rather than
+      // the rectangular SVG bbox.
+      if (changes.svgStrokeAlignment === 'inside') {
+        const dMatch = m[2].match(/\sd="([^"]*)"/);
+        const d = dMatch?.[1];
+        if (d) {
+          attrs += ' clip-path="url(#inside-stroke-clip)"';
+        }
+      }
       html = html.replace(shapeTag, `<${m[1]}${attrs}>`);
     }
+
+    if (changes.svgStrokeAlignment === 'inside') {
+      // Inject (or refresh) the clipPath that mirrors the current path d.
+      const dMatch = html.match(/<(?:path|rect|circle|ellipse|polygon)\b[^>]*?\sd="([^"]*)"/);
+      const d = dMatch?.[1];
+      if (d) {
+        const clipBlock = `<defs><clipPath id="inside-stroke-clip"><path d="${d}"/></clipPath></defs>`;
+        if (/<defs>/.test(html)) {
+          html = html.replace(/<defs>/, `<defs><clipPath id="inside-stroke-clip"><path d="${d}"/></clipPath>`);
+        } else {
+          html = html.replace(/<svg([^>]*)>/, `<svg$1>${clipBlock}`);
+        }
+      }
+    }
+
     const svgTag = /<svg\b([^>]*)>/;
     const sm = html.match(svgTag);
     if (sm) {
       let svgAttrs = sm[1];
       svgAttrs = svgAttrs.replace(/\soverflow="[^"]*"/, '');
       svgAttrs = svgAttrs.replace(/\sdata-stroke-align="[^"]*"/, '');
-      const overflowVal = changes.svgStrokeAlignment === 'inside' ? 'hidden' : 'visible';
+      // Inside no longer relies on overflow:hidden — clipPath handles it.
       svgAttrs = svgAttrs.replace(/overflow:\s*\w+;?/g, '');
-      svgAttrs = svgAttrs.replace(/style="([^"]*)"/, (_, s) => `style="${s}overflow:${overflowVal};"`);
+      svgAttrs = svgAttrs.replace(/style="([^"]*)"/, (_, s) => `style="${s}overflow:visible;"`);
       svgAttrs += ` data-stroke-align="${changes.svgStrokeAlignment}"`;
       html = html.replace(svgTag, `<svg${svgAttrs}>`);
     }
@@ -450,6 +481,13 @@ export function applyProjection(rawHTML: string, changes: Partial<ProjectedProps
         });
       }
       html = applyCornerRadiiToHtml(html, 0, allRadii);
+    }
+    // If inside-stroke clipPath exists, refresh its d to match the new path.
+    if (/<clipPath\s+id="inside-stroke-clip"/.test(html)) {
+      const newD = html.match(/<path\b[^>]*\sd="([^"]*)"/)?.[1];
+      if (newD) {
+        html = html.replace(/(<clipPath\s+id="inside-stroke-clip">)\s*<path\s+d="[^"]*"\s*\/>\s*(<\/clipPath>)/, `$1<path d="${newD}"/>$2`);
+      }
     }
   }
 
