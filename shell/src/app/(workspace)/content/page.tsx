@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMe
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as docApi from '@/lib/api/documents';
 import type { Document as DocType } from '@/lib/api/documents';
-import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, Workflow, Pencil, LayoutDashboard } from 'lucide-react';
+import { FileText, Table2, Plus, Trash2, Search, Clock, MoreHorizontal, ChevronDown, RotateCcw, Presentation, Workflow, Pencil, LayoutDashboard, Video } from 'lucide-react';
 import { CREATE_CONTENT_ITEMS } from '@/actions/create-content.actions';
 import { ENTITY_NAMES, CREATABLE_TYPES } from '@/actions/entity-names';
 import { SwipeBack } from '@/components/shared/SwipeBack';
@@ -88,7 +88,7 @@ type DropIntent = { overId: string; position: 'before' | 'after' | 'inside' } | 
 type ContentNode = {
   id: string;         // doc:<id> or table:<id>
   rawId: string;      // original id without prefix
-  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas';
+  type: 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video';
   title: string;
   emoji?: string;
   createdAt: number;
@@ -415,8 +415,8 @@ export default function ContentPage() {
       map.set(item.id, {
         id: item.id,
         rawId: item.raw_id,
-        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas',
-        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : item.type === 'canvas' ? 'Untitled Canvas' : t('content.untitledPresentation')),
+        type: item.type as 'doc' | 'table' | 'presentation' | 'diagram' | 'canvas' | 'video',
+        title: item.title || (item.type === 'doc' ? t('content.untitled') : item.type === 'table' ? t('content.untitledTable') : item.type === 'diagram' ? t('content.untitledDiagram') : item.type === 'canvas' ? 'Untitled Canvas' : item.type === 'video' ? 'Untitled Video' : t('content.untitledPresentation')),
         emoji: item.icon || undefined,
         createdAt: new Date(item.created_at || 0).getTime(),
         updatedAt: item.updated_at || undefined,
@@ -1250,6 +1250,10 @@ export default function ContentPage() {
                         ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
                         : dragActiveNode.type === 'diagram'
                         ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : dragActiveNode.type === 'canvas'
+                        ? <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : dragActiveNode.type === 'video'
+                        ? <Video className="h-4 w-4 text-muted-foreground shrink-0" />
                         : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       }
                       <span className="truncate">{dragActiveNode.title}</span>
@@ -1312,6 +1316,8 @@ export default function ContentPage() {
                       title={entry.title}
                       icon={entry.type === 'table'
                         ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        : entry.type === 'video'
+                        ? <Video className="h-4 w-4 text-muted-foreground shrink-0" />
                         : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       }
                       deletedAt={entry.deletedAt}
@@ -1379,6 +1385,10 @@ export default function ContentPage() {
                     ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" />
                     : entry.type === 'diagram'
                     ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : entry.type === 'canvas'
+                    ? <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : entry.type === 'video'
+                    ? <Video className="h-4 w-4 text-muted-foreground shrink-0" />
                     : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                   }
                   deletedAt={entry.deletedAt}
@@ -1462,7 +1472,7 @@ export default function ContentPage() {
                   <DragOverlay dropAnimation={null}>
                     {dragActiveNode && (
                       <div className="flex items-center gap-1.5 py-1.5 px-2 text-sm bg-card border border-border rounded-lg shadow-lg opacity-90">
-                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'canvas' ? <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
+                        {dragActiveNode.type === 'table' ? <Table2 className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'presentation' ? <Presentation className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'diagram' ? <Workflow className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'canvas' ? <LayoutDashboard className="h-4 w-4 text-muted-foreground shrink-0" /> : dragActiveNode.type === 'video' ? <Video className="h-4 w-4 text-muted-foreground shrink-0" /> : <FileText className="h-4 w-4 text-muted-foreground shrink-0" />}
                         <span className="truncate">{dragActiveNode.title}</span>
                       </div>
                     )}
@@ -2205,6 +2215,8 @@ function DraggableTreeNode({
               ? <Workflow className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : node.type === 'canvas'
               ? <LayoutDashboard className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+              : node.type === 'video'
+              ? <Video className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
               : <FileText className={cn('h-6 w-6 md:h-4 md:w-4', isSelected && !isMobile ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
             }
           </button>
@@ -2360,6 +2372,10 @@ function TreeNodeItem({
         ? <Presentation className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
         : (node.type as string) === 'diagram'
         ? <Workflow className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        : (node.type as string) === 'canvas'
+        ? <LayoutDashboard className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
+        : (node.type as string) === 'video'
+        ? <Video className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
         : <FileText className={cn('h-4 w-4 shrink-0', isSelected ? 'text-sidebar-primary' : 'text-[#939493] dark:text-[#818181]')} />
       }
       <span className="truncate">{node.title}</span>

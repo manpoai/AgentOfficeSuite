@@ -164,6 +164,7 @@
     "typePresentation": "slides",
     "typeDiagram": "flowchart",
     "typeCanvas": "canvas",
+    "typeVideo": "video",
     "link": "Link",
     "justNow": "Just now",
     "minutesAgo": "min ago",

@@ -82,6 +82,7 @@ const TYPE_LABELS: Record<string, string> = {
   presentation: 'content.typePresentation',
   diagram: 'content.typeDiagram',
   canvas: 'content.typeCanvas',
+  video: 'content.typeVideo',
 };
 
 const TRIGGER_LABELS: Record<string, string> = {

@@ -15,9 +15,10 @@ import {
   Underline, Strikethrough, Settings2,
   Goal, Clock7,
 } from 'lucide-react';
-import { exportVideoToBlob, downloadExport, type ExportFormat, type ExportPhase } from './videoExport';
+import { exportVideoToBlob, downloadExport, type ExportFormat } from './videoExport';
 import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
+import { formatRelativeTime } from '@/lib/utils/time';
 import { useT } from '@/lib/i18n';
 import { readFileAsDataUrl, extractDroppedImageFiles, isSvgFile, createImageHtml, probeImageSize, uploadImageFile, resolveUploadUrl } from '@/components/shared/image-upload';
 import { parseSvgFileContent } from '@/components/shared/svg-import';
@@ -27,6 +28,7 @@ import { buildContentTopBarCommonMenuItems } from '@/actions/content-topbar-comm
 import { getPublicOrigin } from '@/lib/remote-access';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { RevisionHistory } from '@/components/shared/RevisionHistory';
+import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
 import { SHAPE_MAP, type ShapeType } from '@/components/shared/ShapeSet';
 import { useUndoRedo } from '../canvas-editor/use-undo-redo';
 import { CANVAS_FONTS } from '../canvas-editor/fonts';
@@ -616,8 +618,12 @@ export function VideoEditor({
   const [data, setData] = useState<VideoData | null>(null);
   const [title, setTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [updatedBy, setUpdatedBy] = useState<string | null>(null);
   const [showRevisions, setShowRevisions] = useState(false);
   const [showShapes, setShowShapes] = useState(false);
+  const [previewRevisionData, setPreviewRevisionData] = useState<VideoData | null>(null);
+  const [previewRevisionMeta, setPreviewRevisionMeta] = useState<{ id: string; created_at: string } | null>(null);
 
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [selectedMarkerTime, setSelectedMarkerTime] = useState<number | null>(null);
@@ -646,7 +652,7 @@ export function VideoEditor({
   } | null>(null);
 
   // Export state.
-  const [exportProgress, setExportProgress] = useState<{ current: number; total: number; phase: ExportPhase } | null>(null);
+  const [exportProgress, setExportProgress] = useState<{ pct: number; label: string } | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportAbortRef = useRef<AbortController | null>(null);
 
@@ -690,6 +696,8 @@ export function VideoEditor({
       const d = migrateVideoData(videoResp.data ?? DEFAULT_DATA);
       setData(d);
       undoRedo.reset(d);
+      if (videoResp.updated_at) setUpdatedAt(videoResp.updated_at);
+      if (videoResp.updated_by) setUpdatedBy(videoResp.updated_by);
     }
   }, [videoResp]);
 
@@ -713,7 +721,8 @@ export function VideoEditor({
       pendingDataRef.current = null;
       setSaveStatus('Saving...');
       try {
-        await gw.saveVideo(videoId, toSave);
+        const saveResp = await gw.saveVideo(videoId, toSave);
+        if (saveResp.updated_at) setUpdatedAt(saveResp.updated_at);
         setSaveStatus('Saved');
         setTimeout(() => setSaveStatus(''), 2000);
       } catch (e) { setSaveStatus('Save failed'); showError('Failed to save video', e); }
@@ -1004,20 +1013,23 @@ export function VideoEditor({
       showError('Nothing to export', new Error('Add at least one element first.'));
       return;
     }
-    if (exportProgress) return;  // already running
-    setPlaying(false);  // stop preview playback during export
+    if (exportProgress) return;
+    setPlaying(false);
     setShowExportMenu(false);
     const ac = new AbortController();
     exportAbortRef.current = ac;
     try {
-      setExportProgress({ current: 0, total: 1, phase: 'capture' });
+      console.log('[VideoExport] Starting export:', format, 'elements:', data.elements.length);
+      setExportProgress({ pct: 0, label: 'Starting…' });
       const result = await exportVideoToBlob(data, {
         format,
-        onProgress: (current, total, phase) => setExportProgress({ current, total, phase }),
+        onProgress: (pct, label) => setExportProgress({ pct, label }),
         signal: ac.signal,
       });
+      console.log('[VideoExport] Export complete, downloading:', result.framesCaptured, 'frames');
       downloadExport(result, title || `video-${videoId}`);
     } catch (e) {
+      console.error('[VideoExport] Export error:', e);
       if ((e as any)?.name !== 'AbortError') {
         showError('Export failed', e);
       }
@@ -1850,6 +1862,13 @@ export function VideoEditor({
           <ContentTopBar breadcrumb={breadcrumb} onNavigate={onNavigate} onBack={onBack}
             docListVisible={docListVisible} onToggleDocList={onToggleDocList}
             title={title} titlePlaceholder="Untitled Video" onTitleChange={handleTitleChange}
+            metaLine={updatedAt ? (
+              <button onClick={() => setShowRevisions(true)}
+                className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer">
+                {t('content.lastModified')}: {formatRelativeTime(updatedAt)}
+                {updatedBy && <span> {t('content.by')} {updatedBy}</span>}
+              </button>
+            ) : undefined}
             statusText={saveStatus}
             actions={renderFixedTopBarActions(fixedActions, { t, ctx: topBarCtx as any })}
             menuItems={menuItems}
@@ -1857,7 +1876,31 @@ export function VideoEditor({
         </div>
 
         <div className="flex-1 flex min-h-0">
-          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+            {/* Revision preview overlay */}
+            {previewRevisionData && previewRevisionMeta && (
+              <div className="absolute inset-0 flex flex-col bg-card" style={{ zIndex: 11000 }}
+                onMouseDown={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+                <RevisionPreviewBanner
+                  createdAt={previewRevisionMeta.created_at}
+                  onExit={() => { setPreviewRevisionData(null); setPreviewRevisionMeta(null); }}
+                  onRestore={async () => {
+                    if (!confirm(t('content.restoreVersionWarning', { type: 'video' }))) return;
+                    try {
+                      const result = await gw.restoreContentRevision(contentId, previewRevisionMeta.id);
+                      const restored = result?.data ? migrateVideoData(result.data) : null;
+                      if (restored) { setData(restored); scheduleSave(restored); }
+                      setPreviewRevisionData(null); setPreviewRevisionMeta(null); setShowRevisions(false);
+                    } catch (e: unknown) {
+                      alert(e instanceof Error ? e.message : t('content.restoreVersionFailed'));
+                    }
+                  }}
+                />
+                <div className="flex-1 overflow-auto flex items-center justify-center bg-muted/30 p-6">
+                  <VideoRevisionPreview data={previewRevisionData} />
+                </div>
+              </div>
+            )}
             {/* Canvas Preview */}
             <div ref={canvasContainerRef} className="flex-1 flex items-center justify-center overflow-hidden relative"
               style={{ background: '#F5F7F5', cursor: pendingInsert ? 'crosshair' : 'default' }}
@@ -2283,8 +2326,20 @@ export function VideoEditor({
       {showRevisions && (
         <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
           <RevisionHistory contentId={contentId} contentType="video"
-            onClose={() => setShowRevisions(false)}
-            onRestore={(revisionData) => { const d = migrateVideoData(revisionData); setData(d); scheduleSave(d); setShowRevisions(false); }} />
+            selectedRevisionId={previewRevisionMeta?.id ?? null}
+            onClose={() => { setShowRevisions(false); setPreviewRevisionData(null); setPreviewRevisionMeta(null); }}
+            onCreateManualVersion={async () => { await gw.createContentManualSnapshot(contentId); }}
+            onSelectRevision={(rev) => {
+              if (!rev) { setPreviewRevisionData(null); setPreviewRevisionMeta(null); return; }
+              setPreviewRevisionData(migrateVideoData(rev.data));
+              setPreviewRevisionMeta({ id: rev.id, created_at: rev.created_at });
+            }}
+            onRestore={(revisionData) => {
+              const d = migrateVideoData(revisionData);
+              setData(d); scheduleSave(d);
+              setShowRevisions(false);
+              setPreviewRevisionData(null); setPreviewRevisionMeta(null);
+            }} />
         </div>
       )}
 
@@ -2331,9 +2386,8 @@ export function VideoEditor({
       {/* Export progress modal (Phase 6). */}
       {exportProgress && (
         <ExportProgressDialog
-          current={exportProgress.current}
-          total={exportProgress.total}
-          phase={exportProgress.phase}
+          pct={exportProgress.pct}
+          label={exportProgress.label}
           onCancel={cancelExport} />
       )}
     </div>
@@ -2342,19 +2396,14 @@ export function VideoEditor({
 
 // ─── Export Progress Dialog ────────
 
-function ExportProgressDialog({ current, total, phase, onCancel }: {
-  current: number; total: number; phase: ExportPhase; onCancel: () => void;
+function ExportProgressDialog({ pct, label, onCancel }: {
+  pct: number; label: string; onCancel: () => void;
 }) {
-  const pct = Math.round((current / Math.max(1, total)) * 100);
-  const heading = phase === 'capture' ? 'Capturing frames…' : 'Encoding mp4 (ffmpeg)…';
-  const detail = phase === 'capture'
-    ? `Frame ${current} / ${total} · ${pct}%`
-    : `${pct}% — ffmpeg.wasm encoding (single-thread)`;
   return (
     <div className="fixed inset-0 z-[10100] bg-black/40 flex items-center justify-center">
       <div className="bg-card rounded-lg shadow-2xl w-[420px] p-5 border border-border">
-        <h3 className="text-sm font-semibold mb-2">{heading}</h3>
-        <p className="text-xs text-muted-foreground mb-4">{detail}</p>
+        <h3 className="text-sm font-semibold mb-2">Exporting video…</h3>
+        <p className="text-xs text-muted-foreground mb-4">{label} · {pct}%</p>
         <div className="w-full h-2 bg-muted rounded overflow-hidden mb-4">
           <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${pct}%` }} />
         </div>
@@ -2362,6 +2411,52 @@ function ExportProgressDialog({ current, total, phase, onCancel }: {
           <button onClick={onCancel} className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">
             Cancel
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Revision Preview ─────────────────────
+
+function VideoRevisionPreview({ data }: { data: VideoData }) {
+  const { settings, elements } = data;
+  const maxW = 800;
+  const scale = settings.width > 0 ? Math.min(1, maxW / settings.width) : 1;
+  return (
+    <div className="flex flex-col gap-4 max-w-5xl">
+      <div className="rounded-lg border border-border shadow-sm overflow-hidden bg-card">
+        <div className="px-3 py-2 border-b border-border bg-muted/30">
+          <span className="text-xs font-medium">Video Preview (t=0)</span>
+          <span className="ml-2 text-[11px] text-muted-foreground">{settings.width} × {settings.height}</span>
+          <span className="ml-2 text-[11px] text-muted-foreground">{elements.length} elements</span>
+        </div>
+        <div className="relative" style={{
+          width: settings.width * scale,
+          height: settings.height * scale,
+          background: settings.background_color ?? '#000',
+        }}>
+          <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', width: settings.width, height: settings.height, position: 'relative' }}>
+            {elements.filter(el => el.visible !== false).map(el => {
+              const snap = getElementSnapshotAt(el, 0);
+              const scaledW = snap.w * snap.scale;
+              const scaledH = snap.h * snap.scale;
+              return (
+                <div key={el.id} style={{
+                  position: 'absolute',
+                  left: snap.x - (scaledW - snap.w) / 2,
+                  top: snap.y - (scaledH - snap.h) / 2,
+                  width: scaledW,
+                  height: scaledH,
+                  opacity: snap.opacity,
+                  transform: `rotate(${snap.rotation}deg)`,
+                  transformOrigin: 'center center',
+                  zIndex: el.z_index ?? 0,
+                  overflow: 'hidden',
+                }} dangerouslySetInnerHTML={{ __html: el.html }} />
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
