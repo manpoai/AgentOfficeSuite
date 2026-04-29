@@ -18,7 +18,7 @@ const PID_FILE = path.join(HOME_DIR, 'service.pid');
 const GATEWAY_LOG = path.join(LOGS_DIR, 'gateway.log');
 const SHELL_LOG = path.join(LOGS_DIR, 'shell.log');
 const GITHUB_REPO = 'manpoai/AgentOfficeSuite';
-const FALLBACK_ARTIFACT_URL = `https://github.com/${GITHUB_REPO}/releases/download/v2.0.5/aose-runtime.tar.gz`;
+const FALLBACK_ARTIFACT_URL = `https://github.com/${GITHUB_REPO}/releases/download/v3.0.0/aose-runtime.tar.gz`;
 let ARTIFACT_URL = process.env.AOSE_ARTIFACT_URL || FALLBACK_ARTIFACT_URL;
 
 /** Fetch latest release artifact URL from GitHub API. Returns { url, version } or null. */
