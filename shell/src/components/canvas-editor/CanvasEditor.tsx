@@ -683,6 +683,7 @@ export function CanvasEditor({
   const [showRevisions, setShowRevisions] = useState(false);
   const [previewRevisionData, setPreviewRevisionData] = useState<CanvasData | null>(null);
   const [previewRevisionMeta, setPreviewRevisionMeta] = useState<{ id: string; created_at: string } | null>(null);
+  const [commentAnchor, setCommentAnchor] = useState<{ type: string; id: string; meta?: Record<string, unknown> } | null>(null);
   const [showPropertyPanel, setShowPropertyPanel] = useState(true);
   const [showLayers, setShowLayers] = useState(true);
   const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
@@ -962,6 +963,14 @@ export function CanvasEditor({
   }, [contentId, canvasId]);
 
   const navigateToAnchor = useCallback((anchor: { type: string; id: string }) => {
+    if (anchor.type === 'page') {
+      const page = data?.pages.find(p => p.page_id === anchor.id);
+      if (page) {
+        setActiveFrameId(page.page_id);
+        setSelectedIds(new Set());
+      }
+      return;
+    }
     if (anchor.type !== 'element') return;
 
     const findInElements = (elements: CanvasElement[], id: string): boolean =>
@@ -974,12 +983,39 @@ export function CanvasEditor({
         return;
       }
     }
-    // Check canvas-level elements (no frame)
     if (data?.elements && findInElements(data.elements, anchor.id)) {
       setActiveFrameId(null);
       setSelectedIds(new Set([anchor.id]));
     }
   }, [data]);
+
+  const handleCanvasComment = useCallback((type: 'element' | 'page', target: CanvasElement | null) => {
+    if (type === 'element' && target) {
+      const pageIndex = data?.pages.findIndex(p => p.elements.some(e => e.id === target.id)) ?? -1;
+      const page = pageIndex >= 0 ? data!.pages[pageIndex] : null;
+      setCommentAnchor({
+        type: 'element',
+        id: target.id,
+        meta: {
+          page_index: pageIndex >= 0 ? pageIndex : undefined,
+          page_title: page?.title,
+          element_name: target.name || getElementLabel(target),
+        },
+      });
+    }
+    onShowComments();
+    setShowRevisions(false);
+  }, [data, onShowComments]);
+
+  const handlePageComment = useCallback((frameId: string, frameTitle: string, frameIndex: number) => {
+    setCommentAnchor({
+      type: 'page',
+      id: frameId,
+      meta: { page_index: frameIndex, page_title: frameTitle || `Page ${frameIndex + 1}` },
+    });
+    onShowComments();
+    setShowRevisions(false);
+  }, [onShowComments]);
 
   useEffect(() => {
     const flush = () => {
@@ -2584,6 +2620,7 @@ export function CanvasEditor({
       toggleLock,
       openAiEdit: () => onShowComments(),
       openComments: () => onShowComments(),
+      handleCanvasComment,
       selectAll: () => setSelectedIds(new Set(elementContext.elements.filter(el => el.visible !== false).map(el => el.id))),
       fitToView: fitAllFrames,
       resetZoom: resetZoomTo100,
@@ -2593,7 +2630,7 @@ export function CanvasEditor({
   }, [selectedIds, findElementById, handleCut, handleCopy, handlePaste, deleteSelected,
       duplicateElement, bringToFront, bringForward, sendBackward, sendToBack,
       groupSelected, ungroupSelected, toggleLock, canvasElementActionMap, t, onShowComments,
-      elementContext.elements, fitAllFrames, resetZoomTo100]);
+      elementContext.elements, fitAllFrames, resetZoomTo100, handleCanvasComment]);
 
   const { onContextMenu: onElementContextMenu } = useContextMenu(getElementMenuItems);
 
@@ -2622,20 +2659,24 @@ export function CanvasEditor({
 
   const getFrameMenuItems = useCallback((frameId: string) => () => {
     const frame = data?.pages.find(p => p.page_id === frameId);
+    const frameIndex = data?.pages.findIndex(p => p.page_id === frameId) ?? 0;
     const ctx: CanvasFrameCtx = {
       frameId,
+      frameTitle: frame?.title,
+      frameIndex,
       renameFrame,
       duplicateFrame,
       deleteFrame,
       exportFramePng: handleExportFramePng,
       exportFrameSvg: handleExportFrameSvg,
       canExportSvg: frame ? canExportFrameAsSvg(frame) : false,
+      handlePageComment,
     };
     const surface = frame && canExportFrameAsSvg(frame)
       ? canvasSurfaces.frameMenu
       : canvasSurfaces.frameMenu.filter(s => s !== 'canvas-frame-export-svg') as typeof canvasSurfaces.frameMenu;
     return toContextMenuItems(surface, canvasFrameActionMap, ctx, t);
-  }, [renameFrame, duplicateFrame, deleteFrame, handleExportFramePng, handleExportFrameSvg, canvasFrameActionMap, t, data]);
+  }, [renameFrame, duplicateFrame, deleteFrame, handleExportFramePng, handleExportFrameSvg, canvasFrameActionMap, t, data, handlePageComment]);
 
   const alignElements = (alignment: string) => {
     if (selectedIds.size < 2) return;
@@ -3877,9 +3918,10 @@ export function CanvasEditor({
           <CommentPanel
             targetType="canvas"
             targetId={contentId}
-            anchorType={singleSelected ? 'element' : undefined}
-            anchorId={singleSelected?.id}
-            anchorMeta={singleSelected ? { node_label: singleSelected.name || getElementLabel(singleSelected) } : undefined}
+            anchorType={commentAnchor?.type}
+            anchorId={commentAnchor?.id}
+            anchorMeta={commentAnchor?.meta}
+            onAnchorUsed={() => setCommentAnchor(null)}
             onNavigateToAnchor={navigateToAnchor}
             onClose={onCloseComments}
             focusCommentId={focusCommentId}

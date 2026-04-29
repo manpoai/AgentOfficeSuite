@@ -24,6 +24,7 @@ export interface CanvasElementCtx {
   toggleLock: (id: string) => void;
   openAiEdit: () => void;
   openComments: () => void;
+  handleCanvasComment?: (type: 'element', element: CanvasElement | null) => void;
   selectAll: () => void;
   fitToView: () => void;
   resetZoom: () => void;
@@ -133,7 +134,13 @@ export const canvasElementActions: ActionDef<CanvasElementCtx>[] = [
     label: _t => 'Add Comment',
     icon: MessageSquare,
     group: 'ai',
-    execute: ctx => ctx.openComments(),
+    execute: ctx => {
+      if (ctx.handleCanvasComment && ctx.singleSelected) {
+        ctx.handleCanvasComment('element', ctx.singleSelected);
+      } else {
+        ctx.openComments();
+      }
+    },
   },
   {
     id: 'canvas-select-all',

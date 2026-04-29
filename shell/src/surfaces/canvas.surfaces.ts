@@ -52,6 +52,8 @@ export const canvasSurfaces = {
     'canvas-frame-rename',
     'canvas-frame-duplicate',
     '---',
+    'canvas-frame-comment',
+    '---',
     'canvas-frame-delete',
   ] as SurfaceConfig,
 };

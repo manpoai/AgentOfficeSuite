@@ -1,14 +1,17 @@
-import { Pencil, CopyPlus, Trash2, Image, FileCode } from 'lucide-react';
+import { Pencil, CopyPlus, Trash2, Image, FileCode, MessageSquare } from 'lucide-react';
 import type { ActionDef } from './types';
 
 export interface CanvasFrameCtx {
   frameId: string;
+  frameTitle?: string;
+  frameIndex?: number;
   renameFrame: (id: string) => void;
   duplicateFrame: (id: string) => void;
   deleteFrame: (id: string) => void;
   exportFramePng: (id: string) => void;
   exportFrameSvg?: (id: string) => void;
   canExportSvg?: boolean;
+  handlePageComment?: (frameId: string, frameTitle: string, frameIndex: number) => void;
 }
 
 export const canvasFrameActions: ActionDef<CanvasFrameCtx>[] = [
@@ -47,5 +50,12 @@ export const canvasFrameActions: ActionDef<CanvasFrameCtx>[] = [
     icon: FileCode,
     group: 'export',
     execute: ctx => ctx.exportFrameSvg?.(ctx.frameId),
+  },
+  {
+    id: 'canvas-frame-comment',
+    label: _t => 'Add Comment',
+    icon: MessageSquare,
+    group: 'other',
+    execute: ctx => ctx.handlePageComment?.(ctx.frameId, ctx.frameTitle ?? '', ctx.frameIndex ?? 0),
   },
 ];

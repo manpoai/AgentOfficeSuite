@@ -189,7 +189,7 @@ function TrackLabel({
   hasAnimation, expanded,
   onToggleExpanded,
   onToggleVisible, onToggleLock, onRename, onMoveUp, onMoveDown,
-  onDelete, onDuplicate,
+  onDelete, onDuplicate, onComment,
 }: {
   el: VideoElement;
   isHidden: boolean;
@@ -206,6 +206,7 @@ function TrackLabel({
   onMoveDown: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onComment?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -221,6 +222,7 @@ function TrackLabel({
           { id: 'lock', label: isLocked ? 'Unlock' : 'Lock', onClick: onToggleLock },
           { id: 'up', label: 'Bring Forward', onClick: onMoveUp, disabled: !canMoveUp, separator: true },
           { id: 'down', label: 'Send Backward', onClick: onMoveDown, disabled: !canMoveDown },
+          ...(onComment ? [{ id: 'comment', label: 'Add Comment', onClick: onComment, separator: true }] : []),
         ];
         window.dispatchEvent(new CustomEvent('show-context-menu', { detail: { items, x: e.clientX, y: e.clientY } }));
       }}>
@@ -663,6 +665,7 @@ export function VideoEditor({
   const [selectedMarkerTime, setSelectedMarkerTime] = useState<number | null>(null);
   const [selectedKfProp, setSelectedKfProp] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [commentAnchor, setCommentAnchor] = useState<{ type: string; id: string; meta?: Record<string, unknown> } | null>(null);
 
   // Drag-to-create insertion (Canvas-aligned).
   type PendingInsert = { type: 'text' } | { type: 'shape'; shapeType: ShapeType } | { type: 'line-draw' };
@@ -788,6 +791,25 @@ export function VideoEditor({
   const totalDuration = useMemo(() => data ? computeTotalDuration(data.elements) : 10, [data]);
   const timelineDuration = Math.max(totalDuration + 2, 10);
   const selectedElement = data?.elements.find(el => el.id === selectedElementId) ?? null;
+
+  const handleVideoComment = useCallback((element: VideoElement) => {
+    setCommentAnchor({
+      type: 'element',
+      id: element.id,
+      meta: { element_name: element.name ?? element.type ?? 'element', start: element.start, duration: element.duration },
+    });
+    onShowComments();
+    setShowRevisions(false);
+  }, [onShowComments]);
+
+  const navigateToAnchor = useCallback((anchor: { type: string; id: string }) => {
+    if (anchor.type !== 'element' || !data) return;
+    const el = data.elements.find(e => e.id === anchor.id);
+    if (el) {
+      setSelectedElementId(el.id);
+      setCurrentTime(el.start);
+    }
+  }, [data]);
 
   // ─── Element CRUD ─────────────────────
   const updateElement = useCallback((elementId: string, updates: Partial<VideoElement>) => {
@@ -2066,6 +2088,16 @@ export function VideoEditor({
                         zIndex: el.z_index ?? 0,
                       }}
                       onClick={(e) => { e.stopPropagation(); setSelectedElementId(el.id); setSelectedMarkerTime(null); setSelectedKfProp(null); }}
+                      onContextMenu={(e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        setSelectedElementId(el.id);
+                        const items = [
+                          { id: 'duplicate', label: 'Duplicate', onClick: () => duplicateElement(el.id) },
+                          { id: 'delete', label: 'Delete', onClick: () => deleteElement(el.id), danger: true },
+                          { id: 'comment', label: 'Add Comment', onClick: () => handleVideoComment(el), separator: true },
+                        ];
+                        window.dispatchEvent(new CustomEvent('show-context-menu', { detail: { items, x: e.clientX, y: e.clientY } }));
+                      }}
                       onPointerDown={(e) => handleCanvasPointerDown(e, el.id)}
                       onDoubleClick={() => handleDoubleClick(el.id)}
                     >
@@ -2267,7 +2299,8 @@ export function VideoEditor({
                         onMoveUp={() => moveZIndex(el.id, 'up')}
                         onMoveDown={() => moveZIndex(el.id, 'down')}
                         onDelete={() => deleteElement(el.id)}
-                        onDuplicate={() => duplicateElement(el.id)} />
+                        onDuplicate={() => duplicateElement(el.id)}
+                        onComment={() => handleVideoComment(el)} />
                       <div className="relative h-full" style={{ width: trackContentWidth }}>
                         <div className={cn("absolute top-1 bottom-1 rounded-sm group", selectedElementId === el.id ? "bg-blue-500/60" : "bg-blue-500/30")}
                           style={{ left: el.start * pxPerSec, width: el.duration * pxPerSec }}
@@ -2282,6 +2315,7 @@ export function VideoEditor({
                               ...(canAddKf ? [{ id: 'add-kf', label: 'Add Keyframe', onClick: () => addMarkerAtPlayhead(el.id) }] : []),
                               { id: 'duplicate', label: 'Duplicate', onClick: () => duplicateElement(el.id), ...(canAddKf ? { separator: true } : {}) },
                               { id: 'delete', label: 'Delete', onClick: () => deleteElement(el.id), danger: true },
+                              { id: 'comment', label: 'Add Comment', onClick: () => handleVideoComment(el), separator: true },
                             ];
                             window.dispatchEvent(new CustomEvent('show-context-menu', { detail: { items, x: e.clientX, y: e.clientY } }));
                           }}>
@@ -2394,9 +2428,11 @@ export function VideoEditor({
             targetId={contentId}
             onClose={onCloseComments}
             focusCommentId={focusCommentId}
-            anchorType={selectedElement ? 'element' : undefined}
-            anchorId={selectedElement?.id}
-            anchorMeta={selectedElement ? { node_label: selectedElement.name ?? selectedElement.type ?? 'element' } : undefined}
+            anchorType={commentAnchor?.type}
+            anchorId={commentAnchor?.id}
+            anchorMeta={commentAnchor?.meta}
+            onAnchorUsed={() => setCommentAnchor(null)}
+            onNavigateToAnchor={navigateToAnchor}
           />
         </div>
       )}
