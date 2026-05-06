@@ -77,7 +77,7 @@ export class SyncClient {
       .replace(/\/$/, '');
 
     try {
-      this.ws = new WebSocket(`${wsUrl}/api/sync/ws?token=${config.remoteToken}`);
+      this.ws = new WebSocket(`${wsUrl}/sync/ws?token=${config.remoteToken}`);
     } catch (err) {
       console.error('[sync-client] WebSocket creation error:', err.message);
       this._scheduleReconnect(config);
@@ -213,7 +213,7 @@ export class SyncClient {
       pushed = true;
     } else {
       try {
-        const res = await fetch(`${config.remoteUrl}/api/sync/push`, {
+        const res = await fetch(`${config.remoteUrl}/sync/push`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${config.remoteToken}`,
@@ -286,7 +286,7 @@ export class SyncClient {
           formData.append('file', new Blob([fileBuffer]), filename);
           formData.append('filename', filename);
 
-          const res = await fetch(`${config.remoteUrl}/api/sync/files`, {
+          const res = await fetch(`${config.remoteUrl}/sync/files`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${config.remoteToken}`,

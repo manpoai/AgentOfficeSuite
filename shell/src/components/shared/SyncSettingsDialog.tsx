@@ -53,7 +53,7 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
     try {
       const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
 
-      const healthRes = await fetch(`${cleanUrl}/api/health`);
+      const healthRes = await fetch(`${cleanUrl}/health`);
       if (!healthRes.ok) throw new Error('Cannot reach server');
       const health = await healthRes.json();
       if (!health.ok) throw new Error('Server health check failed');
@@ -158,7 +158,7 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
                     type="url"
                     value={serverUrl}
                     onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="https://your-server.com"
+                    placeholder="https://your-server.com/api/gateway"
                     className="w-full px-3 py-2 text-sm bg-black/[0.03] dark:bg-white/[0.05] border border-black/10 dark:border-white/10 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
