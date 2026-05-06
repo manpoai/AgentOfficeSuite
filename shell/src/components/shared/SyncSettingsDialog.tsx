@@ -53,11 +53,6 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
     try {
       const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
 
-      const healthRes = await fetch(`${cleanUrl}/health`);
-      if (!healthRes.ok) throw new Error('Cannot reach server');
-      const health = await healthRes.json();
-      if (!health.ok) throw new Error('Server health check failed');
-
       const res = await fetch(`${API_BASE}/sync/connect`, {
         method: 'POST',
         headers: {

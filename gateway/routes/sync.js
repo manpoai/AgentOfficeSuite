@@ -124,7 +124,7 @@ export default function syncRoutes(db, syncClient) {
   });
 
   // POST /api/sync/connect — initiate sync connection (called by local App)
-  router.post('/connect', (req, res) => {
+  router.post('/connect', async (req, res) => {
     const { remote_url, remote_token, protocol_version } = req.body;
 
     if (!remote_url || !remote_token) {
@@ -136,6 +136,15 @@ export default function syncRoutes(db, syncClient) {
         error: 'protocol_version_mismatch',
         server_version: SYNC_PROTOCOL_VERSION,
       });
+    }
+
+    try {
+      const healthRes = await fetch(`${remote_url}/health`);
+      if (!healthRes.ok) throw new Error(`HTTP ${healthRes.status}`);
+      const health = await healthRes.json();
+      if (!health.ok) throw new Error('Server health check returned ok:false');
+    } catch (err) {
+      return res.status(502).json({ error: `Cannot reach remote server: ${err.message}` });
     }
 
     const upsert = db.prepare(
