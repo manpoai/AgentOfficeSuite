@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev -p 3101",
     "build": "node scripts/setup-ffmpeg.js && next build",
+    "build:app": "node scripts/setup-ffmpeg.js && mv src/app/api src/app/_api_disabled 2>/dev/null; BUILD_MODE=app NEXT_PUBLIC_API_MODE=app next build; mv src/app/_api_disabled src/app/api 2>/dev/null; true",
     "analyze": "ANALYZE=true next build",
     "start": "next start -p 3101",
     "postinstall": "node scripts/setup-ffmpeg.js"

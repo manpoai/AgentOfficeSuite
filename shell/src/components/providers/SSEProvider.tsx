@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth';
+import { API_BASE } from '@/lib/api/config';
 import * as gw from '@/lib/api/gateway';
 
 const SSEContext = createContext<EventSource | null>(null);
@@ -14,7 +15,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!token) return;
 
-    const es = new EventSource(`/api/gateway/notifications/stream?token=${token}`);
+    const es = new EventSource(`${API_BASE}/notifications/stream?token=${token}`);
     esRef.current = es;
 
     es.onmessage = (e) => {
@@ -52,7 +53,7 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
       if (document.hidden) return;
       if (esRef.current?.readyState === EventSource.CLOSED) {
         esRef.current?.close();
-        const newEs = new EventSource(`/api/gateway/notifications/stream?token=${token}`);
+        const newEs = new EventSource(`${API_BASE}/notifications/stream?token=${token}`);
         newEs.onmessage = es.onmessage;
         newEs.onerror = es.onerror;
         esRef.current = newEs;

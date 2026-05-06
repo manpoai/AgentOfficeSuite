@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import {
   Link2, Download, Trash2,
   Play,
@@ -933,7 +934,7 @@ export function PresentationEditor({
           if (diagramMatch) {
             diagramId = diagramMatch[1];
             try {
-              const res = await fetch(`/api/gateway/diagrams/${diagramId}`, { headers: gw.gwAuthHeaders() });
+              const res = await fetch(`${API_BASE}/diagrams/${diagramId}`, { headers: gw.gwAuthHeaders() });
               if (res.ok) {
                 const data = await res.json();
                 const cells = data.data?.cells || data.data?.nodes || [];
@@ -1188,7 +1189,7 @@ export function PresentationEditor({
       const url = await gw.uploadSlideThumbnail(blob, `slide-${slideIndex}-thumb.png`);
       // url from gateway is relative like /api/uploads/thumbnails/xxx.png
       // make it go through the Next.js proxy
-      const proxyUrl = `/api/gateway/uploads/thumbnails/${url.split('/').pop()}`;
+      const proxyUrl = `${API_BASE}/uploads/thumbnails/${url.split('/').pop()}`;
       setSlides(prev => {
         const updated = [...prev];
         if (updated[slideIndex]) {
@@ -1266,7 +1267,7 @@ export function PresentationEditor({
       try {
         const latestSlides = getLatestSlidesRef.current();
         const payload = JSON.stringify({ data: { slides: latestSlides } });
-        fetch(`/api/gateway/presentations/${presentationId}`, {
+        fetch(`${API_BASE}/presentations/${presentationId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
           body: payload,
@@ -1390,7 +1391,7 @@ export function PresentationEditor({
         // Upload to gateway
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', {
+        const resp = await fetch(`${API_BASE}/uploads`, {
           method: 'POST',
           headers: gw.gwAuthHeaders(),
           body: formData,
@@ -1398,7 +1399,7 @@ export function PresentationEditor({
         if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
         // Prefix with gateway base URL for full URL
-        imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        imgSrc = data.url?.startsWith('http') ? data.url : `${API_BASE}${data.url?.replace(/^\/api/, '')}`;
       } catch (err) {
         showError(t('errors.imageUploadFallback'), err);
         // Fallback to base64 if upload fails
@@ -1494,7 +1495,7 @@ export function PresentationEditor({
     try {
       // item.id is prefixed (e.g. "diagram:uuid"), API expects raw UUID
       const rawId = item.raw_id || diagramId.replace(/^diagram:/, '');
-      const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
+      const res = await fetch(`${API_BASE}/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
       if (!res.ok) throw new Error('Failed to load diagram');
       const data = await res.json();
       const cells = data.data?.cells || data.data?.nodes || [];
@@ -1549,7 +1550,7 @@ export function PresentationEditor({
 
       const rawId = diagramId.replace(/^diagram:/, '');
       try {
-        const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
+        const res = await fetch(`${API_BASE}/diagrams/${rawId}`, { headers: gw.gwAuthHeaders() });
         if (!res.ok) return;
         const data = await res.json();
         const cells = data.data?.cells || data.data?.nodes || [];
@@ -2278,10 +2279,10 @@ function SlidePropertiesSection({
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: formData });
         if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
-        const url = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        const url = data.url?.startsWith('http') ? data.url : `${API_BASE}${data.url?.replace(/^\/api/, '')}`;
         onBackgroundImageChange(url);
       } catch (err) {
         console.error('Background image upload failed:', err);
@@ -2757,10 +2758,10 @@ function ImagePropertiesSection({
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', body: formData });
         if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
-        imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        imgSrc = data.url?.startsWith('http') ? data.url : `${API_BASE}${data.url?.replace(/^\/api/, '')}`;
       } catch {
         imgSrc = await new Promise<string>((resolve) => {
           const reader = new FileReader();

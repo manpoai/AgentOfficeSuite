@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import {
   Plus, Minus, Trash2, Play, Pause, SkipBack, SkipForward,
   Type, Minus as LineIcon, ChevronDown, ChevronRight,
@@ -3106,11 +3107,11 @@ function ElementPropertyPanel({
         try {
           const formData = new FormData();
           formData.append('file', file);
-          const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+          const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
           if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
           const respData = await resp.json();
           const rawUrl = respData.url as string;
-          const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `/api/gateway${rawUrl?.replace(/^\/api/, '')}`;
+          const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `${API_BASE}${rawUrl?.replace(/^\/api/, '')}`;
           applyImage(serverUrl);
           requestAnimationFrame(() => URL.revokeObjectURL(blobUrl));
         } catch { /* keep blob url */ }

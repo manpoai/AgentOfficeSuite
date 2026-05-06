@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// In app mode (static export), this route is excluded from the build.
+// Shell connects directly to gateway instead.
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 

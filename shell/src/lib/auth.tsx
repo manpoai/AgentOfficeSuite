@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '@/lib/api/config';
 
 export interface Actor {
   id: string;
@@ -37,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (stored) {
       setToken(stored);
       // Verify token
-      fetch('/api/gateway/auth/me', {
+      fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${stored}` },
       }).then(res => {
         if (res.ok) return res.json();
@@ -56,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch('/api/gateway/auth/login', {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -75,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem('aose_token');
     if (!stored) return;
     try {
-      const res = await fetch('/api/gateway/auth/me', {
+      const res = await fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${stored}` },
       });
       if (res.ok) {

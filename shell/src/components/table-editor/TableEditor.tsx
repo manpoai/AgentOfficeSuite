@@ -82,16 +82,11 @@ function getOptionColor(color?: string, idx?: number) {
 const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 
 /** Resolve attachment path to a proxied URL */
+import { resolveUploadPath } from '@/lib/api/config';
+
 function ncAttachmentUrl(a: { signedPath?: string; path?: string; url?: string }): string {
   const p = (a as { url?: string }).url || a.signedPath || a.path || '';
-  if (!p) return '';
-  // Full URL
-  if (p.startsWith('http://') || p.startsWith('https://')) return p;
-  // Gateway-native paths (/api/uploads/files/xxx) must be proxied through the shell.
-  if (p.startsWith('/api/gateway/')) return p;
-  if (p.startsWith('/api/')) return `/api/gateway${p.slice(4)}`;
-  if (p.startsWith('/uploads/')) return `/api/gateway${p}`;
-  return `/api/gateway/uploads/files/${encodeURIComponent(p.replace(/^\/+/, ''))}`;
+  return resolveUploadPath(p);
 }
 
 // ── Compact cell display for kanban/gallery views ──
@@ -1181,7 +1176,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     try {
       const formData = new FormData();
       Array.from(files).forEach(f => formData.append('files', f));
-      const uploadRes = await fetch('/api/gateway/data/upload', { method: 'POST', body: formData });
+      const uploadRes = await fetch(`${API_BASE}/data/upload`, { method: 'POST', body: formData });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
       const uploaded = await uploadRes.json(); // array of { path, title, mimetype, size }
       // Get existing attachments (stored as array, not JSON string)

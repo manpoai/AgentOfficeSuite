@@ -12,6 +12,7 @@ import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import * as br from '@/lib/api/tables';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import { CommentPanel } from '@/components/shared/CommentPanel';
 import { MobileCommentBar } from '@/components/shared/MobileCommentBar';
 import { BottomSheet } from '@/components/shared/BottomSheet';
@@ -43,7 +44,7 @@ function attachmentUrl(a: { signedPath?: string; path?: string }): string {
   if (!p) return '';
   if (p.startsWith('/api/')) return p;
   // Proxy all URLs through gateway
-  return `/api/gateway/data/dl?path=${encodeURIComponent(p)}`;
+  return `${API_BASE}/data/dl?path=${encodeURIComponent(p)}`;
 }
 
 function getColIcon(uidt: string) {
@@ -856,7 +857,7 @@ function AttachmentField({ value, col, rowId, tableId, onSaved }: {
     try {
       const formData = new FormData();
       Array.from(files).forEach(f => formData.append('files', f));
-      const res = await fetch('/api/gateway/data/upload', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+      const res = await fetch(`${API_BASE}/data/upload`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       const uploaded = await res.json();
       const merged = [...attachments, ...uploaded];

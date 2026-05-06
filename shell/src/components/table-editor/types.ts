@@ -47,15 +47,12 @@ export function getOptionColor(color?: string, idx?: number) {
 // ── Read-only column types ──
 export const READONLY_TYPES = new Set(['ID', 'AutoNumber', 'CreatedTime', 'LastModifiedTime', 'CreatedBy', 'LastModifiedBy', 'Formula', 'Rollup', 'Lookup', 'Count', 'Links']);
 
+import { resolveUploadPath } from '@/lib/api/config';
+
 /** Resolve attachment path to a proxied URL */
 export function attachmentUrl(a: { signedPath?: string; path?: string; url?: string }): string {
   const p = (a as { url?: string }).url || a.signedPath || a.path || '';
-  if (!p) return '';
-  if (p.startsWith('http://') || p.startsWith('https://')) return p;
-  if (p.startsWith('/api/gateway/')) return p;
-  if (p.startsWith('/api/')) return `/api/gateway${p.slice(4)}`;
-  if (p.startsWith('/uploads/')) return `/api/gateway${p}`;
-  return `/api/gateway/uploads/files/${encodeURIComponent(p.replace(/^\/+/, ''))}`;
+  return resolveUploadPath(p);
 }
 
 // ── Filter operators ──

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { Graph } from '@antv/x6';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import { showError } from '@/lib/utils/error';
 import { getT } from '@/lib/i18n';
 
@@ -69,7 +70,7 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
         }
       }
 
-      await fetch(`/api/gateway/diagrams/${diagramIdRef.current}`, {
+      await fetch(`${API_BASE}/diagrams/${diagramIdRef.current}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
         body: payload,
@@ -165,7 +166,7 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
       const snapshot = lastSnapshotRef.current;
       if (!dirtyRef.current || !snapshot) return;
       try {
-        fetch(`/api/gateway/diagrams/${diagramIdRef.current}`, {
+        fetch(`${API_BASE}/diagrams/${diagramIdRef.current}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
           body: snapshot,
@@ -206,7 +207,7 @@ export function useAutoSave(graph: Graph | null, diagramId: string) {
       // Only attempt cleanup save if there's dirty data AND no save already in flight
       // (the flush-diagram-save handler may have already started a save)
       if (dirtyRef.current && lastSnapshotRef.current && !saveInFlightRef.current) {
-        fetch(`/api/gateway/diagrams/${diagramIdRef.current}`, {
+        fetch(`${API_BASE}/diagrams/${diagramIdRef.current}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...gw.gwAuthHeaders() },
           body: lastSnapshotRef.current,

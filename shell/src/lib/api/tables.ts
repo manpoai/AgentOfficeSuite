@@ -1,8 +1,11 @@
 /**
- * Tables API client — calls the Gateway tableEngine via /api/gateway/data/* proxy.
+ * Tables API client — calls the Gateway tableEngine via /api/gateway/data/* proxy
+ * or directly to gateway (app mode).
  */
 
-const BASE = '/api/gateway/data';
+import { API_BASE } from './config';
+
+const BASE = `${API_BASE}/data`;
 
 async function brFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;

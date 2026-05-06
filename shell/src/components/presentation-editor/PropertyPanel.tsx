@@ -13,6 +13,7 @@ import { showError } from '@/lib/utils/error';
 import { useT, getT } from '@/lib/i18n';
 import { ColorPicker } from '@/components/ui/color-picker';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import { SlideData, FONT_FAMILIES, getObjType } from './types';
 import { getFabricModule } from './useFabric';
 import { pickFile } from '@/lib/utils/pick-file';
@@ -151,10 +152,10 @@ function SlidePropertiesSection({
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
         if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
-        const url = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        const url = data.url?.startsWith('http') ? data.url : `${API_BASE}${data.url?.replace(/^\/api/, '')}`;
         onBackgroundImageChange(url);
       } catch (err) {
         showError(getT()('errors.bgImageUploadFailed'), err);
@@ -590,10 +591,10 @@ function ImagePropertiesSection({
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
         if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
-        imgSrc = data.url?.startsWith('http') ? data.url : `/api/gateway${data.url?.replace(/^\/api/, '')}`;
+        imgSrc = data.url?.startsWith('http') ? data.url : `${API_BASE}${data.url?.replace(/^\/api/, '')}`;
       } catch {
         imgSrc = await new Promise<string>((resolve) => {
           const reader = new FileReader();

@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import * as br from '@/lib/api/tables';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import { showError } from '@/lib/utils/error';
 import { useT } from '@/lib/i18n';
 import { READONLY_TYPES, SELECT_COLORS } from './types';
@@ -454,7 +455,7 @@ export function useTableData(tableId: string, pageSize: number = 50) {
     try {
       const formData = new FormData();
       Array.from(files).forEach(f => formData.append('files', f));
-      const uploadRes = await fetch('/api/gateway/data/upload', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+      const uploadRes = await fetch(`${API_BASE}/data/upload`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
       if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
       const uploaded = await uploadRes.json();
       const row = existingRows.find(r => (r.Id as number) === rowId);

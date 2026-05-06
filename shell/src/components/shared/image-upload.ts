@@ -7,14 +7,11 @@ export function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+import { resolveGatewayUrl, API_BASE } from '@/lib/api/config';
+
 /** Resolve a server upload URL (e.g. /api/uploads/files/x.png) to a shell-proxied URL the browser can fetch. */
 export function resolveUploadUrl(p: string): string {
-  if (!p) return '';
-  if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('blob:') || p.startsWith('data:')) return p;
-  if (p.startsWith('/api/gateway/')) return p;
-  if (p.startsWith('/api/')) return `/api/gateway${p.slice(4)}`;
-  if (p.startsWith('/uploads/')) return `/api/gateway${p}`;
-  return p;
+  return resolveGatewayUrl(p);
 }
 
 /** Read image natural width/height without consuming the whole file. */
@@ -54,7 +51,7 @@ export async function uploadImageFile(file: File): Promise<string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch('/api/gateway/uploads', { method: 'POST', headers, body: form });
+  const res = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers, body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   const { url } = await res.json() as { url: string };
   return url;

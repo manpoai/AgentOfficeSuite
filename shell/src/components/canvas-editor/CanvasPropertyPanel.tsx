@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { showError } from '@/lib/utils/error';
 import { pickFile } from '@/lib/utils/pick-file';
 import * as gw from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import type { CanvasElement, CanvasPage, DesignToken } from './types';
 import { projectElement, applyProjection, extractDesignTokens, updateDesignToken, applySvgDropShadow, applySvgMarker, applyStrokeLinecap, hasGradientFill } from './projection';
 import type { ProjectedProps, SvgDropShadow, MarkerType } from './projection';
@@ -611,11 +612,11 @@ function FillModeSelect({ element, projected, onApply, onUpdateElement }: {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
         if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
         const respData = await resp.json();
         const rawUrl = respData.url as string;
-        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `/api/gateway${rawUrl?.replace(/^\/api/, '')}`;
+        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `${API_BASE}${rawUrl?.replace(/^\/api/, '')}`;
         await new Promise<void>(resolve => {
           const img = new Image();
           img.onload = () => resolve();
@@ -1001,11 +1002,11 @@ function FillSection({ element, projected, onApply, onUpdateElement }: {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+        const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
         if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
         const respData = await resp.json();
         const rawUrl = respData.url as string;
-        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `/api/gateway${rawUrl?.replace(/^\/api/, '')}`;
+        const serverUrl = rawUrl?.startsWith('http') ? rawUrl : `${API_BASE}${rawUrl?.replace(/^\/api/, '')}`;
         await new Promise<void>(resolve => {
           const img = new Image();
           img.onload = () => resolve();
@@ -1371,10 +1372,10 @@ function FrameImageInput({ frame, onUpdateFrame }: {
       if (!file) return;
       const formData = new FormData();
       formData.append('file', file);
-      const resp = await fetch('/api/gateway/uploads', { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
+      const resp = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers: gw.gwAuthHeaders(), body: formData });
       if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
       const respData = await resp.json();
-      const url = respData.url?.startsWith('http') ? respData.url : `/api/gateway${respData.url?.replace(/^\/api/, '')}`;
+      const url = respData.url?.startsWith('http') ? respData.url : `${API_BASE}${respData.url?.replace(/^\/api/, '')}`;
       onUpdateFrame(frame.page_id, { background_image: url });
     } catch (err) {
       showError('Failed to upload image', err);

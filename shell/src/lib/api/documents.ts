@@ -1,9 +1,10 @@
 /**
- * Documents API client — calls through /api/gateway/* proxy to Gateway SQLite
- * Calls through /api/gateway/* proxy to Gateway SQLite
+ * Documents API client — calls through gateway API proxy (web) or direct (app).
  */
 
-const BASE = '/api/gateway';
+import { API_BASE } from './config';
+
+const BASE = API_BASE;
 
 async function docFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;

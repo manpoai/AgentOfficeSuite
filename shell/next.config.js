@@ -8,26 +8,31 @@ try {
   // @next/bundle-analyzer not installed — skip
 }
 
+const isAppMode = process.env.BUILD_MODE === 'app';
+
 const nextConfig = {
-  output: 'standalone',
+  output: isAppMode ? 'export' : 'standalone',
   typescript: {
-    // Pre-existing type errors from dependency version mismatch; build works at runtime
     ignoreBuildErrors: true,
   },
   experimental: {
     optimizePackageImports: ['lucide-react', '@antv/x6'],
   },
-  // Allow iframes from our services
-  async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-        ],
-      },
-    ];
-  },
+  ...(isAppMode && {
+    images: { unoptimized: true },
+  }),
+  ...(!isAppMode && {
+    async headers() {
+      return [
+        {
+          source: '/(.*)',
+          headers: [
+            { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          ],
+        },
+      ];
+    },
+  }),
 };
 
 module.exports = withBundleAnalyzer(nextConfig);

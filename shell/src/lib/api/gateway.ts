@@ -1,15 +1,18 @@
 /**
- * AOSE Gateway API client — calls through /api/gateway/* proxy
+ * AOSE Gateway API client — calls through /api/gateway/* proxy (web mode)
+ * or directly to gateway (app mode).
  */
 
-const BASE = '/api/gateway';
+import { API_BASE } from './config';
 
-/** Resolve a possibly-relative avatar URL to an absolute URL via the gateway proxy. */
+const BASE = API_BASE;
+
+/** Resolve a possibly-relative avatar URL to an absolute URL via the gateway. */
 export function resolveAvatarUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith('http')) return url;
-  if (url.startsWith('/api/gateway')) return url;
-  return `/api/gateway${url}`;
+  if (url.startsWith('/api/gateway')) return `${BASE}${url.slice('/api/gateway'.length)}`;
+  return `${BASE}${url}`;
 }
 
 /** Get auth headers for direct fetch calls to /api/gateway/* */

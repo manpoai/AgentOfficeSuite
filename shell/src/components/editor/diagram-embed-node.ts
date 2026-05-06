@@ -7,6 +7,7 @@ import type { EditorView, NodeView } from 'prosemirror-view';
 import DOMPurify from 'dompurify';
 import { renderCellsToSVG, escapeXml } from '@/components/shared/EmbeddedDiagram/renderCellsToSVG';
 import { gwAuthHeaders } from '@/lib/api/gateway';
+import { API_BASE } from '@/lib/api/config';
 import { getT } from '@/lib/i18n';
 
 export const diagramEmbedNodeSpec: NodeSpec = {
@@ -122,7 +123,7 @@ export class DiagramEmbedView implements NodeView {
     this.loading = true;
     try {
       const rawId = (this.node.attrs.diagramId as string).replace(/^diagram:/, '');
-      const res = await fetch(`/api/gateway/diagrams/${rawId}`, { headers: gwAuthHeaders() });
+      const res = await fetch(`${API_BASE}/diagrams/${rawId}`, { headers: gwAuthHeaders() });
       if (!res.ok) throw new Error('Failed to load');
       const data = await res.json();
       const cells = data.data?.cells || data.data?.nodes || [];
