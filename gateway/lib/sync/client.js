@@ -30,6 +30,7 @@ export class SyncClient {
       remoteUrl: get('remote_url'),
       remoteToken: get('remote_token'),
       syncEnabled: get('sync_enabled') === '1',
+      lastPullCursor: parseInt(get('last_pull_cursor') || '0', 10),
       lastPullTimestamp: parseInt(get('last_pull_timestamp') || '0', 10),
     };
   }
@@ -103,7 +104,7 @@ export class SyncClient {
       const freshConfig = this.getConfig();
       this.ws.send(JSON.stringify({
         type: 'pull',
-        since: freshConfig.lastPullTimestamp,
+        since: freshConfig.lastPullCursor,
       }));
     });
 
@@ -175,7 +176,7 @@ export class SyncClient {
   }
 
   _applyPullResponse(msg) {
-    const { changes, server_timestamp, has_more } = msg;
+    const { changes, cursor, server_timestamp, has_more } = msg;
     if (!Array.isArray(changes)) return;
 
     let applied = 0;
@@ -183,6 +184,11 @@ export class SyncClient {
       if (applyChange(this.db, change)) applied++;
     }
 
+    if (cursor) {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_cursor', ?)"
+      ).run(String(cursor));
+    }
     if (server_timestamp) {
       this.db.prepare(
         "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"
@@ -195,7 +201,7 @@ export class SyncClient {
       const freshConfig = this.getConfig();
       this.ws.send(JSON.stringify({
         type: 'pull',
-        since: freshConfig.lastPullTimestamp,
+        since: freshConfig.lastPullCursor,
       }));
     }
   }
@@ -336,7 +342,7 @@ export class SyncClient {
 
   async _pullRemoteChanges(config) {
     const freshConfig = this.getConfig();
-    const since = freshConfig.lastPullTimestamp;
+    const since = freshConfig.lastPullCursor;
 
     try {
       const res = await fetch(`${config.remoteUrl}/sync/pull?since=${since}&limit=1000`, {
@@ -350,8 +356,8 @@ export class SyncClient {
         return;
       }
 
-      const { changes, server_timestamp, has_more } = await res.json();
-      console.log(`[sync-client] Pull check: ${changes?.length || 0} changes since ${since}`);
+      const { changes, cursor, server_timestamp, has_more } = await res.json();
+      console.log(`[sync-client] Pull check: ${changes?.length || 0} changes since cursor ${since}`);
       if (!Array.isArray(changes) || changes.length === 0) return;
 
       let applied = 0;
@@ -359,6 +365,11 @@ export class SyncClient {
         if (applyChange(this.db, change)) applied++;
       }
 
+      if (cursor) {
+        this.db.prepare(
+          "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_cursor', ?)"
+        ).run(String(cursor));
+      }
       if (server_timestamp) {
         this.db.prepare(
           "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"

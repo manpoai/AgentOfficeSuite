@@ -88,19 +88,26 @@ export default function syncRoutes(db, syncClient) {
     res.json({ applied, total: changes.length, server_timestamp: Date.now() });
   });
 
-  // GET /api/sync/pull?since=<timestamp> — send changes to a remote client
+  // GET /api/sync/pull?since=<cursor> — send changes to a remote client
+  // `since` is the last sync_log id received (not a timestamp)
   router.get('/pull', (req, res) => {
     const since = parseInt(req.query.since, 10) || 0;
     const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
 
     const changes = db.prepare(
-      "SELECT table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE timestamp > ? AND source = 'local' ORDER BY timestamp ASC LIMIT ?"
+      "SELECT id, table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE id > ? AND source = 'local' ORDER BY id ASC LIMIT ?"
     ).all(since, limit);
+
+    const hasMore = changes.length === limit;
+    const cursor = hasMore && changes.length > 0
+      ? changes[changes.length - 1].id
+      : 0;
 
     res.json({
       changes,
+      cursor,
       server_timestamp: Date.now(),
-      has_more: changes.length === limit,
+      has_more: hasMore,
     });
   });
 

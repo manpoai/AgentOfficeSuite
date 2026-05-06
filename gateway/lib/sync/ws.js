@@ -125,16 +125,22 @@ export class SyncWebSocketServer {
   _handlePull(clientId, since) {
     const limit = 1000;
     const changes = this.db.prepare(
-      "SELECT table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE timestamp > ? AND source = 'local' ORDER BY timestamp ASC LIMIT ?"
+      "SELECT id, table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE id > ? AND source = 'local' ORDER BY id ASC LIMIT ?"
     ).all(since, limit);
+
+    const hasMore = changes.length === limit;
+    const cursor = hasMore && changes.length > 0
+      ? changes[changes.length - 1].id
+      : 0;
 
     const client = this.clients.get(clientId);
     if (client?.ws.readyState === client?.ws.OPEN) {
       client.ws.send(JSON.stringify({
         type: 'pull_response',
         changes,
+        cursor,
         server_timestamp: Date.now(),
-        has_more: changes.length === limit,
+        has_more: hasMore,
       }));
     }
   }
