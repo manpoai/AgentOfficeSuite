@@ -497,6 +497,24 @@ function migrateTableComments(db) {
       if (oldTableComments.length > 0) console.log(`[gateway] Migrated ${oldTableComments.length} table_comments -> comments`);
     }
   } catch (e) { console.error('[gateway] table_comments migration error:', e.message); }
+
+  // Sync tables — required for cross-instance sync
+  db.exec(`CREATE TABLE IF NOT EXISTS _sync_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name  TEXT NOT NULL,
+    row_id      TEXT NOT NULL,
+    operation   TEXT NOT NULL CHECK(operation IN ('insert', 'update', 'delete')),
+    data_json   TEXT,
+    actor_id    TEXT,
+    timestamp   INTEGER NOT NULL,
+    synced      INTEGER DEFAULT 0,
+    source      TEXT DEFAULT 'local' CHECK(source IN ('local', 'sync'))
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_sync_log_unsynced ON _sync_log(synced, timestamp)');
+  db.exec(`CREATE TABLE IF NOT EXISTS _sync_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  )`);
 }
 
 function migrateDocComments(db) {
