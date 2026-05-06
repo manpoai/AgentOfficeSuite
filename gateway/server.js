@@ -23,6 +23,9 @@ import docsRoutes from './routes/docs.js';
 import dataRoutes from './routes/data.js';
 import contentRoutes from './routes/content.js';
 import eventsRoutes from './routes/events.js';
+import syncRoutes from './routes/sync.js';
+import { SyncWebSocketServer } from './lib/sync/ws.js';
+import { SyncClient } from './lib/sync/client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.GATEWAY_PORT || 4000;
@@ -85,12 +88,16 @@ const shared = {
   pushEvent, pushHumanEvent, deliverWebhook, sseClients, humanClients, pollComments,
 };
 
+// ─── Sync client (created early so routes can reference it) ──
+const syncClient = new SyncClient(db);
+
 // ─── Mount route modules ────────────────────────
 authRoutes(app, shared);
 docsRoutes(app, shared);
 dataRoutes(app, shared);
 contentRoutes(app, shared);
 eventsRoutes(app, shared);
+app.use('/api/sync', authenticateAny, syncRoutes(db, syncClient));
 
 // ─── Events TTL cleanup ─────────────────────────
 const EVENT_TTL_DAYS = parseInt(process.env.GATEWAY_EVENT_TTL_DAYS || '30', 10);
@@ -109,11 +116,17 @@ setTimeout(cleanupDeliveredEvents, 60_000);
 setInterval(cleanupDeliveredEvents, 24 * 3600 * 1000);
 
 // ─── Start ───────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[gateway] AOSE API Gateway listening on :${PORT}`);
   console.log(`[gateway] Admin token: ${ADMIN_TOKEN.slice(0, 8)}...`);
   console.log('[gateway] Content items managed by Gateway (no periodic sync)');
 });
+
+// ─── Sync WebSocket server ──────────────────────
+const syncWs = new SyncWebSocketServer(server, db, authenticateAny);
+
+// ─── Start sync client (connects to remote if configured) ──
+try { syncClient.start(); } catch (e) { console.log('[gateway] Sync client not started:', e.message); }
 
 // ─── Cleanup ────────────────────────────────────
 process.on('SIGTERM', () => process.exit(0));

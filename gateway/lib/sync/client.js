@@ -1,0 +1,313 @@
+/**
+ * Sync client — runs on the local App gateway, connects to a remote cloud gateway.
+ * Handles push/pull of changes and WebSocket real-time sync.
+ */
+
+import WebSocket from 'ws';
+import fs from 'fs';
+import path from 'path';
+import { applyChange, SYNC_PROTOCOL_VERSION } from './protocol.js';
+
+export class SyncClient {
+  constructor(db) {
+    this.db = db;
+    this.ws = null;
+    this.reconnectTimer = null;
+    this.reconnectDelay = 1000;
+    this.maxReconnectDelay = 60000;
+    this.pushInterval = null;
+    this.running = false;
+    this.uploadsDir = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads');
+  }
+
+  getConfig() {
+    const get = (key) => {
+      const row = this.db.prepare("SELECT value FROM _sync_meta WHERE key = ?").get(key);
+      return row?.value || null;
+    };
+    return {
+      remoteUrl: get('remote_url'),
+      remoteToken: get('remote_token'),
+      syncEnabled: get('sync_enabled') === '1',
+      lastPullTimestamp: parseInt(get('last_pull_timestamp') || '0', 10),
+    };
+  }
+
+  start() {
+    const config = this.getConfig();
+    if (!config.syncEnabled || !config.remoteUrl || !config.remoteToken) {
+      console.log('[sync-client] Sync not configured or disabled');
+      return;
+    }
+
+    this.running = true;
+    console.log(`[sync-client] Starting sync to ${config.remoteUrl}`);
+
+    this._connect(config);
+
+    this.pushInterval = setInterval(() => {
+      this._pushLocalChanges(config).catch(err => {
+        console.error('[sync-client] Push error:', err.message);
+      });
+    }, 10000);
+  }
+
+  stop() {
+    this.running = false;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.pushInterval) {
+      clearInterval(this.pushInterval);
+      this.pushInterval = null;
+    }
+    console.log('[sync-client] Stopped');
+  }
+
+  _connect(config) {
+    if (!this.running) return;
+
+    const wsUrl = config.remoteUrl
+      .replace(/^http/, 'ws')
+      .replace(/\/$/, '');
+
+    try {
+      this.ws = new WebSocket(`${wsUrl}/api/sync/ws?token=${config.remoteToken}`);
+    } catch (err) {
+      console.error('[sync-client] WebSocket creation error:', err.message);
+      this._scheduleReconnect(config);
+      return;
+    }
+
+    this.ws.on('open', () => {
+      console.log('[sync-client] WebSocket connected');
+      this.reconnectDelay = 1000;
+
+      this.ws.send(JSON.stringify({
+        type: 'pull',
+        since: config.lastPullTimestamp,
+      }));
+    });
+
+    this.ws.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        this._handleMessage(msg);
+      } catch (err) {
+        console.error('[sync-client] Invalid message:', err.message);
+      }
+    });
+
+    this.ws.on('close', () => {
+      console.log('[sync-client] WebSocket disconnected');
+      this.ws = null;
+      this._scheduleReconnect(config);
+    });
+
+    this.ws.on('error', (err) => {
+      console.error('[sync-client] WebSocket error:', err.message);
+    });
+  }
+
+  _scheduleReconnect(config) {
+    if (!this.running) return;
+
+    this.reconnectTimer = setTimeout(() => {
+      const freshConfig = this.getConfig();
+      if (freshConfig.syncEnabled) {
+        this._connect(freshConfig);
+      }
+    }, this.reconnectDelay);
+
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+  }
+
+  _handleMessage(msg) {
+    switch (msg.type) {
+      case 'handshake':
+        if (!msg.protocol_version || msg.protocol_version.split('.')[0] !== SYNC_PROTOCOL_VERSION.split('.')[0]) {
+          console.error('[sync-client] Protocol version mismatch:', msg.protocol_version);
+          this.ws?.close();
+        }
+        break;
+
+      case 'change':
+        this._applyRemoteChange(msg.data);
+        break;
+
+      case 'pull_response':
+        this._applyPullResponse(msg);
+        break;
+
+      case 'push_ack':
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  _applyRemoteChange(change) {
+    const ok = applyChange(this.db, change);
+    if (ok && change.timestamp) {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"
+      ).run(String(change.timestamp));
+    }
+  }
+
+  _applyPullResponse(msg) {
+    const { changes, server_timestamp } = msg;
+    if (!Array.isArray(changes)) return;
+
+    let applied = 0;
+    for (const change of changes) {
+      if (applyChange(this.db, change)) applied++;
+    }
+
+    if (server_timestamp) {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"
+      ).run(String(server_timestamp));
+    }
+
+    console.log(`[sync-client] Pulled ${applied}/${changes.length} changes`);
+  }
+
+  async _pushLocalChanges(config) {
+    const changes = this.db.prepare(
+      "SELECT id, table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE synced = 0 AND source = 'local' ORDER BY timestamp ASC LIMIT 500"
+    ).all();
+
+    if (changes.length === 0) return;
+
+    let pushed = false;
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'push',
+        changes: changes.map(c => ({
+          table_name: c.table_name,
+          row_id: c.row_id,
+          operation: c.operation,
+          data_json: c.data_json,
+          actor_id: c.actor_id,
+          timestamp: c.timestamp,
+        })),
+      }));
+
+      const ids = changes.map(c => c.id);
+      this.db.prepare(
+        `UPDATE _sync_log SET synced = 1 WHERE id IN (${ids.map(() => '?').join(',')})`
+      ).run(...ids);
+
+      this.db.prepare(
+        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_sync_timestamp', ?)"
+      ).run(String(Date.now()));
+
+      pushed = true;
+    } else {
+      try {
+        const res = await fetch(`${config.remoteUrl}/api/sync/push`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${config.remoteToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            protocol_version: SYNC_PROTOCOL_VERSION,
+            changes: changes.map(c => ({
+              table_name: c.table_name,
+              row_id: c.row_id,
+              operation: c.operation,
+              data_json: c.data_json,
+              actor_id: c.actor_id,
+              timestamp: c.timestamp,
+            })),
+          }),
+        });
+
+        if (res.ok) {
+          const ids = changes.map(c => c.id);
+          this.db.prepare(
+            `UPDATE _sync_log SET synced = 1 WHERE id IN (${ids.map(() => '?').join(',')})`
+          ).run(...ids);
+
+          this.db.prepare(
+            "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_sync_timestamp', ?)"
+          ).run(String(Date.now()));
+
+          pushed = true;
+        }
+      } catch (err) {
+        console.error('[sync-client] HTTP push failed:', err.message);
+      }
+    }
+
+    // After successfully pushing changes, upload any referenced files
+    if (pushed) {
+      await this._pushReferencedFiles(config, changes);
+    }
+  }
+
+  /**
+   * Scan pushed changes for file references (uploads/files/ and uploads/avatars/)
+   * and upload each referenced file to the remote gateway.
+   * Failures are logged but do not fail the sync.
+   */
+  async _pushReferencedFiles(config, changes) {
+    const FILE_REF_RE = /\/api\/uploads\/(files|avatars)\/([^\s"',]+)/g;
+    const seen = new Set();
+
+    for (const change of changes) {
+      if (!change.data_json) continue;
+      let match;
+      while ((match = FILE_REF_RE.exec(change.data_json)) !== null) {
+        const subDir = match[1]; // "files" or "avatars"
+        const filename = match[2];
+        const key = `${subDir}/${filename}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const localPath = path.join(this.uploadsDir, subDir, filename);
+        if (!fs.existsSync(localPath)) {
+          console.warn(`[sync-client] Referenced file not found locally: ${localPath}`);
+          continue;
+        }
+
+        try {
+          const fileBuffer = fs.readFileSync(localPath);
+          const formData = new FormData();
+          formData.append('file', new Blob([fileBuffer]), filename);
+          formData.append('filename', filename);
+
+          const res = await fetch(`${config.remoteUrl}/api/sync/files`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${config.remoteToken}`,
+            },
+            body: formData,
+          });
+
+          if (res.ok) {
+            const result = await res.json();
+            if (result.skipped) {
+              console.log(`[sync-client] File already on remote: ${filename}`);
+            } else {
+              console.log(`[sync-client] Uploaded file: ${filename}`);
+            }
+          } else {
+            console.warn(`[sync-client] File upload failed (${res.status}): ${filename}`);
+          }
+        } catch (err) {
+          console.warn(`[sync-client] File upload error for ${filename}:`, err.message);
+        }
+      }
+    }
+  }
+}

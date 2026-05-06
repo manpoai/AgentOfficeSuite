@@ -3,6 +3,7 @@
  */
 import crypto from 'crypto';
 import { insertNotification } from '../lib/notifications.js';
+import { recordChange } from '../lib/sync-hook.js';
 
 export default function eventsRoutes(app, { db, authenticateAny, authenticateAgent, genId, pushEvent, deliverWebhook, sseClients, humanClients, pollNcComments }) {
 
@@ -141,6 +142,7 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     const id = genId('tl');
     db.prepare('INSERT INTO thread_links (id, thread_id, link_type, link_id, link_title, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, req.params.thread_id, link_type, link_id, link_title || null, req.agent.id, Date.now());
+    recordChange(db, 'thread_links', id, 'insert', { id, thread_id: req.params.thread_id, link_type, link_id, link_title }, req.actor?.id, undefined);
     res.status(201).json({ id, thread_id: req.params.thread_id, link_type, link_id });
   });
 
@@ -162,6 +164,7 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     if (!link) return res.status(404).json({ error: 'NOT_FOUND' });
     if (link.created_by !== req.agent.id) return res.status(403).json({ error: 'FORBIDDEN', message: 'Can only delete own links' });
     db.prepare('DELETE FROM thread_links WHERE id = ?').run(link.id);
+    recordChange(db, 'thread_links', link.id, 'delete', null, req.actor?.id, undefined);
     res.json({ deleted: true });
   });
 

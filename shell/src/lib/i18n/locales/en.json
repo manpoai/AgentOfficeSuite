@@ -25,7 +25,8 @@
     "passwordChanged": "Password changed",
     "passwordMismatch": "Passwords do not match",
     "passwordTooShort": "At least 6 characters",
-    "wrongPassword": "Current password is incorrect"
+    "wrongPassword": "Current password is incorrect",
+    "cloudSync": "Cloud Sync"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

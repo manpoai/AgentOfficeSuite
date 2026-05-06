@@ -62,6 +62,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
 import { restoreDocFromSnapshot } from '../lib/doc-restore-helper.js';
+import { recordChange } from '../lib/sync-hook.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
@@ -80,6 +81,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
     db.prepare(`INSERT INTO presentations (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+    recordChange(db, 'presentations', id, 'insert', { id, created_by: agentName, created_at: now }, req.actor?.id, undefined);
 
     const nodeId = `presentation:${id}`;
     const isoNow = new Date().toISOString();
@@ -89,6 +91,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       null, req.body.parent_id || null, null,
       agentName, agentName, isoNow, isoNow, null, presActorId, Date.now()
     );
+    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: id, type: 'presentation', title: title || '' }, req.actor?.id, undefined);
 
     const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
 
@@ -159,6 +162,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     const agentName = actorName(req);
     db.prepare('UPDATE presentations SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+    recordChange(db, 'presentations', req.params.id, 'update', { updated_by: agentName, updated_at: now }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, {
@@ -454,6 +458,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     const defaultData = { cells: [], viewport: { x: 0, y: 0, zoom: 1 } };
     db.prepare(`INSERT INTO diagrams (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, JSON.stringify(defaultData), agentName, agentName, now, now);
+    recordChange(db, 'diagrams', id, 'insert', { id, created_by: agentName, created_at: now }, req.actor?.id, undefined);
 
     const nodeId = `diagram:${id}`;
     const isoNow = new Date().toISOString();
@@ -463,6 +468,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       null, req.body.parent_id || null, null,
       agentName, agentName, isoNow, isoNow, null, actorId, Date.now()
     );
+    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: id, type: 'diagram', title: title || '' }, req.actor?.id, undefined);
 
     const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
 
@@ -532,6 +538,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
     db.prepare('UPDATE diagrams SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+    recordChange(db, 'diagrams', req.params.id, 'update', { updated_by: agentName, updated_at: now }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, {
@@ -672,6 +679,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
     db.prepare(`INSERT INTO canvases (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+    recordChange(db, 'canvases', id, 'insert', { id, created_by: agentName, created_at: now }, req.actor?.id, undefined);
 
     const nodeId = `canvas:${id}`;
     const isoNow = new Date().toISOString();
@@ -681,6 +689,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       null, req.body.parent_id || null, null,
       agentName, agentName, isoNow, isoNow, null, canvasActorId, Date.now()
     );
+    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: id, type: 'canvas', title: title || '' }, req.actor?.id, undefined);
 
     const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
 
@@ -739,6 +748,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     const agentName = actorName(req);
     db.prepare('UPDATE canvases SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+    recordChange(db, 'canvases', req.params.id, 'update', { updated_by: agentName, updated_at: now }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, {
@@ -778,6 +788,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
     db.prepare(`INSERT INTO videos (id, data_json, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`).run(id, defaultData, agentName, agentName, now, now);
+    recordChange(db, 'videos', id, 'insert', { id, created_by: agentName, created_at: now }, req.actor?.id, undefined);
 
     const nodeId = `video:${id}`;
     const isoNow = new Date().toISOString();
@@ -787,6 +798,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
       null, req.body.parent_id || null, null,
       agentName, agentName, isoNow, isoNow, null, videoActorId, Date.now()
     );
+    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: id, type: 'video', title: title || '' }, req.actor?.id, undefined);
 
     const item = db.prepare('SELECT * FROM content_items WHERE id = ?').get(nodeId);
 
@@ -845,6 +857,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     const agentName = actorName(req);
     db.prepare('UPDATE videos SET data_json = ?, updated_by = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(data), agentName, now, req.params.id);
+    recordChange(db, 'videos', req.params.id, 'update', { updated_by: agentName, updated_at: now }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, {
@@ -1366,6 +1379,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
 
     params.push(req.params.id);
     db.prepare(`UPDATE content_items SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    recordChange(db, 'content_items', req.params.id, 'update', { icon, parent_id, sort_order, title, pinned }, req.actor?.id, undefined);
     if (icon !== undefined) {
       if (icon) {
         db.prepare('INSERT INTO doc_icons (doc_id, icon, updated_at) VALUES (?, ?, ?) ON CONFLICT(doc_id) DO UPDATE SET icon = excluded.icon, updated_at = excluded.updated_at')

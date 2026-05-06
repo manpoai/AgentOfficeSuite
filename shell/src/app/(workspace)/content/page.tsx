@@ -22,10 +22,11 @@ import { MobileNav } from '@/components/shared/MobileNav';
 import { NotificationPanel } from '@/components/shared/NotificationPanel';
 import { BottomSheet } from '@/components/shared/BottomSheet';
 import { ChangePasswordDialog } from '@/components/shared/ChangePasswordDialog';
+import { SyncSettingsDialog } from '@/components/shared/SyncSettingsDialog';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from 'next-themes';
-import { LogOut, Key, Globe, Camera, ChevronRight } from 'lucide-react';
+import { LogOut, Key, Globe, Camera, ChevronRight, Cloud } from 'lucide-react';
 import { ContentDocView, ContentDiagramView } from '@/components/content-views';
 
 const TableEditor = dynamic(
@@ -233,6 +234,7 @@ export default function ContentPage() {
   const [dropIntent, setDropIntent] = useState<DropIntent>(null);
   const [showTrash, setShowTrash] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showSyncSettings, setShowSyncSettings] = useState(false);
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ nodeId: string; hasChildren: boolean } | null>(null);
@@ -1416,6 +1418,7 @@ export default function ContentPage() {
 
       {/* Change Password Dialog */}
       <ChangePasswordDialog open={showChangePassword} onClose={() => setShowChangePassword(false)} />
+      <SyncSettingsDialog open={showSyncSettings} onClose={() => setShowSyncSettings(false)} />
 
       {/* Mobile sidebar (only visible on mobile when in list view) */}
       {mobileView === 'list' && (
@@ -1894,6 +1897,13 @@ export default function ContentPage() {
               <Globe className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
               {t('settings.language')}
               <ChevronRight className="h-4 w-4 ml-auto opacity-40" />
+            </button>
+            <button
+              onClick={() => { setShowMobileProfile(false); setShowSyncSettings(true); }}
+              className="flex items-center gap-3 w-full px-4 py-3 text-base text-foreground active:bg-accent transition-colors"
+            >
+              <Cloud className="h-5 w-5 text-[#939493] dark:text-[#818181]" />
+              {t('settings.cloudSync')}
             </button>
             <button
               onClick={() => { setShowMobileProfile(false); setShowTrash(true); }}

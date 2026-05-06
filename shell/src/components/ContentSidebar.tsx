@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, Workflow, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut } from 'lucide-react';
+import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, Workflow, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -20,6 +20,7 @@ import type { CreatableType } from '@/actions/entity-names';
 import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { handleNotificationClick } from '@/lib/notification-click';
 import { ConnectAgentsOverlay } from '@/components/ConnectAgentsOverlay';
+import { SyncSettingsDialog } from '@/components/shared/SyncSettingsDialog';
 
 interface ContentSidebarProps {
   /** Whether the sidebar is collapsed (56px) or expanded (232px) */
@@ -77,6 +78,7 @@ export function ContentSidebar({
   const [isDraggingWidth, setIsDraggingWidth] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
+  const [showSyncSettings, setShowSyncSettings] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -416,6 +418,13 @@ export function ContentSidebar({
                       </div>
                     )}
                   </div>
+                  <button
+                    onClick={() => { setShowProfileMenu(false); setShowSyncSettings(true); }}
+                    className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+                  >
+                    <Cloud className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                    {t('settings.cloudSync')}
+                  </button>
                   <button
                     onClick={() => { setShowProfileMenu(false); onToggleTrash(); }}
                     className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
@@ -767,6 +776,7 @@ export function ContentSidebar({
 
       {/* ─── Connect Agents overlay ─── */}
       <ConnectAgentsOverlay open={showConnectAgents} onClose={() => setShowConnectAgents(false)} />
+      <SyncSettingsDialog open={showSyncSettings} onClose={() => setShowSyncSettings(false)} />
     </div>
   );
 }

@@ -167,3 +167,27 @@ CREATE TABLE IF NOT EXISTS view_column_settings (
   updated_at  INTEGER NOT NULL,
   PRIMARY KEY (view_id, column_id)
 );
+
+-- ── Sync ──
+
+-- Change log for cross-instance sync
+CREATE TABLE IF NOT EXISTS _sync_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name  TEXT NOT NULL,
+  row_id      TEXT NOT NULL,
+  operation   TEXT NOT NULL CHECK(operation IN ('insert', 'update', 'delete')),
+  data_json   TEXT,
+  actor_id    TEXT,
+  timestamp   INTEGER NOT NULL,
+  synced      INTEGER DEFAULT 0,
+  source      TEXT DEFAULT 'local' CHECK(source IN ('local', 'sync'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_log_unsynced
+  ON _sync_log(synced, timestamp);
+
+-- Sync connection metadata
+CREATE TABLE IF NOT EXISTS _sync_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
