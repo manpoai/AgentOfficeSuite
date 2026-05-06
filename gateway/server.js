@@ -140,6 +140,15 @@ const server = app.listen(PORT, () => {
   console.log('[gateway] Content items managed by Gateway (no periodic sync)');
 });
 
+// ─── Rewrite /api/gateway prefix for WebSocket upgrades ──────────
+// Express middleware only applies to HTTP requests, not WS upgrades.
+// The WS server listens on /api/sync/ws but Caddy sends /api/gateway/sync/ws.
+server.on('upgrade', (req, socket, head) => {
+  if (req.url.startsWith('/api/gateway/')) {
+    req.url = req.url.replace(/^\/api\/gateway/, '/api');
+  }
+});
+
 // ─── Sync WebSocket server ──────────────────────
 const syncWs = new SyncWebSocketServer(server, db, authenticateAny);
 
