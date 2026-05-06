@@ -120,6 +120,17 @@ function cleanupDeliveredEvents() {
 setTimeout(cleanupDeliveredEvents, 60_000);
 setInterval(cleanupDeliveredEvents, 24 * 3600 * 1000);
 
+// ─── Serve shell static files (App mode) ────────
+const shellDistDir = path.join(__dirname, '..', 'shell-dist');
+if (fs.existsSync(path.join(shellDistDir, 'index.html'))) {
+  app.use(express.static(shellDistDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(shellDistDir, 'index.html'));
+  });
+  console.log('[gateway] Serving shell from', shellDistDir);
+}
+
 // ─── Start ───────────────────────────────────────
 const server = app.listen(PORT, () => {
   console.log(`[gateway] AOSE API Gateway listening on :${PORT}`);

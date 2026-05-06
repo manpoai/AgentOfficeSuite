@@ -51,12 +51,7 @@ function createWindow(port) {
     icon: path.join(__dirname, 'assets', 'icon.png'),
   });
 
-  const shellDir = path.join(__dirname, '..', 'shell-dist');
-  if (fs.existsSync(path.join(shellDir, 'index.html'))) {
-    mainWindow.loadFile(path.join(shellDir, 'index.html'));
-  } else {
-    mainWindow.loadURL(`http://127.0.0.1:${port}`);
-  }
+  mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url);
