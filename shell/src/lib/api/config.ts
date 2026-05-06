@@ -5,8 +5,9 @@
  * Web mode (Next.js SSR): shell fetches via the Next.js proxy route.
  */
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_MODE === 'app'
+export const IS_APP_MODE = process.env.NEXT_PUBLIC_API_MODE === 'app';
+
+export const API_BASE = IS_APP_MODE
     ? `http://localhost:${process.env.NEXT_PUBLIC_GATEWAY_PORT || 4000}/api`
     : '/api/gateway';
 

@@ -21,6 +21,7 @@ import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { handleNotificationClick } from '@/lib/notification-click';
 import { ConnectAgentsOverlay } from '@/components/ConnectAgentsOverlay';
 import { SyncSettingsDialog } from '@/components/shared/SyncSettingsDialog';
+import { IS_APP_MODE } from '@/lib/api/config';
 
 interface ContentSidebarProps {
   /** Whether the sidebar is collapsed (56px) or expanded (232px) */
@@ -418,6 +419,7 @@ export function ContentSidebar({
                       </div>
                     )}
                   </div>
+                  {IS_APP_MODE && (
                   <button
                     onClick={() => { setShowProfileMenu(false); setShowSyncSettings(true); }}
                     className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
@@ -425,6 +427,7 @@ export function ContentSidebar({
                     <Cloud className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
                     {t('settings.cloudSync')}
                   </button>
+                  )}
                   <button
                     onClick={() => { setShowProfileMenu(false); onToggleTrash(); }}
                     className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
