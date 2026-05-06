@@ -342,6 +342,7 @@ export class SyncClient {
       }
 
       const { changes, server_timestamp, has_more } = await res.json();
+      console.log(`[sync-client] Pull check: ${changes?.length || 0} changes since ${since}`);
       if (!Array.isArray(changes) || changes.length === 0) return;
 
       let applied = 0;

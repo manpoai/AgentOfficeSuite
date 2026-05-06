@@ -7,10 +7,11 @@ import { applyChange, SYNC_PROTOCOL_VERSION, checkVersionCompatibility } from '.
 import { recordChange } from '../sync-hook.js';
 
 export class SyncWebSocketServer {
-  constructor(server, db, authMiddleware) {
+  constructor(server, db, authMiddleware, adminToken) {
     this.db = db;
     this.clients = new Map();
     this.authMiddleware = authMiddleware;
+    this.adminToken = adminToken;
 
     this.wss = new WebSocketServer({ server, path: '/api/sync/ws' });
 
@@ -71,6 +72,11 @@ export class SyncWebSocketServer {
   }
 
   _authenticateToken(token) {
+    // Check admin token first (used by sync clients)
+    if (this.adminToken && token === this.adminToken) {
+      const admin = this.db.prepare("SELECT id, username, type FROM actors WHERE type = 'human' AND role = 'admin'").get();
+      if (admin) return admin;
+    }
     try {
       const crypto = require('crypto');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');

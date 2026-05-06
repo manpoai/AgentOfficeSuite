@@ -150,7 +150,7 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 // ─── Sync WebSocket server ──────────────────────
-const syncWs = new SyncWebSocketServer(server, db, authenticateAny);
+const syncWs = new SyncWebSocketServer(server, db, authenticateAny, ADMIN_TOKEN);
 
 // ─── Start sync client (connects to remote if configured) ──
 try { syncClient.start(); } catch (e) { console.log('[gateway] Sync client not started:', e.message); }
