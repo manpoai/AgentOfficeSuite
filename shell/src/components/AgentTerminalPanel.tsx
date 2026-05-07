@@ -61,7 +61,7 @@ export function AgentTerminalPanel() {
 
   const removeTab = useCallback((agentId: string) => {
     const api = (window as any).electronAPI;
-    if (api) api.destroyTerminal(agentId);
+    if (api) api.removeAgent(agentId);
     setTabs(prev => {
       const next = prev.filter(t => t.agentId !== agentId);
       if (activeTab === agentId) {
