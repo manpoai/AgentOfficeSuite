@@ -37,7 +37,7 @@ class AgentProvisioner {
           command: 'node',
           args: [mcpEntryPoint],
           env: {
-            AOSE_URL: `http://127.0.0.1:${this.gatewayPort}`,
+            AOSE_URL: `http://127.0.0.1:${this.gatewayPort}/api`,
             AOSE_TOKEN: token,
           },
         },
