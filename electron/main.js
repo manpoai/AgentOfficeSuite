@@ -151,6 +151,15 @@ function setupIPC() {
   });
 }
 
+function getAgentStartCommand(platform) {
+  switch (platform) {
+    case 'claude-code': return 'claude --dangerously-skip-permissions\r';
+    case 'gemini-cli': return 'gemini --yolo\r';
+    case 'codex': return 'codex --full-auto\r';
+    default: return null;
+  }
+}
+
 function startAdaptersForExistingAgents() {
   const agents = provisioner.listAgents();
   for (const agent of agents) {
@@ -162,10 +171,20 @@ function startAdaptersForExistingAgents() {
         platform: agent.platform,
         agentDir: agent.agentDir,
       });
+
+      const agentDir = path.join(DATA_DIR, 'agents', agent.agentName);
+      const cwd = fs.existsSync(agentDir) ? agentDir : app.getPath('home');
+      const result = terminalManager.create(agent.agentName, { cwd });
+      if (!result.reconnected) {
+        const cmd = getAgentStartCommand(agent.platform);
+        if (cmd) {
+          setTimeout(() => terminalManager.write(agent.agentName, cmd), 500);
+        }
+      }
     }
   }
   if (agents.length > 0) {
-    console.log(`[app] Started adapters for ${agents.length} existing agent(s)`);
+    console.log(`[app] Started adapters and terminals for ${agents.length} existing agent(s)`);
   }
 }
 

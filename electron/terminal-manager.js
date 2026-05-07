@@ -1,6 +1,8 @@
 const pty = require('node-pty');
 const os = require('os');
 
+const BUFFER_SIZE = 64 * 1024; // 64KB circular buffer per terminal
+
 class TerminalManager {
   constructor() {
     this.terminals = new Map();
@@ -10,7 +12,7 @@ class TerminalManager {
     if (this.terminals.has(agentId)) {
       const entry = this.terminals.get(agentId);
       this._disposeListeners(entry);
-      return { pid: entry.pty.pid, reconnected: true };
+      return { pid: entry.pty.pid, reconnected: true, bufferedData: entry.buffer };
     }
 
     const shell = options.shell || (os.platform() === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/zsh');
@@ -25,7 +27,24 @@ class TerminalManager {
       env: { ...process.env, ...options.env },
     });
 
-    this.terminals.set(agentId, { pty: ptyProcess, cols, rows, disposables: [] });
+    this.terminals.set(agentId, {
+      pty: ptyProcess,
+      cols,
+      rows,
+      disposables: [],
+      buffer: '',
+    });
+
+    ptyProcess.onData((data) => {
+      const entry = this.terminals.get(agentId);
+      if (entry) {
+        entry.buffer += data;
+        if (entry.buffer.length > BUFFER_SIZE) {
+          entry.buffer = entry.buffer.slice(-BUFFER_SIZE);
+        }
+      }
+    });
+
     return { pid: ptyProcess.pid };
   }
 
@@ -71,6 +90,7 @@ class TerminalManager {
   destroy(agentId) {
     const entry = this.terminals.get(agentId);
     if (entry) {
+      this._disposeListeners(entry);
       entry.pty.kill();
       this.terminals.delete(agentId);
     }

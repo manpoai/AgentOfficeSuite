@@ -90,6 +90,9 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
       api.createTerminal(agentId).then((result: any) => {
         requestAnimationFrame(() => {
           fitAndSync();
+          if (result?.reconnected && result.bufferedData) {
+            terminal.write(result.bufferedData);
+          }
           if (result?.reconnected) {
             const { cols, rows } = terminal;
             if (cols > 1 && rows > 1) {
