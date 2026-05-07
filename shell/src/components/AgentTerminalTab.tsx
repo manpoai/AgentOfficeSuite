@@ -88,10 +88,16 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
     const api = (window as any).electronAPI;
     if (api) {
       api.createTerminal(agentId).then((result: any) => {
-        if (result?.reconnected) {
-          terminal.clear();
-        }
-        requestAnimationFrame(() => fitAndSync());
+        requestAnimationFrame(() => {
+          fitAndSync();
+          if (result?.reconnected) {
+            const { cols, rows } = terminal;
+            if (cols > 1 && rows > 1) {
+              api.resizeTerminal(agentId, cols - 1, rows);
+              setTimeout(() => api.resizeTerminal(agentId, cols, rows), 50);
+            }
+          }
+        });
       });
 
       terminal.onData((data: string) => {
