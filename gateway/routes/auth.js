@@ -1436,6 +1436,34 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     });
   });
 
+  // ─── Local App agent registration (admin-only, no approval) ──────
+  app.post('/api/agents/register-local', authenticateAdmin, (req, res) => {
+    const { name, platform, token_hash } = req.body;
+    if (!name || !token_hash) {
+      return res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'name and token_hash required' });
+    }
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(name)) {
+      return res.status(400).json({
+        error: 'INVALID_NAME',
+        message: 'Name must be lowercase alphanumeric with hyphens, 2-31 chars',
+      });
+    }
+    const existing = db.prepare('SELECT id FROM actors WHERE username = ?').get(name);
+    if (existing) {
+      return res.status(409).json({ error: 'NAME_TAKEN', message: `Name "${name}" already registered` });
+    }
+
+    const agentId = genId('agt');
+    const now = Date.now();
+
+    db.prepare(`INSERT INTO actors (id, type, username, display_name, token_hash, capabilities, platform, pending_approval, created_at, updated_at)
+      VALUES (?, 'agent', ?, ?, ?, '[]', ?, 0, ?, ?)`)
+      .run(agentId, name, name, token_hash, platform || 'claude-code', now, now);
+    recordChange(db, 'actors', agentId, 'insert', { id: agentId, type: 'agent', username: name, display_name: name, platform: platform || 'claude-code', pending_approval: 0, created_at: now }, null, undefined);
+
+    res.status(201).json({ agent_id: agentId, name, created_at: now });
+  });
+
   // Admin: approve a pending agent
   app.post('/api/admin/agents/:agent_id/approve', authenticateAdmin, (req, res) => {
     const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
