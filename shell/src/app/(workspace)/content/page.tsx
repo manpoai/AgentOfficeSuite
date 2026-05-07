@@ -1954,9 +1954,9 @@ export default function ContentPage() {
       </BottomSheet>
 
       {/* Mobile agent chat BottomSheet */}
-      <BottomSheet open={!!mobileChatAgent} onClose={() => setMobileChatAgent(null)} title={mobileChatAgent?.name || 'Chat'}>
+      <BottomSheet open={!!mobileChatAgent} onClose={() => setMobileChatAgent(null)} title={mobileChatAgent?.name || 'Chat'} initialHeight="full" className="!overflow-hidden">
         {mobileChatAgent && (
-          <div className="h-[60vh]">
+          <div className="h-[calc(90vh-80px)]">
             <AgentChatView agentId={mobileChatAgent.id} agentName={mobileChatAgent.name} isActive={true} colorTheme="light" />
           </div>
         )}
