@@ -30,7 +30,16 @@ class AgentProvisioner {
       throw err;
     }
 
-    const mcpEntryPoint = path.join(__dirname, '..', 'mcp-server', 'src', 'index.js');
+    const mcpSrc = path.join(__dirname, '..', 'mcp-server');
+    let mcpEntryPoint;
+
+    if (platform === 'gemini-cli') {
+      this._copyMcpServer(mcpSrc, agentDir);
+      mcpEntryPoint = path.join(agentDir, 'mcp-server', 'src', 'index.js');
+    } else {
+      mcpEntryPoint = path.join(mcpSrc, 'src', 'index.js');
+    }
+
     const mcpConfig = {
       mcpServers: {
         aose: {
@@ -204,6 +213,18 @@ Respond by:
       fs.writeFileSync(path.join(agentDir, 'AGENTS.md'), instructions);
     } else if (platform === 'gemini-cli') {
       fs.writeFileSync(path.join(agentDir, 'GEMINI.md'), instructions);
+    }
+  }
+
+  _copyMcpServer(mcpSrc, agentDir) {
+    const dest = path.join(agentDir, 'mcp-server');
+    fs.cpSync(mcpSrc, dest, {
+      recursive: true,
+      filter: (src) => !src.includes('node_modules') && !src.includes('.git'),
+    });
+    const parentModules = path.join(mcpSrc, 'node_modules');
+    if (fs.existsSync(parentModules)) {
+      fs.cpSync(parentModules, path.join(dest, 'node_modules'), { recursive: true });
     }
   }
 
