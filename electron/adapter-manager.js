@@ -72,6 +72,11 @@ class AdapterManager {
     const req = http.get(options, (res) => {
       if (res.statusCode !== 200) {
         console.error(`[adapter] SSE connect failed for ${agentName}: ${res.statusCode}`);
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          console.error(`[adapter] Auth failed for ${agentName}, stopping reconnect`);
+          this.connections.delete(agentId);
+          return;
+        }
         this._scheduleReconnect(agentId, agentName, platform, agentDir, agentToken, url);
         return;
       }
