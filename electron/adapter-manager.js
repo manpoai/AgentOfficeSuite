@@ -132,7 +132,8 @@ class AdapterManager {
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
 
     if (this.terminalWriter) {
-      this.terminalWriter(agentName, content + '\n');
+      this.terminalWriter(agentName, content);
+      setTimeout(() => this.terminalWriter(agentName, '\r'), 100);
     }
 
     if (platform === 'gemini-cli' && agentDir) {
