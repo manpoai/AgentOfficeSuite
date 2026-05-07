@@ -6,6 +6,22 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
+const TERMINAL_THEMES = {
+  light: {
+    background: '#ffffff',
+    foreground: '#1a1a1a',
+    cursor: '#333333',
+    selectionBackground: '#d0d0d0',
+    selectionForeground: '#1a1a1a',
+  },
+  dark: {
+    background: '#1a1a2e',
+    foreground: '#e0e0e0',
+    cursor: '#ffffff',
+    selectionBackground: '#3a3a5e',
+  },
+};
+
 const terminalDataHandlers = new Map<string, (data: string) => void>();
 
 export function ensureGlobalListener() {
@@ -27,9 +43,10 @@ interface AgentTerminalTabProps {
   agentId: string;
   isActive: boolean;
   welcomeMessage?: string;
+  colorTheme?: 'light' | 'dark';
 }
 
-export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTerminalTabProps) {
+export function AgentTerminalTab({ agentId, isActive, welcomeMessage, colorTheme = 'dark' }: AgentTerminalTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -58,12 +75,7 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       cursorBlink: true,
-      theme: {
-        background: '#1a1a2e',
-        foreground: '#e0e0e0',
-        cursor: '#ffffff',
-        selectionBackground: '#3a3a5e',
-      },
+      theme: TERMINAL_THEMES[colorTheme],
     });
 
     const fitAddon = new FitAddon();
@@ -142,6 +154,12 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
     window.addEventListener('terminal:refit', refit);
     return () => window.removeEventListener('terminal:refit', refit);
   }, [fitAndSync]);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = TERMINAL_THEMES[colorTheme];
+    }
+  }, [colorTheme]);
 
   return (
     <div

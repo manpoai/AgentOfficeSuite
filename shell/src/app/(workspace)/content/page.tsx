@@ -113,7 +113,7 @@ interface TreeState {
 const TREE_STATE_KEY = 'aose-content-tree';
 const EXPANDED_STATE_KEY = 'aose-content-expanded';
 const SIDEBAR_WIDTH_KEY = 'aose-sidebar-width';
-const DEFAULT_SIDEBAR_WIDTH = 232;
+const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 480;
 

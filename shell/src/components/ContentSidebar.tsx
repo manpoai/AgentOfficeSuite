@@ -1,15 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sun, Moon, Monitor, Globe, ChevronRight, ChevronDown, FolderOpen, Trash2, Plus, PlusCircle, FileText, Table2, Presentation, Workflow, Search, Link2, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud } from 'lucide-react';
+import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
 import { useT, LOCALE_LABELS, type Locale } from '@/lib/i18n';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { NotificationPanel, NotificationBellBadge } from '@/components/shared/NotificationPanel';
 import { AgentPanelContent } from '@/components/shared/AgentPanelContent';
 import * as gw from '@/lib/api/gateway';
 import { resolveAvatarUrl } from '@/lib/api/gateway';
@@ -22,26 +21,24 @@ import { handleNotificationClick } from '@/lib/notification-click';
 import { ConnectAgentsOverlay } from '@/components/ConnectAgentsOverlay';
 import { SyncSettingsDialog } from '@/components/shared/SyncSettingsDialog';
 import { IS_APP_MODE } from '@/lib/api/config';
+import { SidebarTopNav, type SidebarTab } from './SidebarTopNav';
+import { EmptyTabPage } from './EmptyTabPage';
+import { SidebarAgentBar } from './SidebarAgentBar';
+import { SidebarTerminal } from './SidebarTerminal';
 
 interface ContentSidebarProps {
-  /** Whether the sidebar is collapsed (56px) or expanded (232px) */
   collapsed: boolean;
   onToggleCollapse: () => void;
   width: number;
   onWidthChange: (w: number) => void;
-  /** Whether the sidebar is visible on desktop (used by detail panels) */
   visible: boolean;
-  /** Content tree rendering slot - passed as children */
   children: React.ReactNode;
-  /** Open trash overlay */
   onToggleTrash: () => void;
-  /** Open change password dialog */
   onOpenChangePassword: () => void;
   showNewMenu: boolean;
   onShowNewMenuChange: (show: boolean) => void;
   creating: boolean;
   onCreateByType: (type: CreatableType) => void;
-  /** Search */
   searchQuery: string;
   onSearchChange: (query: string) => void;
 }
@@ -68,9 +65,10 @@ export function ContentSidebar({
   const { t, locale, setLocale } = useT();
   const { setTheme, theme } = useTheme();
   const queryClient = useQueryClient();
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.isElectron;
+
+  // UI state
   const [mounted, setMounted] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showAgentsMenu, setShowAgentsMenu] = useState(false);
@@ -80,24 +78,45 @@ export function ContentSidebar({
   const [editNameValue, setEditNameValue] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [showSyncSettings, setShowSyncSettings] = useState(false);
+  const [showConnectAgents, setShowConnectAgents] = useState(false);
+
+  // New sidebar state
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('aose-sidebar-tab') as SidebarTab) || 'files';
+    }
+    return 'files';
+  });
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('aose-sidebar-selected-agent');
+    }
+    return null;
+  });
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('aose-sidebar-terminal-height');
+      return saved ? parseInt(saved, 10) : 200;
+    }
+    return 200;
+  });
+  const [terminalAgents, setTerminalAgents] = useState<Array<{
+    agentId: string; agentName: string; platform: string; status: 'running' | 'exited' | 'connecting';
+  }>>([]);
+
+  // Refs
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
-  const settingsRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const agentsRef = useRef<HTMLDivElement>(null);
   const messageRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const profileBtnRef = useRef<HTMLButtonElement>(null);
   const plusBtnRef = useRef<HTMLButtonElement>(null);
-  const agentsBtnRef = useRef<HTMLButtonElement>(null);
-  const messageBtnRef = useRef<HTMLButtonElement>(null);
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const cPlusBtnRef = useRef<HTMLButtonElement>(null);
-  const cSearchBtnRef = useRef<HTMLButtonElement>(null);
   const cAgentsBtnRef = useRef<HTMLButtonElement>(null);
   const cMessageBtnRef = useRef<HTMLButtonElement>(null);
   const [menuPos, setMenuPos] = useState<Record<string, { top: number; left: number }>>({});
-  /** Calculate dropdown position: 8px below the trigger button, left-aligned.
-   *  In collapsed mode (toRight=true): menu appears 8px to the right of button, top-aligned. */
+
   const calcMenuPos = (btnRef: React.RefObject<HTMLElement | null>, menuWidth: number, alignLeft = true, toRight = false) => {
     if (!btnRef.current) return { top: 0, left: 0 };
     const rect = btnRef.current.getBoundingClientRect();
@@ -110,7 +129,24 @@ export function ContentSidebar({
     };
   };
 
-  // Notifications for message dropdown
+  // Persist sidebar state
+  useEffect(() => {
+    localStorage.setItem('aose-sidebar-tab', activeSidebarTab);
+  }, [activeSidebarTab]);
+
+  useEffect(() => {
+    if (selectedAgentId) {
+      localStorage.setItem('aose-sidebar-selected-agent', selectedAgentId);
+    } else {
+      localStorage.removeItem('aose-sidebar-selected-agent');
+    }
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    localStorage.setItem('aose-sidebar-terminal-height', String(terminalHeight));
+  }, [terminalHeight]);
+
+  // Notifications
   const { data: notifications = [] } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => gw.getNotifications(undefined, 50),
@@ -122,18 +158,45 @@ export function ContentSidebar({
     queryFn: gw.getUnreadCount,
   });
 
-  // Agents count for conditional button rendering
+  // Agents
   const { data: allAgents } = useQuery({
     queryKey: ['admin-agents'],
     queryFn: gw.listAllAgents,
     refetchInterval: 10_000,
   });
-  const hasAgents = (allAgents?.length ?? 0) > 0;
 
-  // Connect Agents overlay
-  const [showConnectAgents, setShowConnectAgents] = useState(false);
+  // Load terminal agents on mount (Electron only)
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api) return;
+    api.listLocalAgents().then((agents: any[]) => {
+      if (agents.length > 0) {
+        setTerminalAgents(agents.map(a => ({
+          agentId: a.agentName,
+          agentName: a.agentName,
+          platform: a.platform,
+          status: 'running' as const,
+        })));
+      }
+    });
+  }, []);
 
-  // Listen for terminal panel "+" button
+  // Expose addTab for ConnectAgentsOverlay
+  useEffect(() => {
+    (window as any).__aoseTerminalPanel = {
+      addTab: (agent: { agentId: string; agentName: string; platform: string; welcomeMessage?: string }) => {
+        setTerminalAgents(prev => {
+          if (prev.find(a => a.agentId === agent.agentId)) return prev;
+          return [...prev, { ...agent, status: 'running' as const }];
+        });
+        setSelectedAgentId(agent.agentId);
+        setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 100);
+      },
+    };
+    return () => { delete (window as any).__aoseTerminalPanel; };
+  }, []);
+
+  // Listen for "open connect agents" event
   useEffect(() => {
     const handler = () => setShowConnectAgents(true);
     window.addEventListener('aose:open-connect-agents', handler);
@@ -142,19 +205,7 @@ export function ContentSidebar({
 
   useEffect(() => setMounted(true), []);
 
-  // Close settings menu when clicking outside
-  useEffect(() => {
-    if (!showSettings) return;
-    const handler = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
-        setShowSettings(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showSettings]);
-
-  // Close profile menu when clicking outside
+  // Close profile menu on outside click
   useEffect(() => {
     if (!showProfileMenu) return;
     const handler = (e: MouseEvent) => {
@@ -167,7 +218,7 @@ export function ContentSidebar({
     return () => document.removeEventListener('mousedown', handler);
   }, [showProfileMenu]);
 
-  // Close agents menu when clicking outside
+  // Close agents menu on outside click
   useEffect(() => {
     if (!showAgentsMenu) return;
     const handler = (e: MouseEvent) => {
@@ -179,10 +230,9 @@ export function ContentSidebar({
     return () => document.removeEventListener('mousedown', handler);
   }, [showAgentsMenu]);
 
-  // Open agents manager from cross-panel events (e.g. notifications)
+  // Open agents manager from cross-panel events
   useEffect(() => {
     const handler = () => {
-      setShowNotifications(false);
       setShowMessageMenu(false);
       setShowAgentsMenu(true);
     };
@@ -190,7 +240,7 @@ export function ContentSidebar({
     return () => window.removeEventListener('open-agents-manager', handler);
   }, []);
 
-  // Open agents manager when URL has ?agents=1 (from cross-page notification navigation)
+  // Open agents manager from URL param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('agents') === '1') {
@@ -201,7 +251,7 @@ export function ContentSidebar({
     }
   }, []);
 
-  // Close message menu when clicking outside
+  // Close message menu on outside click
   useEffect(() => {
     if (!showMessageMenu) return;
     const handler = (e: MouseEvent) => {
@@ -213,8 +263,9 @@ export function ContentSidebar({
     return () => document.removeEventListener('mousedown', handler);
   }, [showMessageMenu]);
 
+  // Width drag
   const handleDoubleClick = () => {
-    onWidthChange(232);
+    onWidthChange(280);
   };
 
   const handleDragStart = (e: React.MouseEvent) => {
@@ -240,10 +291,7 @@ export function ContentSidebar({
     };
 
     dragCleanupRef.current = cleanup;
-
-    const onMouseUp = () => {
-      cleanup();
-    };
+    const onMouseUp = () => cleanup();
 
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
@@ -256,6 +304,33 @@ export function ContentSidebar({
       document.body.style.userSelect = '';
     };
   }, []);
+
+  // Agent selection handlers
+  const handleSelectAgent = useCallback((agentName: string) => {
+    setSelectedAgentId(agentName);
+    const existing = terminalAgents.find(a => a.agentId === agentName);
+    if (!existing) {
+      setTerminalAgents(prev => [...prev, {
+        agentId: agentName,
+        agentName: agentName,
+        platform: 'unknown',
+        status: 'running' as const,
+      }]);
+    }
+    setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 100);
+  }, [terminalAgents]);
+
+  const handleDeselectAgent = useCallback(() => {
+    setSelectedAgentId(null);
+  }, []);
+
+  const handleAgentExit = useCallback((agentId: string) => {
+    setTerminalAgents(prev => prev.map(a =>
+      a.agentId === agentId ? { ...a, status: 'exited' as const } : a
+    ));
+  }, []);
+
+  const terminalColorTheme = theme === 'dark' ? 'dark' as const : 'light' as const;
 
   if (!visible) return null;
 
@@ -275,206 +350,9 @@ export function ContentSidebar({
         />
       )}
 
-      {/* ─── Top: Profile row ─── */}
-      {!collapsed ? (
-        <div className="px-3 pt-4 pb-2 shrink-0">
-          <div className="flex items-center gap-2 group/header" ref={profileRef}>
-            {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0 border border-black/10">
-              {resolveAvatarUrl(actor?.avatar_url) ? (
-                <img src={resolveAvatarUrl(actor?.avatar_url)!} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <img src="/icons/avatar-default.jpg" alt="" className="w-full h-full object-cover" />
-              )}
-            </div>
-            {/* Username + dropdown */}
-            <button
-              ref={profileBtnRef}
-              onClick={() => {
-                setMenuPos(p => ({ ...p, profile: calcMenuPos(profileRef, 232) }));
-                setShowProfileMenu(v => !v);
-              }}
-              className="flex items-center gap-1 text-sm font-medium text-foreground/70 hover:text-foreground transition-colors min-w-0"
-            >
-              <span className="truncate">{actor?.display_name || actor?.username || t('common.user')}</span>
-              <ChevronDown className="h-3 w-3 shrink-0 opacity-0 group-hover/header:opacity-50 transition-opacity" />
-            </button>
-            {/* + button (far right) — PlusCircle with circle border */}
-            <button
-              ref={plusBtnRef}
-              onClick={() => {
-                setMenuPos(p => ({ ...p, plus: calcMenuPos(plusBtnRef, 168, true) }));
-                onShowNewMenuChange(!showNewMenu);
-              }}
-              className="ml-auto p-1 text-black/70 dark:text-white/70 hover:text-foreground rounded transition-colors shrink-0"
-              title={t('common.new')}
-            >
-              <PlusCircle className="h-4 w-4" strokeWidth={1.5} />
-            </button>
-
-            {/* Profile dropdown — Figma 72-4121: 232×304, white bg, 8px below header row */}
-            {showProfileMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => { setShowProfileMenu(false); setShowLangMenu(false); setEditingName(false); }} />
-                <div className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)]"
-                  style={{ top: `${menuPos.profile?.top ?? 54}px`, left: `${menuPos.profile?.left ?? 12}px`, width: '232px' }}
-                >
-                  {/* Avatar (48×48) + name + edit icon */}
-                  <div className="px-4 pt-4 pb-2 flex items-center gap-3">
-                    {/* Avatar with hover upload overlay */}
-                    <div className="w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0 border border-black/10 relative group cursor-pointer"
-                      onClick={() => avatarInputRef.current?.click()}
-                    >
-                      {resolveAvatarUrl(actor?.avatar_url) ? (
-                        <img src={resolveAvatarUrl(actor?.avatar_url)!} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <img src="/icons/avatar-default.jpg" alt="" className="w-full h-full object-cover" />
-                      )}
-                      {/* Upload overlay on hover */}
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-                        <Camera className="h-5 w-5 text-white" />
-                      </div>
-                    </div>
-                    <input
-                      ref={avatarInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setSavingProfile(true);
-                        try {
-                          await gw.uploadUserAvatar(file);
-                          await refreshActor();
-                        } catch (err) { showError(t('settings.avatarUploadFailed'), err); }
-                        setSavingProfile(false);
-                        e.target.value = '';
-                      }}
-                    />
-                    {/* Name display or edit */}
-                    {editingName ? (
-                      <input
-                        autoFocus
-                        value={editNameValue}
-                        onChange={e => setEditNameValue(e.target.value)}
-                        onKeyDown={async (e) => {
-                          if (e.key === 'Enter' && editNameValue.trim().length >= 2) {
-                            setSavingProfile(true);
-                            try {
-                              await gw.updateProfile({ name: editNameValue.trim() });
-                              await refreshActor();
-                            } catch (err) { showError(t('settings.nameUpdateFailed'), err); }
-                            setSavingProfile(false);
-                            setEditingName(false);
-                          } else if (e.key === 'Escape') {
-                            setEditingName(false);
-                          }
-                        }}
-                        onBlur={() => setEditingName(false)}
-                        className="text-sm font-medium text-foreground bg-transparent border-b border-sidebar-primary outline-none min-w-0 flex-1"
-                        disabled={savingProfile}
-                      />
-                    ) : (
-                      <span className="text-sm font-medium text-foreground truncate">{actor?.display_name || actor?.username || t('common.user')}</span>
-                    )}
-                    <button
-                      onClick={() => {
-                        if (!editingName) {
-                          setEditNameValue(actor?.display_name || actor?.username || '');
-                          setEditingName(true);
-                        }
-                      }}
-                      className="shrink-0 p-0.5 hover:bg-black/[0.04] rounded transition-colors"
-                    >
-                      <Pencil className="h-4 w-4 opacity-40" />
-                    </button>
-                  </div>
-
-                  {/* Menu items — proper icons from Lucide */}
-                  <button
-                    onClick={() => { setShowProfileMenu(false); onOpenChangePassword(); }}
-                    className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
-                  >
-                    <Key className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-                    {t('settings.password')}
-                  </button>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowLangMenu(v => !v)}
-                      className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
-                    >
-                      <Globe className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-                      {t('settings.language')}
-                      <ChevronRight className="h-3.5 w-3.5 ml-auto opacity-40" />
-                    </button>
-                    {/* Language sub-menu — separate popup to the right */}
-                    {showLangMenu && (
-                      <div className="absolute left-full top-0 ml-1 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 min-w-[120px] z-30">
-                        {(Object.entries(LOCALE_LABELS) as [Locale, string][]).map(([key, label]) => (
-                          <button
-                            key={key}
-                            onClick={() => { setLocale(key); setShowProfileMenu(false); setShowLangMenu(false); }}
-                            className={cn(
-                              'flex items-center w-full px-4 py-2 text-sm',
-                              locale === key ? 'text-sidebar-primary font-medium' : 'text-foreground/50 hover:text-foreground/70 hover:bg-black/[0.04]'
-                            )}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {IS_APP_MODE && (
-                  <button
-                    onClick={() => { setShowProfileMenu(false); setShowSyncSettings(true); }}
-                    className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
-                  >
-                    <Cloud className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-                    {t('settings.cloudSync')}
-                  </button>
-                  )}
-                  <button
-                    onClick={() => { setShowProfileMenu(false); onToggleTrash(); }}
-                    className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-                    {t('settings.trash')}
-                  </button>
-                  <button
-                    onClick={() => { setShowProfileMenu(false); logout(); }}
-                    className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
-                  >
-                    <LogOut className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
-                    {t('settings.logout')}
-                  </button>
-
-                  {/* Theme toggle — NO icons, text only. pb-6 = 24px bottom padding */}
-                  <div className="px-4 pt-3 pb-6 flex gap-1">
-                    {mounted && (['light', 'dark'] as const).map((th) => (
-                      <button
-                        key={th}
-                        onClick={() => setTheme(th)}
-                        className={cn(
-                          'flex items-center justify-center h-8 rounded text-xs font-medium flex-1 border',
-                          theme === th
-                            ? 'bg-sidebar-primary/10 text-sidebar-primary border-sidebar-primary/20'
-                            : 'bg-black/[0.03] dark:bg-white/[0.05] text-foreground border-black/10 dark:border-white/10 hover:bg-black/[0.06]'
-                        )}
-                      >
-                        {t(`theme.${th}`)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="pt-3 pb-2 flex flex-col items-center gap-1 shrink-0">
-          {/* + (PlusCircle) */}
+      {/* ─── Collapsed sidebar ─── */}
+      {collapsed ? (
+        <div className="pt-10 pb-2 flex flex-col items-center gap-1 shrink-0">
           <button
             ref={cPlusBtnRef}
             onClick={() => {
@@ -486,16 +364,13 @@ export function ContentSidebar({
           >
             <PlusCircle className="h-5 w-5" strokeWidth={1.5} />
           </button>
-          {/* Search */}
           <button
-            ref={cSearchBtnRef}
             onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
             className="p-2 text-[#939493] dark:text-[#818181] hover:text-foreground hover:bg-black/[0.04] rounded-lg transition-colors"
             title={t('toolbar.search')}
           >
             <Search className="h-5 w-5" />
           </button>
-          {/* Agents */}
           <button
             ref={cAgentsBtnRef}
             onClick={() => {
@@ -507,7 +382,6 @@ export function ContentSidebar({
           >
             <AtSign className="h-5 w-5" />
           </button>
-          {/* Message */}
           <button
             ref={cMessageBtnRef}
             onClick={() => {
@@ -524,91 +398,265 @@ export function ContentSidebar({
               </span>
             )}
           </button>
-        </div>
-      )}
-
-      {/* ─── Search box (click to open command palette) ─── */}
-      {!collapsed && (
-        <div className="px-2 mb-2 shrink-0">
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
-            className="w-full h-8 pl-8 pr-2 rounded-lg text-xs font-medium bg-black/[0.03] dark:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.05] text-black/40 dark:text-white/40 outline-none text-left relative flex items-center hover:bg-black/[0.06] dark:hover:bg-white/[0.08] transition-colors"
+            onClick={() => {
+              setShowProfileMenu(v => !v);
+            }}
+            className="p-2 text-[#939493] dark:text-[#818181] hover:text-foreground hover:bg-black/[0.04] rounded-lg transition-colors"
+            title="Settings"
           >
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#939493] dark:text-[#818181]" />
-            {t('sidebar.searchPlaceholder')}
+            <Settings className="h-5 w-5" />
           </button>
-        </div>
-      )}
-
-      {/* ─── Agents + Message buttons ─── */}
-      {!collapsed && (
-        <div className="px-2 mb-2 flex gap-2 shrink-0 relative">
-          {hasAgents ? (
-            <>
-              {/* Split Agents button: left = agents panel, right "+" = connect overlay */}
-              <div className="flex h-8 flex-1 rounded-lg overflow-hidden border border-black/10 dark:border-white/10" style={{ backgroundColor: 'hsl(var(--sidebar-primary))' }}>
-                <button
-                  ref={agentsBtnRef}
-                  onClick={() => {
-                    setMenuPos(p => ({ ...p, agents: calcMenuPos(agentsBtnRef, 320) }));
-                    setShowAgentsMenu(v => !v); setShowMessageMenu(false);
-                  }}
-                  className="flex items-center justify-center gap-1.5 flex-1 text-xs font-medium transition-all active:brightness-90"
-                  style={{ color: 'hsl(var(--sidebar-primary-foreground))' }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)')}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <AtSign className="h-4 w-4" />
-                  {t('toolbar.agents')}
-                </button>
-                <div className="w-px self-stretch" style={{ backgroundColor: 'rgba(0,0,0,0.1)' }} />
-                <button
-                  onClick={() => { setShowAgentsMenu(false); setShowMessageMenu(false); setShowConnectAgents(true); }}
-                  className="flex items-center justify-center w-8 transition-all active:brightness-90 rounded-r-lg"
-                  style={{ color: 'hsl(var(--sidebar-primary-foreground))', backgroundColor: 'rgba(0,0,0,0.1)' }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.18)')}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)')}
-                  title={t('actions.addAgent')}
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              {/* Message button */}
-              <button
-                ref={messageBtnRef}
-                onClick={() => {
-                  setMenuPos(p => ({ ...p, message: calcMenuPos(messageBtnRef, 320) }));
-                  setShowMessageMenu(v => !v); setShowAgentsMenu(false);
-                }}
-                className="flex items-center justify-center gap-1.5 h-8 flex-1 rounded-lg text-xs font-medium text-foreground/70 bg-white dark:bg-card border border-black/10 dark:border-white/10 hover:bg-black/[0.02] transition-colors relative"
-              >
-                <Bell className="h-4 w-4" />
-                {t('toolbar.message')}
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-medium flex items-center justify-center px-1">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
-              </button>
-            </>
-          ) : (
-            /* No agents: full-width Connect Agents button */
+          <div className="mt-auto">
             <button
-              onClick={() => setShowConnectAgents(true)}
-              className="flex items-center justify-center gap-1.5 h-8 w-full rounded-lg text-xs font-medium transition-colors border border-black/10 dark:border-white/10"
-              style={{
-                backgroundColor: 'hsl(var(--sidebar-primary))',
-                color: 'hsl(var(--sidebar-primary-foreground))',
-              }}
+              onClick={onToggleCollapse}
+              className="p-1.5 text-black/30 dark:text-white/30 hover:text-foreground rounded transition-colors"
+              title={t('toolbar.expandSidebar')}
             >
-              <AtSign className="h-4 w-4" />
-              {t('toolbar.connectAgents')}
+              <ChevronRight className="h-4 w-4" />
             </button>
-          )}
+          </div>
         </div>
+      ) : (
+        <>
+          {/* ─── Top Navigation ─── */}
+          <SidebarTopNav
+            activeTab={activeSidebarTab}
+            onTabChange={setActiveSidebarTab}
+            onNotificationsClick={() => {
+              setShowMessageMenu(v => !v);
+              setShowAgentsMenu(false);
+            }}
+            onSettingsClick={() => {
+              setShowProfileMenu(v => !v);
+            }}
+            unreadCount={unreadCount}
+          />
+
+          {/* ─── Search box ─── */}
+          <div className="px-2 mb-2 shrink-0">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
+                className="flex-1 h-8 pl-8 pr-2 rounded-lg text-xs font-medium bg-black/[0.03] dark:bg-white/[0.05] border border-black/[0.05] dark:border-white/[0.05] text-black/40 dark:text-white/40 outline-none text-left relative flex items-center hover:bg-black/[0.06] dark:hover:bg-white/[0.08] transition-colors"
+              >
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                {t('sidebar.searchPlaceholder')}
+              </button>
+              <button
+                ref={plusBtnRef}
+                onClick={() => {
+                  setMenuPos(p => ({ ...p, plus: calcMenuPos(plusBtnRef, 168, true) }));
+                  onShowNewMenuChange(!showNewMenu);
+                }}
+                className="p-1.5 text-black/70 dark:text-white/70 hover:text-foreground rounded-lg transition-colors shrink-0"
+                title={t('common.new')}
+              >
+                <PlusCircle className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
+
+          {/* ─── Tab content ─── */}
+          {activeSidebarTab === 'files' ? (
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="px-2 py-1">
+                {children}
+              </div>
+            </ScrollArea>
+          ) : (
+            <EmptyTabPage tab={activeSidebarTab} />
+          )}
+
+          {/* ─── Terminal (Electron only) ─── */}
+          {isElectron && selectedAgentId && (
+            <SidebarTerminal
+              agents={terminalAgents}
+              selectedAgentId={selectedAgentId}
+              terminalHeight={terminalHeight}
+              onTerminalHeightChange={setTerminalHeight}
+              onAgentExit={handleAgentExit}
+              colorTheme={terminalColorTheme}
+            />
+          )}
+
+          {/* ─── Agent bar (bottom) ─── */}
+          <SidebarAgentBar
+            agents={(allAgents || []).map(a => ({
+              id: a.id,
+              name: a.name,
+              display_name: a.display_name,
+              avatar_url: a.avatar_url,
+              platform: a.platform,
+              status: a.status,
+            }))}
+            selectedAgentId={selectedAgentId}
+            onSelectAgent={handleSelectAgent}
+            onDeselectAgent={handleDeselectAgent}
+            onOpenAgentsPanel={() => {
+              setShowAgentsMenu(v => !v);
+              setShowMessageMenu(false);
+            }}
+            isElectron={isElectron}
+          />
+        </>
       )}
 
-      {/* ─── Agents dropdown — Figma: 320×499, positioned below buttons ─── */}
+      {/* ─── Profile dropdown ─── */}
+      {showProfileMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setShowProfileMenu(false); setShowLangMenu(false); setEditingName(false); }} />
+          <div
+            ref={profileRef}
+            className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)]"
+            style={{ top: '52px', left: '12px', width: '232px' }}
+          >
+            <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-muted overflow-hidden shrink-0 border border-black/10 relative group cursor-pointer"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                {resolveAvatarUrl(actor?.avatar_url) ? (
+                  <img src={resolveAvatarUrl(actor?.avatar_url)!} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <img src="/icons/avatar-default.jpg" alt="" className="w-full h-full object-cover" />
+                )}
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                  <Camera className="h-5 w-5 text-white" />
+                </div>
+              </div>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setSavingProfile(true);
+                  try {
+                    await gw.uploadUserAvatar(file);
+                    await refreshActor();
+                  } catch (err) { showError(t('settings.avatarUploadFailed'), err); }
+                  setSavingProfile(false);
+                  e.target.value = '';
+                }}
+              />
+              {editingName ? (
+                <input
+                  autoFocus
+                  value={editNameValue}
+                  onChange={e => setEditNameValue(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && editNameValue.trim().length >= 2) {
+                      setSavingProfile(true);
+                      try {
+                        await gw.updateProfile({ name: editNameValue.trim() });
+                        await refreshActor();
+                      } catch (err) { showError(t('settings.nameUpdateFailed'), err); }
+                      setSavingProfile(false);
+                      setEditingName(false);
+                    } else if (e.key === 'Escape') {
+                      setEditingName(false);
+                    }
+                  }}
+                  onBlur={() => setEditingName(false)}
+                  className="text-sm font-medium text-foreground bg-transparent border-b border-sidebar-primary outline-none min-w-0 flex-1"
+                  disabled={savingProfile}
+                />
+              ) : (
+                <span className="text-sm font-medium text-foreground truncate">{actor?.display_name || actor?.username || t('common.user')}</span>
+              )}
+              <button
+                onClick={() => {
+                  if (!editingName) {
+                    setEditNameValue(actor?.display_name || actor?.username || '');
+                    setEditingName(true);
+                  }
+                }}
+                className="shrink-0 p-0.5 hover:bg-black/[0.04] rounded transition-colors"
+              >
+                <Pencil className="h-4 w-4 opacity-40" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setShowProfileMenu(false); onOpenChangePassword(); }}
+              className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+            >
+              <Key className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+              {t('settings.password')}
+            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowLangMenu(v => !v)}
+                className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+              >
+                <Globe className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                {t('settings.language')}
+                <ChevronRight className="h-3.5 w-3.5 ml-auto opacity-40" />
+              </button>
+              {showLangMenu && (
+                <div className="absolute left-full top-0 ml-1 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] py-1 min-w-[120px] z-30">
+                  {(Object.entries(LOCALE_LABELS) as [Locale, string][]).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => { setLocale(key); setShowProfileMenu(false); setShowLangMenu(false); }}
+                      className={cn(
+                        'flex items-center w-full px-4 py-2 text-sm',
+                        locale === key ? 'text-sidebar-primary font-medium' : 'text-foreground/50 hover:text-foreground/70 hover:bg-black/[0.04]'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {IS_APP_MODE && (
+              <button
+                onClick={() => { setShowProfileMenu(false); setShowSyncSettings(true); }}
+                className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+              >
+                <Cloud className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                {t('settings.cloudSync')}
+              </button>
+            )}
+            <button
+              onClick={() => { setShowProfileMenu(false); onToggleTrash(); }}
+              className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+            >
+              <Trash2 className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+              {t('settings.trash')}
+            </button>
+            <button
+              onClick={() => { setShowProfileMenu(false); logout(); }}
+              className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+            >
+              <LogOut className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+              {t('settings.logout')}
+            </button>
+
+            <div className="px-4 pt-3 pb-6 flex gap-1">
+              {mounted && (['light', 'dark'] as const).map((th) => (
+                <button
+                  key={th}
+                  onClick={() => setTheme(th)}
+                  className={cn(
+                    'flex items-center justify-center h-8 rounded text-xs font-medium flex-1 border',
+                    theme === th
+                      ? 'bg-sidebar-primary/10 text-sidebar-primary border-sidebar-primary/20'
+                      : 'bg-black/[0.03] dark:bg-white/[0.05] text-foreground border-black/10 dark:border-white/10 hover:bg-black/[0.06]'
+                  )}
+                >
+                  {t(`theme.${th}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ─── Agents dropdown ─── */}
       {showAgentsMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowAgentsMenu(false)} />
@@ -624,14 +672,14 @@ export function ContentSidebar({
         </>
       )}
 
-      {/* ─── Message dropdown — Figma: 320×264, notification list ─── */}
+      {/* ─── Message/Notifications dropdown ─── */}
       {showMessageMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setShowMessageMenu(false)} />
           <div
             ref={messageRef}
             className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] overflow-hidden"
-            style={{ top: `${menuPos.message?.top ?? 136}px`, left: `${menuPos.message?.left ?? 120}px`, width: '320px', maxHeight: '400px' }}
+            style={{ top: `${menuPos.message?.top ?? 52}px`, left: `${menuPos.message?.left ?? 120}px`, width: '320px', maxHeight: '400px' }}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-black/10 dark:border-border">
               <h3 className="text-sm font-medium text-foreground">{t('notification.messages')}</h3>
@@ -730,64 +778,9 @@ export function ContentSidebar({
         </>
       )}
 
-      {/* Notification panel */}
-      <NotificationPanel
-        open={showNotifications}
-        onClose={() => setShowNotifications(false)}
-        anchorRect={undefined}
-      />
-
-      {/* ─── Scrollable tree content area ─── */}
-      <ScrollArea className="flex-1 min-h-0">
-        <div className={cn('px-2 py-1', collapsed && 'hidden')}>
-          {children}
-        </div>
-      </ScrollArea>
-
-      {/* ─── Bottom: Logo + Help + Collapse ─── */}
-      <div className="mt-auto shrink-0 pl-6 pr-3 py-6">
-        {!collapsed ? (
-          <div className="flex items-center">
-            {/* @suite logo — Figma: 56×24 image, 24px from left/top/bottom */}
-            <img src="/logo.png" alt="aose" className="h-6 object-contain object-left" />
-            {/* Help + Collapse pushed to right, 12px from right edge */}
-            <div className="ml-auto flex items-center">
-              <button
-                onClick={() => setShowSettings(v => !v)}
-                className="p-1 text-black/30 dark:text-white/30 hover:text-foreground rounded transition-colors"
-                title={t('toolbar.help')}
-                ref={settingsRef as any}
-              >
-                <HelpCircle className="h-4 w-4" />
-              </button>
-              <button
-                onClick={onToggleCollapse}
-                className="p-1 text-black/30 dark:text-white/30 hover:text-foreground rounded transition-colors"
-                title={t('toolbar.collapseSidebar')}
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex justify-center">
-            <button
-              onClick={onToggleCollapse}
-              className="p-1.5 text-black/30 dark:text-white/30 hover:text-foreground rounded transition-colors"
-              title={t('toolbar.expandSidebar')}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {/* Settings are now in the profile dropdown */}
-      </div>
-
       {/* ─── Connect Agents overlay ─── */}
       <ConnectAgentsOverlay open={showConnectAgents} onClose={() => setShowConnectAgents(false)} />
       <SyncSettingsDialog open={showSyncSettings} onClose={() => setShowSyncSettings(false)} />
     </div>
   );
 }
-
