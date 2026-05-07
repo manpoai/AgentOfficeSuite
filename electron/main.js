@@ -29,15 +29,17 @@ function ensureDataDir() {
 }
 
 function loadOrCreateConfig() {
+  let config = {};
   if (fs.existsSync(CONFIG_PATH)) {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
   }
-  const config = {
-    jwt_secret: crypto.randomBytes(32).toString('hex'),
-    admin_token: crypto.randomBytes(32).toString('hex'),
-    gateway_port: 4000,
-  };
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  let dirty = false;
+  if (!config.jwt_secret) { config.jwt_secret = crypto.randomBytes(32).toString('hex'); dirty = true; }
+  if (!config.admin_token) { config.admin_token = crypto.randomBytes(32).toString('hex'); dirty = true; }
+  if (!config.gateway_port) { config.gateway_port = 4000; dirty = true; }
+  if (dirty) {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  }
   return config;
 }
 
