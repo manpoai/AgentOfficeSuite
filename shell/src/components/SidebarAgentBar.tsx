@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { AtSign } from 'lucide-react';
+import { AtSign, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { resolveAvatarUrl } from '@/lib/api/gateway';
@@ -31,7 +31,8 @@ export function SidebarAgentBar({
   onDeselectAgent,
   onOpenAgentsPanel,
   isElectron,
-}: SidebarAgentBarProps) {
+  colorTheme = 'light',
+}: SidebarAgentBarProps & { colorTheme?: 'light' | 'dark' }) {
   const { t } = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(agents.length);
@@ -54,7 +55,7 @@ export function SidebarAgentBar({
   const overflowCount = Math.max(0, agents.length - visibleCount);
 
   return (
-    <div ref={containerRef} className="flex items-center gap-1 px-2 py-2 shrink-0 border-t border-border">
+    <div ref={containerRef} className="flex items-center gap-1 px-2 py-2 shrink-0" style={{ backgroundColor: colorTheme === 'dark' ? '#1a1a2e' : '#EEF0EE' }}>
       {visibleAgents.map((agent) => {
         const isSelected = selectedAgentId === agent.name;
         return (
@@ -78,8 +79,8 @@ export function SidebarAgentBar({
             {resolveAvatarUrl(agent.avatar_url) ? (
               <img src={resolveAvatarUrl(agent.avatar_url)!} alt="" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
-                {(agent.display_name || agent.name).charAt(0).toUpperCase()}
+              <div className="w-full h-full bg-muted flex items-center justify-center">
+                <Bot className="h-4 w-4 text-sidebar-primary" />
               </div>
             )}
           </button>

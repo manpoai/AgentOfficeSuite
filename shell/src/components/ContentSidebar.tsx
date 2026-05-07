@@ -498,6 +498,7 @@ export function ContentSidebar({
               setShowMessageMenu(false);
             }}
             isElectron={isElectron}
+            colorTheme={terminalColorTheme}
           />
         </>
       )}

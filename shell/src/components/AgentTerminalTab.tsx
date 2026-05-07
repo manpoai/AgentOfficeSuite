@@ -8,10 +8,10 @@ import '@xterm/xterm/css/xterm.css';
 
 const TERMINAL_THEMES = {
   light: {
-    background: '#ffffff',
+    background: '#EEF0EE',
     foreground: '#1a1a1a',
     cursor: '#333333',
-    selectionBackground: '#d0d0d0',
+    selectionBackground: '#c8ccc8',
     selectionForeground: '#1a1a1a',
   },
   dark: {
@@ -72,10 +72,11 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage, colorTheme
     initializedRef.current = true;
 
     const terminal = new Terminal({
-      fontSize: 13,
+      fontSize: 11,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       cursorBlink: true,
       theme: TERMINAL_THEMES[colorTheme],
+      scrollback: 5000,
     });
 
     const fitAddon = new FitAddon();
@@ -164,8 +165,8 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage, colorTheme
   return (
     <div
       ref={containerRef}
-      className="h-full w-full"
-      style={{ display: isActive ? 'block' : 'none' }}
+      className="h-full w-full p-2"
+      style={{ display: isActive ? 'block' : 'none', backgroundColor: TERMINAL_THEMES[colorTheme].background }}
     />
   );
 }
