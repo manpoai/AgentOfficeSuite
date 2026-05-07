@@ -2,7 +2,7 @@
 
 ## Goal
 
-Reorganize the AOSE desktop app layout: move the terminal from the bottom panel into the sidebar, add a top navigation bar with files/tasks/skills/memory/notifications tabs, redesign the agent interaction with a chat-style input box, and support light/dark terminal themes.
+Reorganize the AOSE desktop app layout: move the terminal from the bottom panel into the sidebar, add a top navigation bar with files/tasks/skills/memory/notifications tabs, and support light/dark terminal themes.
 
 ## Architecture
 
@@ -79,10 +79,10 @@ A horizontal strip at the very top of the sidebar area, below the macOS traffic 
 │                          │
 ├─── drag handle ─────────┤  ← vertical resize (only when terminal open)
 │                          │
-│ Terminal output (xterm)  │
+│ Terminal (xterm, normal   │
+│   stdin — user types in  │
+│   terminal directly)     │
 │                          │
-├─────────────────────────┤
-│ Chat input box           │
 ├─────────────────────────┤
 │ [avatar][avatar][avatar] │
 │            [@Agents]     │
@@ -96,29 +96,20 @@ A horizontal strip at the very top of the sidebar area, below the macOS traffic 
 - Green `@ Agents` button always present at the right side
 - Click avatar → select that agent, expand terminal area
 - Click `@ Agents` → open agent management panel (existing AgentPanelContent in popover) which also shows the full list of agents + "Connect new agent" entry
-- No agent selected → terminal area collapsed, only avatar bar + input box visible (input box disabled)
+- No agent selected → terminal area collapsed, only avatar bar visible
 
 #### Terminal area
 - Only visible when an agent avatar is clicked (agent selected)
-- Renders xterm.js output (read-only: `disableStdin: true`)
-- Takes up lower portion of sidebar, above input box and avatar bar
+- Renders xterm.js with normal stdin enabled (user types directly in terminal, same as current behavior)
+- Takes up lower portion of sidebar, above avatar bar
 - Height adjustable via drag handle between document tree and terminal
 - Default split: 60% tree / 40% terminal (when open)
 - Min terminal height: 120px
 - Min tree height: 100px
 
-#### Chat input box
-- Always visible (between terminal area and avatar bar)
-- When no agent selected: disabled, placeholder "Select an agent"
-- When agent selected: active, sends to the selected agent's pty
-- Single line by default, auto-grows up to ~4-5 lines
-- Enter = send (write to pty + `\r`), Shift+Enter = newline
-- Clear after send
-- Small send button on the right (optional, Enter is primary)
-
 ### Web vs Electron
-- **Electron**: Full terminal + input box + pty interaction
-- **Web**: Agent avatars shown (from gateway API), click does nothing (no terminal). Input box hidden. `@ Agents` button opens management panel only.
+- **Electron**: Full terminal + pty interaction
+- **Web**: Agent avatars shown (from gateway API), click does nothing (no terminal). `@ Agents` button opens management panel only.
 
 ## 3. Terminal Theme (Light/Dark)
 
@@ -181,13 +172,12 @@ Two theme presets that follow the global AOSE theme:
 1. **`SidebarTopNav.tsx`** — 5-icon navigation strip
 2. **`SidebarTerminal.tsx`** — Terminal area within sidebar (wraps AgentTerminalTab + manages selected agent state)
 3. **`SidebarAgentBar.tsx`** — Bottom avatar row + Agents button
-4. **`SidebarChatInput.tsx`** — Chat-style input box
-5. **`EmptyTabPage.tsx`** — Placeholder for tasks/skills/memory tabs
+4. **`EmptyTabPage.tsx`** — Placeholder for tasks/skills/memory tabs
 
 ### Modified components
 1. **`ContentSidebar.tsx`** — Major restructure: integrate new components, remove agents/message buttons from current position, adjust width defaults
 2. **`AppShell.tsx`** — Remove `AgentTerminalPanel` import and rendering
-3. **`AgentTerminalTab.tsx`** — Add theme support (light/dark), accept `disableStdin` prop
+3. **`AgentTerminalTab.tsx`** — Add theme support (light/dark)
 4. **`globals.css`** — Add terminal theme CSS variables (optional, could be inline)
 
 ### Removed components
@@ -198,7 +188,7 @@ Two theme presets that follow the global AOSE theme:
 ### Agent selection state
 - `selectedAgentId: string | null` — which agent's terminal is shown
 - Lives in ContentSidebar (or lifted to ContentPage if needed)
-- `null` = terminal collapsed, input disabled
+- `null` = terminal collapsed
 
 ### Terminal split position
 - `terminalHeight: number` — pixels for terminal area
@@ -225,7 +215,6 @@ Two theme presets that follow the global AOSE theme:
 - Sidebar width default 280px
 - Terminal in sidebar with vertical resize
 - Agent avatar bar at sidebar bottom
-- Chat input box (Enter to send)
 - Light/dark terminal theme
 - Remove bottom AgentTerminalPanel
 - Web compatibility (no terminal, avatars shown, Agents button works)
