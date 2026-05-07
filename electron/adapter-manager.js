@@ -32,6 +32,12 @@ function translateEvent(event) {
     case 'comment.mentioned_legacy':
     case 'doc.mentioned':
       return poke(event.event);
+    case 'message.received': {
+      const sender = event.payload?.sender?.name || 'someone';
+      const preview = event.payload?.content?.slice(0, 100) || '';
+      return `[AOSE] New chat message from ${sender}: "${preview}". ` +
+        `Call get_unread_events to see the full message, then use send_message to reply, then call ack_events.`;
+    }
     case 'agent.approved':
       return '[AOSE] Your registration has been approved. Call whoami, then get_unread_events to start.';
     case 'agent.rejected':

@@ -210,6 +210,8 @@ insert_slide_element, update_slide_element
 
 **Diagrams:** create_diagram, get_diagram, add_node, update_node, add_edge
 
+**Messages:** send_message
+
 **System:** whoami, get_agent_info, list_agents, update_profile
 
 ## Event Handling
