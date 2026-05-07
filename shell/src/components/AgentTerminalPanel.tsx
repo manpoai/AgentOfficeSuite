@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, X, ChevronDown, ChevronUp, Terminal as TerminalIcon } from 'lucide-react';
+import { Plus, X, ChevronDown, ChevronUp, Terminal as TerminalIcon, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentTerminalTab, ensureGlobalListener, resetGlobalListener } from './AgentTerminalTab';
+import { AgentChatView } from './AgentChatView';
+
+type ViewMode = 'chat' | 'terminal';
 
 interface AgentTab {
   agentId: string;
@@ -18,7 +21,9 @@ export function AgentTerminalPanel() {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
   const [panelHeight, setPanelHeight] = useState(300);
+  const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
 
   useEffect(() => {
     const api = (window as any).electronAPI;
@@ -106,6 +111,8 @@ export function AgentTerminalPanel() {
     return 'bg-yellow-500';
   };
 
+  const activeAgent = tabs.find(t => t.agentId === activeTab);
+
   return (
     <div
       className="border-t border-border bg-background flex flex-col shrink-0"
@@ -123,14 +130,41 @@ export function AgentTerminalPanel() {
           onClick={() => {
             const next = !collapsed;
             setCollapsed(next);
-            if (!next) setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 50);
+            if (!next && viewMode === 'terminal') setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 50);
           }}
           className="p-1 rounded hover:bg-black/[0.05] dark:hover:bg-white/[0.1] transition-colors"
         >
           {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
 
-        <TerminalIcon className="h-3.5 w-3.5 text-muted-foreground ml-1" />
+        {/* View toggle */}
+        <div className="flex items-center gap-0.5 ml-1">
+          <button
+            onClick={() => setViewMode('chat')}
+            className={cn(
+              'p-1 rounded transition-colors',
+              viewMode === 'chat' ? 'text-sidebar-primary' : 'text-muted-foreground hover:text-foreground'
+            )}
+            title="Chat"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
+          {isElectron && (
+            <button
+              onClick={() => {
+                setViewMode('terminal');
+                setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 50);
+              }}
+              className={cn(
+                'p-1 rounded transition-colors',
+                viewMode === 'terminal' ? 'text-sidebar-primary' : 'text-muted-foreground hover:text-foreground'
+              )}
+              title="Terminal"
+            >
+              <TerminalIcon className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
 
         <div className="flex items-center gap-0.5 overflow-x-auto flex-1 ml-2">
           {tabs.map(tab => (
@@ -154,7 +188,6 @@ export function AgentTerminalPanel() {
 
         <button
           onClick={() => {
-            // Trigger the sidebar's Connect Agents overlay
             const event = new CustomEvent('aose:open-connect-agents');
             window.dispatchEvent(event);
           }}
@@ -166,7 +199,14 @@ export function AgentTerminalPanel() {
       </div>
 
       <div className="flex-1 min-h-0" style={{ display: collapsed ? 'none' : undefined }}>
-        {tabs.map(tab => (
+        {viewMode === 'chat' && activeTab && (
+          <AgentChatView
+            agentId={activeTab}
+            agentName={activeAgent?.agentName || activeTab}
+            isActive={true}
+          />
+        )}
+        {viewMode === 'terminal' && isElectron && tabs.map(tab => (
           <AgentTerminalTab
             key={tab.agentId}
             agentId={tab.agentId}

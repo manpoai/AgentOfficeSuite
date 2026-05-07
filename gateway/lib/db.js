@@ -498,6 +498,19 @@ function migrateTableComments(db) {
     }
   } catch (e) { console.error('[gateway] table_comments migration error:', e.message); }
 
+  // Migrate: create agent_messages table (human ↔ agent chat)
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS agent_messages (
+      id          TEXT PRIMARY KEY,
+      agent_id    TEXT NOT NULL,
+      sender_type TEXT NOT NULL CHECK(sender_type IN ('human', 'agent')),
+      sender_id   TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      created_at  INTEGER NOT NULL
+    )`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_agent_messages_agent ON agent_messages(agent_id, created_at)');
+  } catch { /* already exists */ }
+
   // Sync tables — required for cross-instance sync
   db.exec(`CREATE TABLE IF NOT EXISTS _sync_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -168,6 +168,18 @@ CREATE TABLE IF NOT EXISTS view_column_settings (
   PRIMARY KEY (view_id, column_id)
 );
 
+-- Agent direct messages (human ↔ agent chat)
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  sender_type TEXT NOT NULL CHECK(sender_type IN ('human', 'agent')),
+  sender_id   TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_messages_agent ON agent_messages(agent_id, created_at);
+
 -- ── Sync ──
 
 -- Change log for cross-instance sync

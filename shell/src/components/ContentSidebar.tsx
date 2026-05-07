@@ -468,8 +468,8 @@ export function ContentSidebar({
             <EmptyTabPage tab={activeSidebarTab} />
           )}
 
-          {/* ─── Terminal (Electron only) ─── */}
-          {isElectron && selectedAgentId && (
+          {/* ─── Agent Chat / Terminal ─── */}
+          {selectedAgentId && (
             <SidebarTerminal
               agents={terminalAgents}
               selectedAgentId={selectedAgentId}
@@ -477,6 +477,7 @@ export function ContentSidebar({
               onTerminalHeightChange={setTerminalHeight}
               onAgentExit={handleAgentExit}
               colorTheme={terminalColorTheme}
+              isElectron={isElectron}
             />
           )}
 

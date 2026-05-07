@@ -757,3 +757,30 @@ export async function changePassword(currentPassword: string, newPassword: strin
     throw new Error(data.error || 'Failed to change password');
   }
 }
+
+// ── Agent Messages ──
+
+export interface AgentMessage {
+  id: string;
+  agent_id: string;
+  sender_type: 'human' | 'agent';
+  sender_id: string;
+  sender_name?: string;
+  sender_avatar?: string | null;
+  content: string;
+  created_at: number;
+}
+
+export async function sendAgentMessage(agentId: string, content: string): Promise<AgentMessage> {
+  return gwFetch<AgentMessage>(`/agents/${agentId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function listAgentMessages(agentId: string, limit = 50, before?: number): Promise<{ messages: AgentMessage[]; has_more: boolean }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (before) params.set('before', String(before));
+  return gwFetch(`/agents/${agentId}/messages?${params}`);
+}

@@ -13,6 +13,7 @@ import { registerCanvasTools } from './tools/canvas.js';
 import { registerVideoTools } from './tools/video.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerRevisionTools } from './tools/revisions.js';
+import { registerMessageTools } from './tools/messages.js';
 
 /**
  * Build a fully-wired AOSE McpServer instance bound to the given base URL
@@ -57,6 +58,7 @@ export function buildAoseMcpServer({ baseUrl, token, name = 'aose', version = '0
   registerVideoTools(server, gw);
   registerSearchTools(server, gw);
   registerRevisionTools(server, gw);
+  registerMessageTools(server, gw);
 
   return { server, gw };
 }
