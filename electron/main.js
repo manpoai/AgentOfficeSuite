@@ -174,6 +174,9 @@ app.on('ready', async () => {
   const config = loadOrCreateConfig();
 
   adapterManager = new AdapterManager(config.gateway_port);
+  adapterManager.setTerminalWriter((agentName, data) => {
+    terminalManager.write(agentName, data);
+  });
   provisioner = new AgentProvisioner(config.gateway_port, config.admin_token);
 
   gateway.start({

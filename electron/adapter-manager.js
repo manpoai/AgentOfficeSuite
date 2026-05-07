@@ -45,6 +45,11 @@ class AdapterManager {
   constructor(gatewayPort) {
     this.gatewayPort = gatewayPort;
     this.connections = new Map();
+    this.terminalWriter = null;
+  }
+
+  setTerminalWriter(fn) {
+    this.terminalWriter = fn;
   }
 
   start(agentConfig) {
@@ -125,6 +130,10 @@ class AdapterManager {
 
     writeInbox(agentName, content);
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
+
+    if (this.terminalWriter) {
+      this.terminalWriter(agentName, content + '\n');
+    }
 
     if (platform === 'gemini-cli' && agentDir) {
       const child = spawn('gemini', [

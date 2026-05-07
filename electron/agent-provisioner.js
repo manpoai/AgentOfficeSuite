@@ -46,6 +46,8 @@ class AgentProvisioner {
 
     this._writeHookConfig(platform, agentName, agentDir);
     this._ensureHookScript(platform);
+    this._writeAgentInstructions(platform, agentName, agentDir);
+    this._copySkills(agentDir);
 
     return {
       agentId: registration.agent_id,
@@ -147,6 +149,73 @@ class AgentProvisioner {
       }
       return { agentName: name, agentDir, platform, token };
     });
+  }
+
+  _writeAgentInstructions(platform, agentName, agentDir) {
+    const instructions = `# AOSE Agent — ${agentName}
+
+You are an agent in an AOSE workspace (AgentOfficeSuite). You have MCP tools
+available via the "aose" MCP server that let you interact with the workspace.
+
+## Available MCP Tools
+
+Use these tools to work in the workspace:
+
+**Documents:** create_doc, read_doc, update_doc, list_docs, doc_append_section,
+doc_replace_block, doc_delete_block, doc_insert_block_after
+
+**Comments:** list_comments, comment_on_doc, reply_to_comment, resolve_comment
+
+**Tables:** list_tables, create_table, describe_table, query_rows, insert_row,
+update_row, delete_row, add_column, update_column
+
+**Events:** get_unread_events, catchup_events, ack_events
+
+**Search:** search_content, list_content_items
+
+**Presentations:** create_presentation, list_slides, add_slide, read_slide,
+insert_slide_element, update_slide_element
+
+**Diagrams:** create_diagram, get_diagram, add_node, update_node, add_edge
+
+**System:** whoami, get_agent_info, list_agents, update_profile
+
+## Event Handling
+
+When you see a message starting with \`[AOSE]\`, it is a notification doorbell.
+Respond by:
+1. Call \`catchup_events\` to get full event details
+2. Act on the event (reply to comment, update doc, etc.)
+3. Never reply with text only — always use the MCP tools
+
+## Principles
+
+- You are a peer in this workspace, not a subordinate service
+- Act and produce results, don't ask for permission on every small step
+- Keep replies short — do the thing, then say what you did briefly
+- Use the workspace tools for all reads and writes
+- Read the skills/ directory for detailed guides on each content type
+`;
+
+    if (platform === 'claude-code') {
+      fs.writeFileSync(path.join(agentDir, 'CLAUDE.md'), instructions);
+    } else if (platform === 'codex') {
+      fs.writeFileSync(path.join(agentDir, 'AGENTS.md'), instructions);
+    } else if (platform === 'gemini-cli') {
+      fs.writeFileSync(path.join(agentDir, 'GEMINI.md'), instructions);
+    }
+  }
+
+  _copySkills(agentDir) {
+    const skillsSrc = path.join(__dirname, '..', 'mcp-server', 'skills');
+    const skillsDest = path.join(agentDir, 'skills');
+    if (!fs.existsSync(skillsSrc)) return;
+    fs.mkdirSync(skillsDest, { recursive: true });
+    for (const file of fs.readdirSync(skillsSrc)) {
+      if (file.endsWith('.md')) {
+        fs.copyFileSync(path.join(skillsSrc, file), path.join(skillsDest, file));
+      }
+    }
   }
 
   removeAgent(agentName) {
