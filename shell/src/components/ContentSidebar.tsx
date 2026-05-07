@@ -668,7 +668,7 @@ export function ContentSidebar({
             style={{ top: `${menuPos.agents?.top ?? 136}px`, left: `${menuPos.agents?.left ?? 8}px`, width: '320px', maxHeight: '499px' }}
           >
             <ScrollArea className="h-full" style={{ maxHeight: '499px' }}>
-              <AgentPanelContent variant="popover" onOpenConnectAgents={() => { setShowAgentsMenu(false); setShowConnectAgents(true); }} />
+              <AgentPanelContent variant="popover" onOpenConnectAgents={() => { setShowAgentsMenu(false); setShowConnectAgents(true); }} onOpenChat={(id, name) => { setShowAgentsMenu(false); handleSelectAgent(id); }} />
             </ScrollArea>
           </div>
         </>

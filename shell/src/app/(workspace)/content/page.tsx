@@ -58,6 +58,7 @@ import { contentItemActions, type ContentItemCtx } from '@/actions/content-item.
 import { contentItemSurfaces } from '@/surfaces/content-item.surfaces';
 import { toContextMenuItems, toContentMenuItems } from '@/surfaces/bridge';
 import { AgentPanelContent } from '@/components/shared/AgentPanelContent';
+import { AgentChatView } from '@/components/AgentChatView';
 import { ConnectAgentsOverlay } from '@/components/ConnectAgentsOverlay';
 import { buildActionMap } from '@/actions/types';
 import { buildContentLink } from '@/lib/hooks/use-content-tree';
@@ -222,6 +223,7 @@ export default function ContentPage() {
   const [showMobileProfile, setShowMobileProfile] = useState(false);
   const [showMobileAgents, setShowMobileAgents] = useState(false);
   const [showMobileConnectAgents, setShowMobileConnectAgents] = useState(false);
+  const [mobileChatAgent, setMobileChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [mobileEditingName, setMobileEditingName] = useState(false);
   const [mobileEditNameValue, setMobileEditNameValue] = useState('');
   const [mobileSavingProfile, setMobileSavingProfile] = useState(false);
@@ -1947,8 +1949,17 @@ export default function ContentPage() {
       {/* Mobile agents BottomSheet */}
       <BottomSheet open={showMobileAgents} onClose={() => setShowMobileAgents(false)} title={t('toolbar.agents')}>
         <div className="py-2 px-4">
-          <AgentPanelContent variant="bottomsheet" onOpenConnectAgents={() => { setShowMobileAgents(false); setShowMobileConnectAgents(true); }} />
+          <AgentPanelContent variant="bottomsheet" onOpenConnectAgents={() => { setShowMobileAgents(false); setShowMobileConnectAgents(true); }} onOpenChat={(id, name) => { setShowMobileAgents(false); setMobileChatAgent({ id, name }); }} />
         </div>
+      </BottomSheet>
+
+      {/* Mobile agent chat BottomSheet */}
+      <BottomSheet open={!!mobileChatAgent} onClose={() => setMobileChatAgent(null)} title={mobileChatAgent?.name || 'Chat'}>
+        {mobileChatAgent && (
+          <div className="h-[60vh]">
+            <AgentChatView agentId={mobileChatAgent.id} agentName={mobileChatAgent.name} isActive={true} colorTheme="light" />
+          </div>
+        )}
       </BottomSheet>
 
       {/* Mobile Connect Agents overlay */}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Plus, Copy, X, Check, Key, Pencil, Trash2, Camera } from 'lucide-react';
+import { Bot, Plus, Copy, X, Check, Key, Pencil, Trash2, Camera, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { useT } from '@/lib/i18n';
@@ -50,9 +50,10 @@ function PlatformIcon({ name }: { name: string }) {
 export interface AgentPanelContentProps {
   variant: 'popover' | 'bottomsheet';
   onOpenConnectAgents?: () => void;
+  onOpenChat?: (agentId: string, agentName: string) => void;
 }
 
-export function AgentPanelContent({ variant, onOpenConnectAgents }: AgentPanelContentProps) {
+export function AgentPanelContent({ variant, onOpenConnectAgents, onOpenChat }: AgentPanelContentProps) {
   const { t } = useT();
   const queryClient = useQueryClient();
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
@@ -317,6 +318,16 @@ export function AgentPanelContent({ variant, onOpenConnectAgents }: AgentPanelCo
                     )}
                   </span>
                 </div>
+                {/* Chat button */}
+                {onOpenChat && (
+                  <button
+                    onClick={() => onOpenChat(agentId, agent.display_name || agent.name)}
+                    className="w-8 h-8 rounded flex items-center justify-center hover:bg-sidebar-primary/10 transition-colors shrink-0"
+                    title="Chat"
+                  >
+                    <MessageSquare className="h-4 w-4 text-sidebar-primary" />
+                  </button>
+                )}
                 {/* Delete button — visible on all screen sizes */}
                 {deleteConfirmId === agentId ? (
                   <div className="flex items-center gap-1 ml-1">
