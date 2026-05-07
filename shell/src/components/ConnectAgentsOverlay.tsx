@@ -32,8 +32,8 @@ interface ToolCategory {
 const CLAUDE_CODE_TOOL_CATEGORIES: ToolCategory[] = [
   { id: 'aose', label: 'AOSE Workspace', description: 'Docs, tables, comments, events', tools: ['mcp__aose__*'], default: 'always' },
   { id: 'files', label: 'File Operations', description: 'Read, edit, write files', tools: ['Read', 'Edit', 'Write'], default: 'always' },
-  { id: 'shell', label: 'Shell Commands', description: 'Terminal commands (bash)', tools: ['Bash'], default: 'always' },
-  { id: 'web', label: 'Web Access', description: 'Fetch URLs, web search', tools: ['WebFetch', 'WebSearch'], default: 'always' },
+  { id: 'shell', label: 'Shell Commands', description: 'Terminal commands (bash)', tools: ['Bash'], default: 'ask' },
+  { id: 'web', label: 'Web Access', description: 'Fetch URLs, web search', tools: ['WebFetch', 'WebSearch'], default: 'ask' },
 ];
 
 function defaultPermissions(): Record<string, PermissionMode> {
