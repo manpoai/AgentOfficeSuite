@@ -142,11 +142,6 @@ class AdapterManager {
     writeInbox(agentName, content);
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
 
-    if (this.terminalWriter && platform !== 'gemini-cli') {
-      this.terminalWriter(agentName, content);
-      setTimeout(() => this.terminalWriter(agentName, '\r'), 100);
-    }
-
     if (platform === 'gemini-cli' && agentDir) {
       const child = spawn('gemini', [
         '-p', 'You have a new AOSE event. Check your inbox by calling get_unread_events.',
