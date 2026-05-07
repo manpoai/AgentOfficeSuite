@@ -1,8 +1,11 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { GatewayManager } = require('./gateway-manager');
+const { TerminalManager } = require('./terminal-manager');
+const { AdapterManager } = require('./adapter-manager');
+const { AgentProvisioner } = require('./agent-provisioner');
 const { setupTray } = require('./tray');
 const { setupUpdater } = require('./updater');
 
@@ -14,6 +17,9 @@ const UPLOADS_DIR = path.join(DATA_SUBDIR, 'uploads');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
 
 const gateway = new GatewayManager();
+const terminalManager = new TerminalManager();
+let adapterManager = null;
+let provisioner = null;
 let mainWindow = null;
 
 function ensureDataDir() {
@@ -85,9 +91,88 @@ function createWindow(port, config) {
   });
 }
 
+function setupIPC() {
+  ipcMain.handle('terminal:create', (_event, agentId) => {
+    const agentDir = path.join(DATA_DIR, 'agents', agentId);
+    const cwd = fs.existsSync(agentDir) ? agentDir : app.getPath('home');
+    const result = terminalManager.create(agentId, { cwd });
+
+    terminalManager.onData(agentId, (data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal:data', agentId, data);
+      }
+    });
+
+    terminalManager.onExit(agentId, ({ exitCode }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal:exit', agentId, exitCode);
+      }
+    });
+
+    return result;
+  });
+
+  ipcMain.on('terminal:write', (_event, agentId, data) => {
+    terminalManager.write(agentId, data);
+  });
+
+  ipcMain.on('terminal:resize', (_event, agentId, cols, rows) => {
+    terminalManager.resize(agentId, cols, rows);
+  });
+
+  ipcMain.handle('terminal:destroy', (_event, agentId) => {
+    terminalManager.destroy(agentId);
+    return { ok: true };
+  });
+
+  ipcMain.handle('agent:provision', async (_event, platform) => {
+    const result = await provisioner.provision(platform);
+    adapterManager.start({
+      agentId: result.agentId,
+      agentName: result.agentName,
+      agentToken: result.token,
+      platform: result.platform,
+      agentDir: result.agentDir,
+    });
+    return result;
+  });
+
+  ipcMain.handle('agent:list', () => {
+    return provisioner.listAgents();
+  });
+
+  ipcMain.handle('agent:remove', (_event, agentName) => {
+    adapterManager.stop(agentName);
+    terminalManager.destroy(agentName);
+    provisioner.removeAgent(agentName);
+    return { ok: true };
+  });
+}
+
+function startAdaptersForExistingAgents() {
+  const agents = provisioner.listAgents();
+  for (const agent of agents) {
+    if (agent.token) {
+      adapterManager.start({
+        agentId: agent.agentName,
+        agentName: agent.agentName,
+        agentToken: agent.token,
+        platform: agent.platform,
+        agentDir: agent.agentDir,
+      });
+    }
+  }
+  if (agents.length > 0) {
+    console.log(`[app] Started adapters for ${agents.length} existing agent(s)`);
+  }
+}
+
 app.on('ready', async () => {
   ensureDataDir();
   const config = loadOrCreateConfig();
+
+  adapterManager = new AdapterManager(config.gateway_port);
+  provisioner = new AgentProvisioner(config.gateway_port, config.admin_token);
 
   gateway.start({
     port: config.gateway_port,
@@ -107,6 +192,8 @@ app.on('ready', async () => {
     return;
   }
 
+  setupIPC();
+  startAdaptersForExistingAgents();
   createWindow(config.gateway_port, config);
   setupTray(mainWindow, app);
   setupUpdater();
@@ -132,6 +219,8 @@ app.on('before-quit', async (e) => {
   if (!app.isQuitting) {
     app.isQuitting = true;
     e.preventDefault();
+    terminalManager.destroyAll();
+    adapterManager.stopAll();
     await gateway.stop();
     app.quit();
   }
