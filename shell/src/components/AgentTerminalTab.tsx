@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -31,6 +31,21 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const initializedRef = useRef(false);
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
+  const fitAndSync = useCallback(() => {
+    if (!fitAddonRef.current || !terminalRef.current) return;
+    if (!isActiveRef.current) return;
+    fitAddonRef.current.fit();
+    const api = (window as any).electronAPI;
+    if (api && terminalRef.current) {
+      const { cols, rows } = terminalRef.current;
+      if (cols > 1 && rows > 1) {
+        api.resizeTerminal(agentId, cols, rows);
+      }
+    }
+  }, [agentId]);
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
@@ -53,10 +68,13 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
     terminal.loadAddon(new WebLinksAddon());
 
     terminal.open(containerRef.current);
-    if (isActive) fitAddon.fit();
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+
+    if (isActiveRef.current) {
+      requestAnimationFrame(() => fitAndSync());
+    }
 
     if (welcomeMessage) {
       terminal.write(welcomeMessage);
@@ -73,8 +91,7 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
         if (result?.reconnected) {
           terminal.clear();
         }
-        const { cols, rows } = terminal;
-        api.resizeTerminal(agentId, cols, rows);
+        requestAnimationFrame(() => fitAndSync());
       });
 
       terminal.onData((data: string) => {
@@ -83,13 +100,8 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
     }
 
     const resizeObserver = new ResizeObserver(() => {
-      if (fitAddonRef.current && isActive) {
-        fitAddonRef.current.fit();
-        const api = (window as any).electronAPI;
-        if (api && terminalRef.current) {
-          const { cols, rows } = terminalRef.current;
-          api.resizeTerminal(agentId, cols, rows);
-        }
+      if (isActiveRef.current) {
+        fitAndSync();
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -102,35 +114,22 @@ export function AgentTerminalTab({ agentId, isActive, welcomeMessage }: AgentTer
       fitAddonRef.current = null;
       initializedRef.current = false;
     };
-  }, [agentId]);
+  }, [agentId, fitAndSync]);
 
   useEffect(() => {
-    if (isActive && fitAddonRef.current && terminalRef.current) {
-      setTimeout(() => {
-        fitAddonRef.current?.fit();
-        const api = (window as any).electronAPI;
-        if (api && terminalRef.current) {
-          const { cols, rows } = terminalRef.current;
-          api.resizeTerminal(agentId, cols, rows);
-        }
-      }, 0);
+    if (isActive) {
+      requestAnimationFrame(() => {
+        fitAndSync();
+        setTimeout(() => fitAndSync(), 50);
+      });
     }
-  }, [isActive, agentId]);
+  }, [isActive, fitAndSync]);
 
   useEffect(() => {
-    const refit = () => {
-      if (isActive && fitAddonRef.current) {
-        fitAddonRef.current.fit();
-        const api = (window as any).electronAPI;
-        if (api && terminalRef.current) {
-          const { cols, rows } = terminalRef.current;
-          api.resizeTerminal(agentId, cols, rows);
-        }
-      }
-    };
+    const refit = () => fitAndSync();
     window.addEventListener('terminal:refit', refit);
     return () => window.removeEventListener('terminal:refit', refit);
-  }, [isActive, agentId]);
+  }, [fitAndSync]);
 
   return (
     <div
