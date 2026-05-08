@@ -111,6 +111,39 @@ export default function syncRoutes(db, syncClient) {
     });
   });
 
+  // GET /api/sync/snapshot?tables=content_items — full table dump for initial sync
+  router.get('/snapshot', (req, res) => {
+    const tableNames = (req.query.tables || '').split(',').filter(Boolean);
+    if (tableNames.length === 0) {
+      return res.status(400).json({ error: 'tables parameter required' });
+    }
+
+    const snapshot = {};
+    for (const tableName of tableNames) {
+      if (!isSyncableTable(tableName)) {
+        return res.status(400).json({ error: `table ${tableName} is not syncable` });
+      }
+      const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+      ).get(tableName);
+      if (!tableExists) {
+        snapshot[tableName] = [];
+        continue;
+      }
+      snapshot[tableName] = db.prepare(`SELECT * FROM ${tableName}`).all();
+    }
+
+    const maxCursor = db.prepare(
+      "SELECT MAX(id) as max_id FROM _sync_log WHERE source = 'local'"
+    ).get();
+
+    res.json({
+      snapshot,
+      cursor: maxCursor?.max_id || 0,
+      server_timestamp: Date.now(),
+    });
+  });
+
   // GET /api/sync/status — sync connection status
   router.get('/status', (req, res) => {
     const pendingCount = db.prepare(

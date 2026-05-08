@@ -541,6 +541,68 @@ function migrateTableComments(db) {
     key   TEXT PRIMARY KEY,
     value TEXT
   )`);
+
+  // Sync flag table — when a row exists, triggers write source='sync' instead of 'local'
+  db.exec(`CREATE TABLE IF NOT EXISTS _sync_applying (flag INTEGER)`);
+
+  // Auto-sync triggers for content_items
+  createSyncTriggers(db, 'content_items', 'id');
+}
+
+function createSyncTriggers(db, tableName, pkColumn) {
+  // Get all columns for building the data_json
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all().map(c => c.name);
+  const jsonPairs = cols.map(c => `'${c}', NEW.${c}`).join(', ');
+  const jsonPairsOld = cols.map(c => `'${c}', OLD.${c}`).join(', ');
+
+  db.exec(`DROP TRIGGER IF EXISTS _sync_${tableName}_insert`);
+  db.exec(`DROP TRIGGER IF EXISTS _sync_${tableName}_update`);
+  db.exec(`DROP TRIGGER IF EXISTS _sync_${tableName}_delete`);
+
+  db.exec(`
+    CREATE TRIGGER _sync_${tableName}_insert AFTER INSERT ON ${tableName}
+    BEGIN
+      INSERT INTO _sync_log (table_name, row_id, operation, data_json, timestamp, source)
+      VALUES (
+        '${tableName}',
+        NEW.${pkColumn},
+        'insert',
+        json_object(${jsonPairs}),
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER),
+        CASE WHEN EXISTS (SELECT 1 FROM _sync_applying) THEN 'sync' ELSE 'local' END
+      );
+    END
+  `);
+
+  db.exec(`
+    CREATE TRIGGER _sync_${tableName}_update AFTER UPDATE ON ${tableName}
+    BEGIN
+      INSERT INTO _sync_log (table_name, row_id, operation, data_json, timestamp, source)
+      VALUES (
+        '${tableName}',
+        NEW.${pkColumn},
+        'update',
+        json_object(${jsonPairs}),
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER),
+        CASE WHEN EXISTS (SELECT 1 FROM _sync_applying) THEN 'sync' ELSE 'local' END
+      );
+    END
+  `);
+
+  db.exec(`
+    CREATE TRIGGER _sync_${tableName}_delete AFTER DELETE ON ${tableName}
+    BEGIN
+      INSERT INTO _sync_log (table_name, row_id, operation, data_json, timestamp, source)
+      VALUES (
+        '${tableName}',
+        OLD.${pkColumn},
+        'delete',
+        json_object(${jsonPairsOld}),
+        CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER),
+        CASE WHEN EXISTS (SELECT 1 FROM _sync_applying) THEN 'sync' ELSE 'local' END
+      );
+    END
+  `);
 }
 
 function migrateDocComments(db) {

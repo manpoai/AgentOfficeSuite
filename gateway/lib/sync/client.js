@@ -35,7 +35,7 @@ export class SyncClient {
     };
   }
 
-  start() {
+  async start() {
     const config = this.getConfig();
     if (!config.syncEnabled || !config.remoteUrl || !config.remoteToken) {
       console.log('[sync-client] Sync not configured or disabled');
@@ -44,6 +44,15 @@ export class SyncClient {
 
     this.running = true;
     console.log(`[sync-client] Starting sync to ${config.remoteUrl}`);
+
+    // Initial snapshot sync if we've never synced before
+    if (config.lastPullCursor === 0) {
+      try {
+        await this._initialSnapshotSync(config);
+      } catch (err) {
+        console.error('[sync-client] Initial snapshot sync failed:', err.message);
+      }
+    }
 
     this._connect(config);
 
@@ -80,6 +89,122 @@ export class SyncClient {
       this.pullInterval = null;
     }
     console.log('[sync-client] Stopped');
+  }
+
+  async _initialSnapshotSync(config) {
+    const SYNC_TABLES = ['content_items'];
+    console.log(`[sync-client] Starting initial snapshot sync for: ${SYNC_TABLES.join(', ')}`);
+
+    const res = await fetch(`${config.remoteUrl}/sync/snapshot?tables=${SYNC_TABLES.join(',')}`, {
+      headers: { 'Authorization': `Bearer ${config.remoteToken}` },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Snapshot request failed: ${res.status}`);
+    }
+
+    const { snapshot, cursor } = await res.json();
+
+    // Set sync flag to prevent triggers from writing source='local'
+    this.db.prepare("INSERT OR IGNORE INTO _sync_applying VALUES (1)").run();
+
+    try {
+      for (const tableName of SYNC_TABLES) {
+        const remoteRows = snapshot[tableName] || [];
+        if (remoteRows.length === 0) continue;
+
+        const tableExists = this.db.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+        ).get(tableName);
+        if (!tableExists) continue;
+
+        const pkCol = this._getPkColumn(tableName);
+        const localRows = this.db.prepare(`SELECT * FROM ${tableName}`).all();
+        const localMap = new Map(localRows.map(r => [r[pkCol], r]));
+        const remoteMap = new Map(remoteRows.map(r => [r[pkCol], r]));
+
+        const cols = this.db.prepare(`PRAGMA table_info(${tableName})`).all().map(c => c.name);
+
+        let inserted = 0, updated = 0, pushed = 0;
+
+        // Remote rows → merge into local
+        for (const [id, remoteRow] of remoteMap) {
+          const localRow = localMap.get(id);
+          if (!localRow) {
+            // Remote-only: insert locally
+            const filteredCols = cols.filter(c => remoteRow[c] !== undefined);
+            const placeholders = filteredCols.map(() => '?').join(', ');
+            const values = filteredCols.map(c => remoteRow[c] ?? null);
+            this.db.prepare(
+              `INSERT OR REPLACE INTO ${tableName} (${filteredCols.join(', ')}) VALUES (${placeholders})`
+            ).run(...values);
+            inserted++;
+          } else {
+            // Both exist: compare updated_at, newer wins
+            const remoteTime = remoteRow.updated_at || remoteRow.created_at || '';
+            const localTime = localRow.updated_at || localRow.created_at || '';
+            if (remoteTime > localTime) {
+              const setClauses = cols.filter(c => c !== pkCol && remoteRow[c] !== undefined)
+                .map(c => `${c} = ?`);
+              const values = cols.filter(c => c !== pkCol && remoteRow[c] !== undefined)
+                .map(c => remoteRow[c] ?? null);
+              if (setClauses.length > 0) {
+                values.push(id);
+                this.db.prepare(
+                  `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE ${pkCol} = ?`
+                ).run(...values);
+                updated++;
+              }
+            }
+          }
+        }
+
+        // Local-only rows: push to cloud
+        const localOnlyRows = [];
+        for (const [id, localRow] of localMap) {
+          if (!remoteMap.has(id)) {
+            localOnlyRows.push(localRow);
+            pushed++;
+          }
+        }
+
+        if (localOnlyRows.length > 0) {
+          const changes = localOnlyRows.map(row => ({
+            table_name: tableName,
+            row_id: row[pkCol],
+            operation: 'insert',
+            data_json: JSON.stringify(row),
+            timestamp: Date.now(),
+          }));
+          await fetch(`${config.remoteUrl}/sync/push`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${config.remoteToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ changes, protocol_version: '1.0' }),
+          });
+        }
+
+        console.log(`[sync-client] Snapshot ${tableName}: ${inserted} inserted, ${updated} updated, ${pushed} pushed to cloud`);
+      }
+    } finally {
+      this.db.prepare("DELETE FROM _sync_applying").run();
+    }
+
+    // Save cursor so we don't do snapshot again
+    if (cursor) {
+      this.db.prepare(
+        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_cursor', ?)"
+      ).run(String(cursor));
+    }
+    console.log(`[sync-client] Initial snapshot sync complete, cursor=${cursor}`);
+  }
+
+  _getPkColumn(tableName) {
+    const info = this.db.prepare(`PRAGMA table_info(${tableName})`).all();
+    const pk = info.find(c => c.pk === 1);
+    return pk ? pk.name : 'id';
   }
 
   _connect(config) {

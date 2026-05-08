@@ -36,62 +36,69 @@ export function applyChange(db, change) {
   if (!isSyncableTable(table_name)) return false;
 
   try {
-    if (operation === 'delete') {
-      const tableExists = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-      ).get(table_name);
-      if (!tableExists) return false;
-
-      const pk = getPrimaryKeyColumn(db, table_name);
-      db.prepare(`DELETE FROM ${table_name} WHERE ${pk} = ?`).run(row_id);
-      return true;
-    }
-
-    const data = typeof data_json === 'string' ? JSON.parse(data_json) : data_json;
-    if (!data) return false;
-
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
     ).get(table_name);
     if (!tableExists) return false;
 
-    const tableColumns = getTableColumns(db, table_name);
-    const filteredData = {};
-    for (const [key, value] of Object.entries(data)) {
-      if (tableColumns.has(key)) {
-        filteredData[key] = value;
-      }
+    // Set sync flag so triggers write source='sync' instead of 'local'
+    const hasSyncFlag = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_sync_applying'").get();
+    if (hasSyncFlag) {
+      db.prepare("INSERT OR IGNORE INTO _sync_applying VALUES (1)").run();
     }
 
-    if (Object.keys(filteredData).length === 0) return false;
-
-    const pk = getPrimaryKeyColumn(db, table_name);
-
-    if (operation === 'insert') {
-      fillNotNullDefaults(db, table_name, filteredData, pk);
-      const cols = Object.keys(filteredData);
-      const placeholders = cols.map(() => '?').join(', ');
-      const values = cols.map(c => serializeValue(filteredData[c]));
-      db.prepare(
-        `INSERT OR REPLACE INTO ${table_name} (${cols.join(', ')}) VALUES (${placeholders})`
-      ).run(...values);
-      return true;
-    }
-
-    if (operation === 'update') {
-      const sets = [];
-      const values = [];
-      for (const [key, value] of Object.entries(filteredData)) {
-        if (key === pk) continue;
-        sets.push(`${key} = ?`);
-        values.push(serializeValue(value));
+    try {
+      if (operation === 'delete') {
+        const pk = getPrimaryKeyColumn(db, table_name);
+        db.prepare(`DELETE FROM ${table_name} WHERE ${pk} = ?`).run(row_id);
+        return true;
       }
-      if (sets.length === 0) return false;
-      values.push(row_id);
-      db.prepare(
-        `UPDATE ${table_name} SET ${sets.join(', ')} WHERE ${pk} = ?`
-      ).run(...values);
-      return true;
+
+      const data = typeof data_json === 'string' ? JSON.parse(data_json) : data_json;
+      if (!data) return false;
+
+      const tableColumns = getTableColumns(db, table_name);
+      const filteredData = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (tableColumns.has(key)) {
+          filteredData[key] = value;
+        }
+      }
+
+      if (Object.keys(filteredData).length === 0) return false;
+
+      const pk = getPrimaryKeyColumn(db, table_name);
+
+      if (operation === 'insert') {
+        fillNotNullDefaults(db, table_name, filteredData, pk);
+        const cols = Object.keys(filteredData);
+        const placeholders = cols.map(() => '?').join(', ');
+        const values = cols.map(c => serializeValue(filteredData[c]));
+        db.prepare(
+          `INSERT OR REPLACE INTO ${table_name} (${cols.join(', ')}) VALUES (${placeholders})`
+        ).run(...values);
+        return true;
+      }
+
+      if (operation === 'update') {
+        const sets = [];
+        const values = [];
+        for (const [key, value] of Object.entries(filteredData)) {
+          if (key === pk) continue;
+          sets.push(`${key} = ?`);
+          values.push(serializeValue(value));
+        }
+        if (sets.length === 0) return false;
+        values.push(row_id);
+        db.prepare(
+          `UPDATE ${table_name} SET ${sets.join(', ')} WHERE ${pk} = ?`
+        ).run(...values);
+        return true;
+      }
+    } finally {
+      if (hasSyncFlag) {
+        db.prepare("DELETE FROM _sync_applying").run();
+      }
     }
   } catch (err) {
     console.error(`[sync-protocol] Failed to apply change to ${table_name}:`, err.message);
