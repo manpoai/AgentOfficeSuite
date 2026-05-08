@@ -68,6 +68,7 @@ export class SyncClient {
     }, 10000);
 
     this.pullInterval = setInterval(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) return;
       this._pullRemoteChanges(config).catch(err => {
         console.error('[sync-client] Pull error:', err.message);
       });

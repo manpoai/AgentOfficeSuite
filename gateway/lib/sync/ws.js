@@ -19,6 +19,12 @@ export class SyncWebSocketServer {
     this.wss.on('connection', (ws, req) => {
       this._handleConnection(ws, req);
     });
+
+    // Poll sync_log for new local changes and broadcast to connected clients
+    this._lastBroadcastId = this._getMaxLocalSyncId();
+    this._broadcastInterval = setInterval(() => {
+      this._broadcastNewLocalChanges();
+    }, 2000);
   }
 
   _handleConnection(ws, req) {
@@ -164,6 +170,30 @@ export class SyncWebSocketServer {
       if (clientId !== excludeClientId && ws.readyState === ws.OPEN) {
         ws.send(msg);
       }
+    }
+  }
+
+  _getMaxLocalSyncId() {
+    try {
+      const row = this.db.prepare("SELECT MAX(id) as max_id FROM _sync_log WHERE source = 'local'").get();
+      return row?.max_id || 0;
+    } catch { return 0; }
+  }
+
+  _broadcastNewLocalChanges() {
+    if (this.clients.size === 0) return;
+    try {
+      const changes = this.db.prepare(
+        "SELECT id, table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE id > ? AND source = 'local' ORDER BY id ASC LIMIT 100"
+      ).all(this._lastBroadcastId);
+      if (changes.length === 0) return;
+      this._lastBroadcastId = changes[changes.length - 1].id;
+      for (const change of changes) {
+        this.broadcastChange(change);
+      }
+      console.log(`[sync-ws] Broadcast ${changes.length} local changes to ${this.clients.size} client(s)`);
+    } catch (err) {
+      console.error('[sync-ws] Broadcast poll error:', err.message);
     }
   }
 }
