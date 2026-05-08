@@ -8,11 +8,12 @@ import { applyChange, SYNC_PROTOCOL_VERSION, checkVersionCompatibility } from '.
 import { recordChange } from '../sync-hook.js';
 
 export class SyncWebSocketServer {
-  constructor(server, db, authMiddleware, adminToken) {
+  constructor(server, db, authMiddleware, adminToken, { onChangeApplied } = {}) {
     this.db = db;
     this.clients = new Map();
     this.authMiddleware = authMiddleware;
     this.adminToken = adminToken;
+    this.onChangeApplied = onChangeApplied || null;
 
     this.wss = new WebSocketServer({ server, path: '/api/sync/ws', perMessageDeflate: false });
 
@@ -128,6 +129,7 @@ export class SyncWebSocketServer {
       if (ok) {
         applied++;
         this.broadcastChange(change, clientId);
+        if (this.onChangeApplied) this.onChangeApplied(change);
       }
     }
 

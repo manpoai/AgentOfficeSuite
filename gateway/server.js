@@ -159,7 +159,14 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 // ─── Sync WebSocket server ──────────────────────
-const syncWs = new SyncWebSocketServer(server, db, authenticateAny, ADMIN_TOKEN);
+const syncWs = new SyncWebSocketServer(server, db, authenticateAny, ADMIN_TOKEN, {
+  onChangeApplied(change) {
+    if (change.table_name === 'content_items') {
+      const data = typeof change.data_json === 'string' ? JSON.parse(change.data_json) : change.data_json;
+      broadcastHumanEvent({ event: 'content.changed', data: { action: change.operation, type: data?.type, id: change.row_id, title: data?.title } });
+    }
+  },
+});
 
 // ─── Start sync client (connects to remote if configured) ──
 try { syncClient.start(); } catch (e) { console.log('[gateway] Sync client not started:', e.message); }
