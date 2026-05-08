@@ -33,6 +33,20 @@ export async function DELETE(req: NextRequest, { params }: { params: { path: str
   return proxy(req, params.path, !!hasContent);
 }
 
+export async function OPTIONS(req: NextRequest) {
+  const origin = req.headers.get('origin') || '*';
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
+
 async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
   if (!GW_URL) {
     return NextResponse.json({ error: 'GATEWAY_URL_NOT_CONFIGURED' }, { status: 500 });
@@ -135,7 +149,14 @@ async function proxy(req: NextRequest, pathParts: string[], hasBody?: boolean) {
 
   const data = await resp.arrayBuffer();
   const contentType = resp.headers.get('Content-Type') || 'application/json';
-  const respHeaders: Record<string, string> = { 'Content-Type': contentType };
+  const origin = req.headers.get('origin');
+  const respHeaders: Record<string, string> = {
+    'Content-Type': contentType,
+    ...(origin && {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
+    }),
+  };
 
   // Cache uploaded files (images, etc.)
   if (pathParts[0] === 'uploads' && (contentType.startsWith('image/') || contentType.startsWith('application/'))) {

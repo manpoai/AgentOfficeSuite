@@ -49,7 +49,7 @@ const tableEngine = createTableEngine(db);
 // ─── App ─────────────────────────────────────────
 const app = express();
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3101',
+  origin: process.env.CORS_ORIGIN || true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
