@@ -196,6 +196,18 @@ export function ContentSidebar({
     return () => { delete (window as any).__aoseTerminalPanel; };
   }, []);
 
+  // Sync terminalAgents displayName when allAgents data updates (e.g. after rename)
+  useEffect(() => {
+    if (!allAgents) return;
+    setTerminalAgents(prev => prev.map(ta => {
+      const fresh = allAgents.find(a => a.name === ta.agentId);
+      if (fresh && fresh.display_name !== ta.displayName) {
+        return { ...ta, displayName: fresh.display_name };
+      }
+      return ta;
+    }));
+  }, [allAgents]);
+
   // Listen for "open connect agents" event
   useEffect(() => {
     const handler = () => setShowConnectAgents(true);
@@ -500,20 +512,24 @@ export function ContentSidebar({
           )}
 
           {/* ─── Agent Chat / Terminal ─── */}
-          {selectedAgentId && (
-            <SidebarTerminal
-              agents={terminalAgents}
-              selectedAgentId={selectedAgentId}
-              terminalHeight={terminalHeight}
-              onTerminalHeightChange={setTerminalHeight}
-              onAgentExit={handleAgentExit}
-              onDeleteAgent={handleDeleteAgent}
-              onRenameAgent={handleRenameAgent}
-              onResetToken={handleResetToken}
-              colorTheme={terminalColorTheme}
-              isElectron={isElectron}
-            />
-          )}
+          <SidebarTerminal
+            agents={terminalAgents}
+            selectedAgentId={selectedAgentId}
+            terminalHeight={terminalHeight}
+            onTerminalHeightChange={setTerminalHeight}
+            onAgentExit={handleAgentExit}
+            onDeleteAgent={handleDeleteAgent}
+            onRenameAgent={handleRenameAgent}
+            onResetToken={handleResetToken}
+            onAvatarChange={async (agentId, file) => {
+              try {
+                await gw.adminUploadAgentAvatar(agentId, file);
+                queryClient.invalidateQueries({ queryKey: ['admin-agents'] });
+              } catch {}
+            }}
+            colorTheme={terminalColorTheme}
+            isElectron={isElectron}
+          />
 
           {/* ─── Agent bar (bottom) ─── */}
           <SidebarAgentBar
@@ -698,10 +714,51 @@ export function ContentSidebar({
           <div
             ref={agentsRef}
             className="fixed z-50 bg-white dark:bg-card border border-black/10 dark:border-border rounded-lg shadow-[0px_2px_10px_0px_rgba(0,0,0,0.05)] overflow-hidden"
-            style={{ top: `${menuPos.agents?.top ?? 136}px`, left: `${menuPos.agents?.left ?? 8}px`, width: '320px', maxHeight: '499px' }}
+            style={{ top: `${menuPos.agents?.top ?? 136}px`, left: `${menuPos.agents?.left ?? 8}px`, width: '280px', maxHeight: '400px' }}
           >
-            <ScrollArea className="h-full" style={{ maxHeight: '499px' }}>
-              <AgentPanelContent variant="popover" onOpenConnectAgents={() => { setShowAgentsMenu(false); setShowConnectAgents(true); }} onOpenChat={(id, name) => { setShowAgentsMenu(false); handleSelectAgent(id); }} />
+            <div className="flex items-center justify-between px-4 pt-3 pb-2">
+              <span className="text-sm font-medium text-foreground">Members</span>
+              <button
+                onClick={() => { setShowAgentsMenu(false); setShowConnectAgents(true); }}
+                className="text-xs text-sidebar-primary font-medium hover:underline"
+              >
+                + Add Agent
+              </button>
+            </div>
+            <ScrollArea style={{ maxHeight: '350px' }}>
+              <div className="px-2 pb-2">
+                {(allAgents || []).map(agent => {
+                  const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
+                  const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
+                  const isSelected = selectedAgentId === agent.name;
+                  return (
+                    <button
+                      key={agent.name}
+                      onClick={() => { setShowAgentsMenu(false); handleSelectAgent(agent.name); }}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left',
+                        isSelected ? 'bg-sidebar-primary/10' : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.05]',
+                      )}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-muted overflow-hidden shrink-0">
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                        ) : platformFallback ? (
+                          <img src={platformFallback} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-foreground/30">
+                            <Users className="h-5 w-5" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-medium text-foreground truncate">{agent.display_name || agent.name}</span>
+                        <span className="text-xs text-foreground/50 truncate">{agent.name}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </ScrollArea>
           </div>
         </>

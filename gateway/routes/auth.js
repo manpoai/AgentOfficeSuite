@@ -1437,6 +1437,10 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   });
 
   // ─── Local App agent registration (admin-only, no approval) ──────
+  function findAgent(idOrName) {
+    return db.prepare("SELECT * FROM actors WHERE type = 'agent' AND (id = ? OR username = ?)").get(idOrName, idOrName);
+  }
+
   app.post('/api/agents/register-local', authenticateAdmin, (req, res) => {
     const { name, platform, token_hash } = req.body;
     if (!name || !token_hash) {
@@ -1466,7 +1470,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Admin: approve a pending agent
   app.post('/api/admin/agents/:agent_id/approve', authenticateAdmin, (req, res) => {
-    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    const agent = findAgent(req.params.agent_id);
     if (!agent) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     }
@@ -1497,7 +1501,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Admin: reject a pending agent
   app.post('/api/admin/agents/:agent_id/reject', authenticateAdmin, (req, res) => {
-    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    const agent = findAgent(req.params.agent_id);
     if (!agent) return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     if (!agent.pending_approval) return res.status(400).json({ error: 'NOT_PENDING', message: 'Agent is not pending approval' });
     const now = Date.now();
@@ -1519,7 +1523,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   // to the agent for local cleanup (adapter sidecar, config files with the
   // revoked token, MCP server entry).
   app.delete('/api/admin/agents/:agent_id', authenticateAdmin, (req, res) => {
-    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    const agent = findAgent(req.params.agent_id);
     if (!agent) return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     if (agent.deleted_at) return res.status(400).json({ error: 'ALREADY_DELETED', message: 'Agent is already deleted' });
     const now = Date.now();
@@ -1627,7 +1631,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   // Admin: update agent profile (by agent_id)
   app.patch('/api/admin/agents/:agent_id', authenticateAdmin, (req, res) => {
     const { display_name, avatar_url, platform } = req.body;
-    const target = db.prepare("SELECT id FROM actors WHERE type = 'agent' AND id = ?").get(req.params.agent_id);
+    const target = findAgent(req.params.agent_id);
     if (!target) return res.status(404).json({ error: 'NOT_FOUND' });
     const updates = [];
     const values = [];
@@ -1650,7 +1654,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
   // Admin: upload agent avatar (by agent_id)
   app.post('/api/admin/agents/:agent_id/avatar', authenticateAdmin, avatarUpload.single('avatar'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'NO_FILE' });
-    const target = db.prepare("SELECT id, avatar_url FROM actors WHERE type = 'agent' AND id = ?").get(req.params.agent_id);
+    const target = findAgent(req.params.agent_id);
     if (!target) return res.status(404).json({ error: 'NOT_FOUND' });
     if (target.avatar_url && target.avatar_url.includes('/uploads/avatars/')) {
       const filename = target.avatar_url.split('/uploads/avatars/').pop();
@@ -1767,7 +1771,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Admin: reset an agent's token
   app.post('/api/admin/agents/:agent_id/reset-token', authenticateAdmin, (req, res) => {
-    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    const agent = findAgent(req.params.agent_id);
     if (!agent) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     }
@@ -1797,7 +1801,7 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Admin: update agent profile (display_name only, username immutable)
   app.patch('/api/admin/agents/:agent_id', authenticateAdmin, (req, res) => {
-    const agent = db.prepare("SELECT * FROM actors WHERE id = ? AND type = 'agent'").get(req.params.agent_id);
+    const agent = findAgent(req.params.agent_id);
     if (!agent) {
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Agent not found' });
     }

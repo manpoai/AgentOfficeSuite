@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Pencil, Trash2, Key, Check } from 'lucide-react';
+import { Pencil, Trash2, Key, Check, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 import { AgentTerminalTab, ensureGlobalListener, resetGlobalListener } from './AgentTerminalTab';
@@ -61,6 +61,7 @@ interface SidebarTerminalProps {
   onDeleteAgent?: (agentId: string) => void;
   onRenameAgent?: (agentId: string, newName: string) => void;
   onResetToken?: (agentId: string) => void;
+  onAvatarChange?: (agentId: string, file: File) => void;
   colorTheme?: 'light' | 'dark';
   isElectron?: boolean;
 }
@@ -74,6 +75,7 @@ export function SidebarTerminal({
   onDeleteAgent,
   onRenameAgent,
   onResetToken,
+  onAvatarChange,
   colorTheme = 'light',
   isElectron = false,
 }: SidebarTerminalProps) {
@@ -84,6 +86,7 @@ export function SidebarTerminal({
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [confirmResetToken, setConfirmResetToken] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
@@ -248,6 +251,28 @@ export function SidebarTerminal({
                   {t('actions.rename') || 'Rename'}
                 </button>
               )}
+
+              <button
+                onClick={() => { avatarInputRef.current?.click(); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-foreground hover:bg-black/[0.03] dark:hover:bg-white/[0.05] transition-colors text-left"
+              >
+                <Camera className="h-3 w-3 text-foreground/50" />
+                {t('actions.changeAvatar') || 'Change Avatar'}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file && selectedAgentId) {
+                    onAvatarChange?.(selectedAgentId, file);
+                    setShowSettings(false);
+                  }
+                  e.target.value = '';
+                }}
+              />
 
               {confirmResetToken ? (
                 <div className="px-3 py-1.5 flex items-center gap-1">

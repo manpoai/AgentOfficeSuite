@@ -97,26 +97,23 @@ export function SidebarAgentBar({
         );
       })}
 
-      {/* Two-segment button: @ Agents | + (from master branch style) */}
-      <div className="ml-auto flex h-8 shrink-0 rounded-lg overflow-hidden border border-black/10 dark:border-white/10" style={{ backgroundColor: 'hsl(var(--sidebar-primary))' }}>
+      {/* Two-segment button: @ Agents | + */}
+      <div className="ml-auto flex h-8 shrink-0 rounded-lg overflow-hidden border border-black/10 dark:border-white/10" style={{ width: 104, backgroundColor: 'hsl(var(--sidebar-primary))' }}>
         <button
           onClick={onOpenAgentsPanel}
-          className="flex items-center justify-center gap-1.5 flex-1 px-3 text-xs font-medium transition-all active:brightness-90"
+          className="flex items-center justify-center gap-1.5 flex-1 text-xs font-medium transition-all active:brightness-90"
           style={{ color: 'hsl(var(--sidebar-primary-foreground))' }}
           onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)')}
           onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
         >
           <AtSign className="h-4 w-4" />
           {t('toolbar.agents')}
-          {overflowCount > 0 && (
-            <span className="ml-0.5">({overflowCount})</span>
-          )}
         </button>
         <div className="w-px self-stretch" style={{ backgroundColor: 'rgba(0,0,0,0.1)' }} />
         <button
           onClick={() => onOpenConnectAgents?.()}
-          className="flex items-center justify-center w-8 transition-all active:brightness-90 rounded-r-lg"
-          style={{ color: 'hsl(var(--sidebar-primary-foreground))', backgroundColor: 'rgba(0,0,0,0.1)' }}
+          className="flex items-center justify-center transition-all active:brightness-90 rounded-r-lg"
+          style={{ width: 32, color: 'hsl(var(--sidebar-primary-foreground))', backgroundColor: 'rgba(0,0,0,0.1)' }}
           onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.18)')}
           onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.1)')}
           title={t('actions.addAgent') || 'Add Agent'}
