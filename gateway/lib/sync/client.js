@@ -44,6 +44,7 @@ export class SyncClient {
 
     this.running = true;
     console.log(`[sync-client] Starting sync to ${config.remoteUrl}`);
+    console.log(`[sync-client] Config: cursor=${config.lastPullCursor}, enabled=${config.syncEnabled}`);
 
     // Initial snapshot sync if we've never synced before
     if (config.lastPullCursor === 0) {
