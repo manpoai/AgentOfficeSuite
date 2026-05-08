@@ -18,6 +18,15 @@ export function pushHumanEvent(actorId, event) {
   }
 }
 
+export function broadcastHumanEvent(event) {
+  const data = `data: ${JSON.stringify(event)}\n\n`;
+  for (const [, clients] of humanClients) {
+    for (const res of clients) {
+      try { res.write(data); } catch {}
+    }
+  }
+}
+
 export function pushEvent(agentId, event) {
   const clients = sseClients.get(agentId);
   const clientCount = clients ? clients.size : 0;

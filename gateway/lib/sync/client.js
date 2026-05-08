@@ -9,7 +9,7 @@ import path from 'path';
 import { applyChange, SYNC_PROTOCOL_VERSION } from './protocol.js';
 
 export class SyncClient {
-  constructor(db) {
+  constructor(db, { onChangeApplied } = {}) {
     this.db = db;
     this.ws = null;
     this.reconnectTimer = null;
@@ -19,6 +19,7 @@ export class SyncClient {
     this.pullInterval = null;
     this.running = false;
     this.uploadsDir = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads');
+    this.onChangeApplied = onChangeApplied || null;
   }
 
   getConfig() {
@@ -307,10 +308,15 @@ export class SyncClient {
 
   _applyRemoteChange(change) {
     const ok = applyChange(this.db, change);
-    if (ok && change.timestamp) {
-      this.db.prepare(
-        "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"
-      ).run(String(change.timestamp));
+    if (ok) {
+      if (change.timestamp) {
+        this.db.prepare(
+          "INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('last_pull_timestamp', ?)"
+        ).run(String(change.timestamp));
+      }
+      if (this.onChangeApplied) {
+        this.onChangeApplied(change);
+      }
     }
   }
 
@@ -320,7 +326,10 @@ export class SyncClient {
 
     let applied = 0;
     for (const change of changes) {
-      if (applyChange(this.db, change)) applied++;
+      if (applyChange(this.db, change)) {
+        applied++;
+        if (this.onChangeApplied) this.onChangeApplied(change);
+      }
     }
 
     if (cursor) {
