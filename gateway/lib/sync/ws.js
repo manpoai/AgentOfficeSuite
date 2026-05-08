@@ -37,13 +37,14 @@ export class SyncWebSocketServer {
 
     const clientId = actor.id;
     this.clients.set(clientId, { ws, actor });
-    console.log(`[sync-ws] Client connected: ${actor.username} (${clientId})`);
+    console.log(`[sync-ws] Client connected: ${actor.username} (${clientId}) readyState=${ws.readyState}`);
 
     ws.send(JSON.stringify({
       type: 'handshake',
       protocol_version: SYNC_PROTOCOL_VERSION,
       server_timestamp: Date.now(),
     }));
+    console.log(`[sync-ws] Handshake sent to ${actor.username}`);
 
     const pingInterval = setInterval(() => {
       if (ws.readyState === ws.OPEN) {
@@ -54,16 +55,17 @@ export class SyncWebSocketServer {
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        console.log(`[sync-ws] Message from ${actor.username}: type=${msg.type}`);
         this._handleMessage(clientId, msg);
       } catch (err) {
         console.error('[sync-ws] Invalid message:', err.message);
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
       clearInterval(pingInterval);
       this.clients.delete(clientId);
-      console.log(`[sync-ws] Client disconnected: ${actor.username}`);
+      console.log(`[sync-ws] Client disconnected: ${actor.username} code=${code} reason=${reason?.toString() || ''}`);
     });
 
     ws.on('error', (err) => {
