@@ -19,6 +19,8 @@
  *
  * See mcp-server/skills/03-events-and-collaboration.md ("The Event Model in
  * One Line") for the authoritative design.
+ *
+ * Shared by: electron/adapter-manager.js and adapters/ npm package.
  */
 
 function poke(eventType) {
@@ -36,10 +38,9 @@ function poke(eventType) {
 /**
  * Translate a Gateway event into a minimal doorbell message.
  * @param {object} event  Raw Gateway event object
- * @param {object} ctx    Context (unused — kept for signature stability)
  * @returns {{ content: string } | null}
  */
-export function translateEvent(event, _ctx) {
+export function translateEvent(event) {
   switch (event.event) {
     case 'comment.mentioned':
     case 'comment.on_owned_content':
@@ -48,6 +49,7 @@ export function translateEvent(event, _ctx) {
     case 'data.commented':
     case 'comment.mentioned_legacy':
     case 'doc.mentioned':
+    case 'message.received':
       return { content: poke(event.event) };
 
     case 'agent.approved':

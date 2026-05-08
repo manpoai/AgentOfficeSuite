@@ -6,45 +6,20 @@ const { spawn } = require('child_process');
 
 const INBOX_DIR = path.join(os.homedir(), '.aose', 'inbox');
 
+let _translateEvent = null;
+async function loadTranslator() {
+  if (!_translateEvent) {
+    const mod = await import(path.join(__dirname, '..', 'adapters', 'event-translator.js'));
+    _translateEvent = mod.translateEvent;
+  }
+  return _translateEvent;
+}
+
 function writeInbox(agentName, content) {
   fs.mkdirSync(INBOX_DIR, { recursive: true });
   const inboxPath = path.join(INBOX_DIR, `${agentName}.jsonl`);
   const line = JSON.stringify({ ts: Date.now(), content }) + '\n';
   fs.appendFileSync(inboxPath, line);
-}
-
-function translateEvent(event) {
-  const poke = (eventType) =>
-    `[AOSE] New unread event (${eventType}). ` +
-    `Do NOT reply with text only. ` +
-    `Immediately call get_unread_events NOW, then act on the ` +
-    `context_payload (reply_to_comment / update_doc / etc.), ` +
-    `then call ack_events. ` +
-    `Any text-only response without these tool calls is incorrect — ` +
-    `the user will see nothing until the tool calls actually run.`;
-
-  switch (event.event) {
-    case 'comment.mentioned':
-    case 'comment.on_owned_content':
-    case 'comment.replied':
-    case 'comment.unresolved':
-    case 'data.commented':
-    case 'comment.mentioned_legacy':
-    case 'doc.mentioned':
-      return poke(event.event);
-    case 'message.received': {
-      const sender = event.payload?.sender?.name || 'someone';
-      const preview = event.payload?.content?.slice(0, 100) || '';
-      return `[AOSE] New chat message from ${sender}: "${preview}". ` +
-        `Call get_unread_events to see the full message, then use send_message to reply, then call ack_events.`;
-    }
-    case 'agent.approved':
-      return '[AOSE] Your registration has been approved. Call whoami, then get_unread_events to start.';
-    case 'agent.rejected':
-      return '[AOSE] Your registration has been rejected. Contact the workspace admin.';
-    default:
-      return null;
-  }
 }
 
 class AdapterManager {
@@ -135,9 +110,11 @@ class AdapterManager {
     }, 3000);
   }
 
-  _handleEvent(agentId, agentName, platform, agentDir, event) {
-    const content = translateEvent(event);
-    if (!content) return;
+  async _handleEvent(agentId, agentName, platform, agentDir, event) {
+    const translate = await loadTranslator();
+    const result = translate(event);
+    if (!result) return;
+    const content = result.content;
 
     writeInbox(agentName, content);
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
