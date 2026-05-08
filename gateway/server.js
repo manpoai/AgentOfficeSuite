@@ -94,7 +94,9 @@ function handleSyncChangeSSE(change) {
   const data = typeof change.data_json === 'string' ? JSON.parse(change.data_json) : change.data_json;
   const CONTENT_TABLES = new Set(['content_items', 'documents', 'presentations', 'diagrams', 'canvases', 'videos', 'user_tables', 'preferences']);
   if (CONTENT_TABLES.has(change.table_name) || change.table_name.startsWith('utbl_')) {
-    broadcastHumanEvent({ event: 'content.changed', data: { action: change.operation, type: data?.type, id: change.row_id, title: data?.title } });
+    const TABLE_TYPE_MAP = { documents: 'doc', presentations: 'presentation', diagrams: 'diagram', canvases: 'canvas', videos: 'video' };
+    const type = TABLE_TYPE_MAP[change.table_name] || data?.type;
+    broadcastHumanEvent({ event: 'content.changed', data: { action: change.operation, type, id: change.row_id, title: data?.title } });
   }
   if (change.table_name === 'comments') {
     broadcastHumanEvent({ event: 'comment.changed', data: { action: change.operation, id: change.row_id } });
