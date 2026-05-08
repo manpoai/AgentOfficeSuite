@@ -86,7 +86,7 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
         const data = await syncTokenRes.json().catch(() => ({}));
         throw new Error(data.error || t('sync.tokenFailed'));
       }
-      const { sync_token } = await syncTokenRes.json();
+      const { sync_token, token_id } = await syncTokenRes.json();
 
       // Step 3: Connect local gateway to cloud
       const connectRes = await fetch(`${API_BASE}/sync/connect`, {
@@ -98,6 +98,7 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
         body: JSON.stringify({
           remote_url: gatewayUrl,
           remote_token: sync_token,
+          device_id: token_id,
         }),
       });
       if (!connectRes.ok) {

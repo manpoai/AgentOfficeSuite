@@ -104,6 +104,7 @@ export function ContentSidebar({
   });
   const [terminalAgents, setTerminalAgents] = useState<Array<{
     agentId: string; agentName: string; platform: string; status: 'running' | 'exited' | 'connecting';
+    displayName?: string; agentKind?: string | null; originDeviceId?: string | null;
   }>>([]);
   const [localAgentNames, setLocalAgentNames] = useState<Set<string>>(new Set());
 
@@ -200,13 +201,14 @@ export function ContentSidebar({
     return () => { delete (window as any).__aoseTerminalPanel; };
   }, []);
 
-  // Sync terminalAgents displayName when allAgents data updates (e.g. after rename)
+  // Sync terminalAgents fields when allAgents data updates (e.g. after rename or sync)
   useEffect(() => {
     if (!allAgents) return;
     setTerminalAgents(prev => prev.map(ta => {
       const fresh = allAgents.find(a => a.name === ta.agentId);
-      if (fresh && fresh.display_name !== ta.displayName) {
-        return { ...ta, displayName: fresh.display_name };
+      if (!fresh) return ta;
+      if (fresh.display_name !== ta.displayName || fresh.agent_kind !== ta.agentKind || fresh.origin_device_id !== ta.originDeviceId) {
+        return { ...ta, displayName: fresh.display_name, agentKind: fresh.agent_kind, originDeviceId: fresh.origin_device_id };
       }
       return ta;
     }));
@@ -334,6 +336,8 @@ export function ContentSidebar({
         displayName: agentData?.display_name,
         platform: agentData?.platform || 'unknown',
         status: 'running' as const,
+        agentKind: agentData?.agent_kind,
+        originDeviceId: agentData?.origin_device_id,
       }]);
     }
     setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 100);

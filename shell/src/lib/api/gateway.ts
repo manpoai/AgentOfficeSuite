@@ -43,6 +43,7 @@ export interface Agent {
   avatar_url?: string | null;
   platform?: string | null;
   agent_kind?: string | null;
+  origin_device_id?: string | null;
   type?: string;
   online: boolean;
   capabilities?: string[];
@@ -790,6 +791,6 @@ export async function listAgentMessages(agentId: string, limit = 50, before?: nu
   return gwFetch(`/agents/${agentId}/messages?${params}`);
 }
 
-export async function getSyncStatus(): Promise<{ sync_enabled: boolean; pending_changes: number; last_sync: number | null }> {
+export async function getSyncStatus(): Promise<{ sync_enabled: boolean; pending_changes: number; last_sync: number | null; device_id: string | null }> {
   return gwFetch('/sync/status');
 }

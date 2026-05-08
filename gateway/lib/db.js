@@ -93,6 +93,9 @@ function runMigrations(db) {
   // Migrate: add agent_kind column to actors (local/remote)
   try { db.exec('ALTER TABLE actors ADD COLUMN agent_kind TEXT'); } catch { /* already exists */ }
 
+  // Migrate: add origin_device_id column to actors (links local agents to their device)
+  try { db.exec('ALTER TABLE actors ADD COLUMN origin_device_id TEXT'); } catch { /* already exists */ }
+
   // Migrate: create content_snapshots table
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS content_snapshots (

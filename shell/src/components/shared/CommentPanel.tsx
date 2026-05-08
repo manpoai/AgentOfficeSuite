@@ -35,6 +35,7 @@ import {
   unresolveContentComment,
   listAgents,
   resolveAvatarUrl,
+  getSyncStatus,
   type Comment,
   type Agent,
 } from '@/lib/api/gateway';
@@ -612,8 +613,16 @@ export function CommentPanel({
     queryFn: listAgents,
     staleTime: 60_000,
   });
-  const isElectron = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron;
-  const agents = isElectron ? allAgents : allAgents.filter(a => a.agent_kind !== 'local');
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: getSyncStatus,
+    staleTime: 60_000,
+  });
+  const myDeviceId = syncStatus?.device_id || null;
+  const agents = allAgents.filter(a => {
+    if (a.agent_kind !== 'local') return true;
+    return !!myDeviceId && a.origin_device_id === myDeviceId;
+  });
 
   // Auto-switch to resolved tab if focusCommentId is in resolved set
   useEffect(() => {

@@ -50,7 +50,7 @@ function PlatformIcon({ name }: { name: string }) {
 export interface AgentPanelContentProps {
   variant: 'popover' | 'bottomsheet';
   onOpenConnectAgents?: () => void;
-  onOpenChat?: (agentId: string, agentName: string) => void;
+  onOpenChat?: (agentId: string, agentName: string, agentKind?: string | null, originDeviceId?: string | null) => void;
 }
 
 export function AgentPanelContent({ variant, onOpenConnectAgents, onOpenChat }: AgentPanelContentProps) {
@@ -321,7 +321,7 @@ export function AgentPanelContent({ variant, onOpenConnectAgents, onOpenChat }: 
                 {/* Chat button */}
                 {onOpenChat && (
                   <button
-                    onClick={() => onOpenChat(agent.name, agent.display_name || agent.name)}
+                    onClick={() => onOpenChat(agent.name, agent.display_name || agent.name, agent.agent_kind, agent.origin_device_id)}
                     className="w-8 h-8 rounded flex items-center justify-center hover:bg-sidebar-primary/10 transition-colors shrink-0"
                     title="Chat"
                   >

@@ -1265,7 +1265,16 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     if (token.revoked_at) return res.json({ ok: true, message: 'Already revoked' });
 
     db.prepare('UPDATE sync_tokens SET revoked_at = ? WHERE id = ?').run(Date.now(), req.params.id);
-    res.json({ ok: true, message: 'Token revoked' });
+
+    const localAgents = db.prepare("SELECT id FROM actors WHERE origin_device_id = ? AND agent_kind = 'local'").all(req.params.id);
+    if (localAgents.length > 0) {
+      const agentIds = localAgents.map(a => a.id);
+      const placeholders = agentIds.map(() => '?').join(', ');
+      db.prepare(`DELETE FROM agent_messages WHERE agent_id IN (${placeholders})`).run(...agentIds);
+      db.prepare(`DELETE FROM actors WHERE id IN (${placeholders})`).run(...agentIds);
+    }
+
+    res.json({ ok: true, message: 'Token revoked', agents_removed: localAgents.length });
   });
 
   // GET /api/auth/auto-login — passwordless login for App mode (Electron)
@@ -1493,9 +1502,11 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     const agentId = genId('agt');
     const now = Date.now();
 
-    db.prepare(`INSERT INTO actors (id, type, username, display_name, token_hash, capabilities, platform, agent_kind, pending_approval, created_at, updated_at)
-      VALUES (?, 'agent', ?, ?, ?, '[]', ?, 'local', 0, ?, ?)`)
-      .run(agentId, name, name, token_hash, platform || 'claude-code', now, now);
+    const deviceId = db.prepare("SELECT value FROM _sync_meta WHERE key = 'device_id'").get()?.value || null;
+
+    db.prepare(`INSERT INTO actors (id, type, username, display_name, token_hash, capabilities, platform, agent_kind, origin_device_id, pending_approval, created_at, updated_at)
+      VALUES (?, 'agent', ?, ?, ?, '[]', ?, 'local', ?, 0, ?, ?)`)
+      .run(agentId, name, name, token_hash, platform || 'claude-code', deviceId, now, now);
 
     res.status(201).json({ agent_id: agentId, name, created_at: now });
   });
@@ -1582,16 +1593,16 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Admin: list all agents (excluding deleted)
   app.get('/api/admin/agents', authenticateAdmin, (req, res) => {
-    const agents = db.prepare("SELECT id, username, display_name, avatar_url, capabilities, platform, agent_kind, online, last_seen_at, pending_approval, created_at FROM actors WHERE type = 'agent' AND deleted_at IS NULL").all();
-    res.json({ agents: agents.map(a => ({ ...a, agent_id: a.id, name: a.username, capabilities: JSON.parse(a.capabilities || '[]'), pending_approval: !!a.pending_approval, platform: a.platform || null, agent_kind: a.agent_kind || null })) });
+    const agents = db.prepare("SELECT id, username, display_name, avatar_url, capabilities, platform, agent_kind, origin_device_id, online, last_seen_at, pending_approval, created_at FROM actors WHERE type = 'agent' AND deleted_at IS NULL").all();
+    res.json({ agents: agents.map(a => ({ ...a, agent_id: a.id, name: a.username, capabilities: JSON.parse(a.capabilities || '[]'), pending_approval: !!a.pending_approval, platform: a.platform || null, agent_kind: a.agent_kind || null, origin_device_id: a.origin_device_id || null })) });
   });
 
   // Admin: get onboarding prompt for a specific platform (data-driven platform list)
   app.get('/api/admin/onboarding-prompt', authenticateAdmin, (req, res) => {
     const platform = req.query.platform || 'zylos';
     const agentKind = req.query.agent_kind || 'remote';
-    const origin = getPublicBaseUrl(req);
-    const aoseUrl = `${origin}/api/gateway`;
+    const remoteUrl = db.prepare("SELECT value FROM _sync_meta WHERE key = 'remote_url'").get()?.value;
+    const aoseUrl = remoteUrl || `${getPublicBaseUrl(req)}/api/gateway`;
     const prompt = buildOnboardingPrompt(platform, aoseUrl, agentKind);
     res.json({ platform, prompt });
   });
@@ -1607,12 +1618,12 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
 
   // Agent-facing: list other agents (public info only, excluding deleted)
   app.get('/api/agents', authenticateAgent, (req, res) => {
-    const agents = db.prepare("SELECT id, username, display_name, avatar_url, capabilities, platform, agent_kind, online, last_seen_at FROM actors WHERE type = 'agent' AND (pending_approval = 0 OR pending_approval IS NULL) AND deleted_at IS NULL").all();
+    const agents = db.prepare("SELECT id, username, display_name, avatar_url, capabilities, platform, agent_kind, origin_device_id, online, last_seen_at FROM actors WHERE type = 'agent' AND (pending_approval = 0 OR pending_approval IS NULL) AND deleted_at IS NULL").all();
     res.json({
       agents: agents.map(a => ({
         agent_id: a.id, name: a.username, display_name: a.display_name, avatar_url: a.avatar_url || null,
         capabilities: JSON.parse(a.capabilities || '[]'),
-        platform: a.platform || null, agent_kind: a.agent_kind || null,
+        platform: a.platform || null, agent_kind: a.agent_kind || null, origin_device_id: a.origin_device_id || null,
         online: !!a.online, last_seen_at: a.last_seen_at,
       })),
     });

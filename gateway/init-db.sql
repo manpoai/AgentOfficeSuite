@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS actors (
   last_seen_at INTEGER,
   platform    TEXT,
   agent_kind  TEXT,
+  origin_device_id TEXT,
   pending_approval INTEGER DEFAULT 0,
   deleted_at  INTEGER,
   -- shared

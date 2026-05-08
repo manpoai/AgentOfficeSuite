@@ -223,7 +223,7 @@ export default function ContentPage() {
   const [showMobileProfile, setShowMobileProfile] = useState(false);
   const [showMobileAgents, setShowMobileAgents] = useState(false);
   const [showMobileConnectAgents, setShowMobileConnectAgents] = useState(false);
-  const [mobileChatAgent, setMobileChatAgent] = useState<{ id: string; name: string; agent_kind?: string | null } | null>(null);
+  const [mobileChatAgent, setMobileChatAgent] = useState<{ id: string; name: string; agent_kind?: string | null; origin_device_id?: string | null } | null>(null);
   const [mobileEditingName, setMobileEditingName] = useState(false);
   const [mobileEditNameValue, setMobileEditNameValue] = useState('');
   const [mobileSavingProfile, setMobileSavingProfile] = useState(false);
@@ -1983,7 +1983,7 @@ export default function ContentPage() {
       {/* Mobile agents BottomSheet */}
       <BottomSheet open={showMobileAgents} onClose={() => setShowMobileAgents(false)} title={t('toolbar.agents')}>
         <div className="py-2 px-4">
-          <AgentPanelContent variant="bottomsheet" onOpenConnectAgents={() => { setShowMobileAgents(false); setShowMobileConnectAgents(true); }} onOpenChat={(id, name) => { setShowMobileAgents(false); setMobileChatAgent({ id, name }); }} />
+          <AgentPanelContent variant="bottomsheet" onOpenConnectAgents={() => { setShowMobileAgents(false); setShowMobileConnectAgents(true); }} onOpenChat={(id, name, agentKind, originDeviceId) => { setShowMobileAgents(false); setMobileChatAgent({ id, name, agent_kind: agentKind, origin_device_id: originDeviceId }); }} />
         </div>
       </BottomSheet>
 
@@ -1991,7 +1991,7 @@ export default function ContentPage() {
       <BottomSheet open={!!mobileChatAgent} onClose={() => setMobileChatAgent(null)} title={mobileChatAgent?.name || 'Chat'} initialHeight="full" className="!overflow-hidden">
         {mobileChatAgent && (
           <div className="h-[calc(90vh-80px)]">
-            <AgentChatView agentId={mobileChatAgent.id} agentName={mobileChatAgent.name} isActive={true} colorTheme="light" agentKind={mobileChatAgent.agent_kind} />
+            <AgentChatView agentId={mobileChatAgent.id} agentName={mobileChatAgent.name} isActive={true} colorTheme="light" agentKind={mobileChatAgent.agent_kind} originDeviceId={mobileChatAgent.origin_device_id} />
           </div>
         )}
       </BottomSheet>

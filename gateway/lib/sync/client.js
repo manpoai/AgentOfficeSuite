@@ -224,6 +224,15 @@ export class SyncClient {
     return pk ? pk.name : 'id';
   }
 
+  _handleAuthFailure() {
+    this._authFailCount = (this._authFailCount || 0) + 1;
+    if (this._authFailCount >= 3) {
+      console.error('[sync-client] Token revoked or invalid — disabling sync');
+      this.db.prepare("INSERT OR REPLACE INTO _sync_meta (key, value) VALUES ('sync_enabled', '0')").run();
+      this.stop();
+    }
+  }
+
   _connect(config) {
     if (!this.running) return;
 
@@ -271,6 +280,7 @@ export class SyncClient {
 
     this.ws.on('unexpected-response', (req, res) => {
       console.error(`[sync-client] WS unexpected response: ${res.statusCode}`);
+      if (res.statusCode === 401 || res.statusCode === 403) this._handleAuthFailure();
     });
   }
 
@@ -453,6 +463,9 @@ export class SyncClient {
           ).run(String(Date.now()));
 
           pushed = true;
+          this._authFailCount = 0;
+        } else if (res.status === 401 || res.status === 403) {
+          this._handleAuthFailure();
         }
       } catch (err) {
         console.error('[sync-client] HTTP push failed:', err.message);
@@ -578,8 +591,10 @@ export class SyncClient {
 
       if (!res.ok) {
         console.error(`[sync-client] HTTP pull failed: ${res.status}`);
+        if (res.status === 401 || res.status === 403) this._handleAuthFailure();
         return;
       }
+      this._authFailCount = 0;
 
       const { changes, cursor, server_timestamp, has_more } = await res.json();
       if (!Array.isArray(changes) || changes.length === 0) return;

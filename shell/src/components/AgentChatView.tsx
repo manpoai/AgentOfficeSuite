@@ -12,14 +12,22 @@ interface AgentChatViewProps {
   isActive: boolean;
   colorTheme?: 'light' | 'dark';
   agentKind?: string | null;
+  originDeviceId?: string | null;
 }
 
-export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark', agentKind }: AgentChatViewProps) {
+export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark', agentKind, originDeviceId }: AgentChatViewProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
+
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: gw.getSyncStatus,
+    staleTime: 60_000,
+  });
+  const myDeviceId = syncStatus?.device_id || null;
 
   const { data, isLoading } = useQuery({
     queryKey: ['agent-messages', agentId],
@@ -109,12 +117,12 @@ export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark
 
       {/* Input bar — aligned with CommentPanel style */}
       {(() => {
-        const isElectronEnv = typeof window !== 'undefined' && (window as any).electronAPI?.isElectron;
-        const canMessage = isElectronEnv || agentKind !== 'local';
+        const isOwnerDevice = agentKind === 'local' && !!myDeviceId && originDeviceId === myDeviceId;
+        const canMessage = agentKind !== 'local' || isOwnerDevice;
         if (!canMessage) {
           return (
             <div className="shrink-0 px-3 py-2 text-center text-xs" style={{ backgroundColor: bg, color: mutedColor }}>
-              This agent runs locally and cannot receive messages from the web
+              This agent runs locally on another device
             </div>
           );
         }

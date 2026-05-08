@@ -163,17 +163,22 @@ export default function syncRoutes(db, syncClient) {
       "SELECT value FROM _sync_meta WHERE key = 'sync_enabled'"
     ).get();
 
+    const deviceId = db.prepare(
+      "SELECT value FROM _sync_meta WHERE key = 'device_id'"
+    ).get();
+
     res.json({
       protocol_version: SYNC_PROTOCOL_VERSION,
       sync_enabled: syncEnabled?.value === '1',
       pending_changes: pendingCount?.count || 0,
       last_sync: lastSync?.value ? parseInt(lastSync.value, 10) : null,
+      device_id: deviceId?.value || null,
     });
   });
 
   // POST /api/sync/connect — initiate sync connection (called by local App)
   router.post('/connect', async (req, res) => {
-    const { remote_url, remote_token, protocol_version } = req.body;
+    const { remote_url, remote_token, device_id, protocol_version } = req.body;
 
     if (!remote_url || !remote_token) {
       return res.status(400).json({ error: 'remote_url and remote_token are required' });
@@ -202,7 +207,10 @@ export default function syncRoutes(db, syncClient) {
     upsert.run('remote_url', remote_url);
     upsert.run('remote_token', remote_token);
     upsert.run('sync_enabled', '1');
-
+    if (device_id) {
+      upsert.run('device_id', device_id);
+      db.prepare("UPDATE actors SET origin_device_id = ? WHERE agent_kind = 'local' AND (origin_device_id IS NULL OR origin_device_id != ?)").run(device_id, device_id);
+    }
 
     const seeded = seedSyncLog(db);
 

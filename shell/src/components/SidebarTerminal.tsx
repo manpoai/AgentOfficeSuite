@@ -50,6 +50,8 @@ interface AgentTerminal {
   platform: string;
   status: 'running' | 'exited' | 'connecting';
   autoStartCommand?: string;
+  agentKind?: string | null;
+  originDeviceId?: string | null;
 }
 
 interface SidebarTerminalProps {
@@ -334,6 +336,8 @@ export function SidebarTerminal({
             agentName={agentLabel}
             isActive={true}
             colorTheme={colorTheme}
+            agentKind={selectedAgent?.agentKind}
+            originDeviceId={selectedAgent?.originDeviceId}
           />
         )}
         {viewMode === 'terminal' && isElectron && agents.map(agent => (
