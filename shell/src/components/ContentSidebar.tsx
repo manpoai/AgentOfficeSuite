@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud } from 'lucide-react';
+import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -20,6 +20,7 @@ import { useIsMobile } from '@/lib/hooks/use-mobile';
 import { handleNotificationClick } from '@/lib/notification-click';
 import { ConnectAgentsOverlay } from '@/components/ConnectAgentsOverlay';
 import { SyncSettingsDialog } from '@/components/shared/SyncSettingsDialog';
+import { ConnectionsDialog } from '@/components/shared/ConnectionsDialog';
 import { IS_APP_MODE } from '@/lib/api/config';
 import { SidebarTopNav, type SidebarTab } from './SidebarTopNav';
 import { EmptyTabPage } from './EmptyTabPage';
@@ -78,6 +79,7 @@ export function ContentSidebar({
   const [editNameValue, setEditNameValue] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [showSyncSettings, setShowSyncSettings] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
   const [showConnectAgents, setShowConnectAgents] = useState(false);
 
   // New sidebar state
@@ -666,13 +668,21 @@ export function ContentSidebar({
                 </div>
               )}
             </div>
-            {IS_APP_MODE && (
+            {IS_APP_MODE ? (
               <button
                 onClick={() => { setShowProfileMenu(false); setShowSyncSettings(true); }}
                 className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
               >
                 <Cloud className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
                 {t('settings.cloudSync')}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setShowProfileMenu(false); setShowConnections(true); }}
+                className="flex items-center gap-3 w-full h-10 px-4 text-sm font-medium text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+              >
+                <Monitor className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                {t('settings.connections')}
               </button>
             )}
             <button
@@ -902,6 +912,7 @@ export function ContentSidebar({
       {/* ─── Connect Agents overlay ─── */}
       <ConnectAgentsOverlay open={showConnectAgents} onClose={() => setShowConnectAgents(false)} />
       <SyncSettingsDialog open={showSyncSettings} onClose={() => setShowSyncSettings(false)} />
+      <ConnectionsDialog open={showConnections} onClose={() => setShowConnections(false)} />
     </div>
   );
 }

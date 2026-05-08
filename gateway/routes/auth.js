@@ -1227,6 +1227,48 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     res.json({ token, actor: { id: actor.id, username: actor.username, display_name: actor.display_name, role: actor.role, avatar_url: actor.avatar_url } });
   });
 
+  // POST /api/auth/sync-token — issue a long-lived sync token for the authenticated user
+  app.post('/api/auth/sync-token', authenticateAny, (req, res) => {
+    if (req.actor.type !== 'human') {
+      return res.status(403).json({ error: 'Only human users can create sync tokens' });
+    }
+    const { device_name } = req.body || {};
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const id = genId('stk');
+    const now = Date.now();
+
+    db.prepare(
+      'INSERT INTO sync_tokens (id, actor_id, token_hash, device_name, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, req.actor.id, tokenHash, device_name || 'Unknown device', now);
+
+    res.json({ sync_token: rawToken, token_id: id, device_name: device_name || 'Unknown device', created_at: now });
+  });
+
+  // GET /api/auth/sync-tokens — list all sync tokens (connected devices) for the authenticated user
+  app.get('/api/auth/sync-tokens', authenticateAny, (req, res) => {
+    if (req.actor.type !== 'human') {
+      return res.status(403).json({ error: 'Only human users can list sync tokens' });
+    }
+    const tokens = db.prepare(
+      'SELECT id, device_name, created_at, last_used_at, revoked_at FROM sync_tokens WHERE actor_id = ? ORDER BY created_at DESC'
+    ).all(req.actor.id);
+    res.json({ tokens });
+  });
+
+  // DELETE /api/auth/sync-tokens/:id — revoke a sync token (disconnect a device)
+  app.delete('/api/auth/sync-tokens/:id', authenticateAny, (req, res) => {
+    if (req.actor.type !== 'human') {
+      return res.status(403).json({ error: 'Only human users can revoke sync tokens' });
+    }
+    const token = db.prepare('SELECT * FROM sync_tokens WHERE id = ? AND actor_id = ?').get(req.params.id, req.actor.id);
+    if (!token) return res.status(404).json({ error: 'Token not found' });
+    if (token.revoked_at) return res.json({ ok: true, message: 'Already revoked' });
+
+    db.prepare('UPDATE sync_tokens SET revoked_at = ? WHERE id = ?').run(Date.now(), req.params.id);
+    res.json({ ok: true, message: 'Token revoked' });
+  });
+
   // GET /api/auth/auto-login — passwordless login for App mode (Electron)
   // Requires ADMIN_TOKEN in Authorization header. Returns a JWT for the admin user.
   app.get('/api/auth/auto-login', (req, res) => {

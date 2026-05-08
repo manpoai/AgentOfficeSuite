@@ -26,7 +26,28 @@
     "passwordMismatch": "两次密码不一致",
     "passwordTooShort": "至少6个字符",
     "wrongPassword": "当前密码错误",
-    "cloudSync": "云同步"
+    "cloudSync": "云同步",
+    "connections": "已连接设备"
+  },
+  "sync": {
+    "connected": "已连接",
+    "notConnected": "未连接",
+    "connect": "连接",
+    "disconnect": "断开",
+    "serverUrl": "服务器地址",
+    "username": "用户名",
+    "password": "密码",
+    "pendingChanges": "待同步",
+    "lastSync": "上次同步",
+    "loginFailed": "登录失败",
+    "tokenFailed": "创建同步令牌失败"
+  },
+  "connections": {
+    "noDevices": "暂无已连接设备",
+    "connected": "连接于",
+    "lastActive": "最近活跃",
+    "disconnect": "断开",
+    "revoked": "已断开的设备"
   },
   "shortcuts": {
     "title": "键盘快捷键",

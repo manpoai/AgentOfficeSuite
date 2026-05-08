@@ -73,6 +73,20 @@ export function createAuthMiddleware(db, JWT_SECRET, ADMIN_TOKEN) {
       return next();
     }
 
+    // Try sync token (sync_tokens table — used by App sync clients)
+    const syncToken = db.prepare(
+      'SELECT st.*, a.id as aid, a.type as atype, a.username, a.display_name, a.role, a.avatar_url FROM sync_tokens st JOIN actors a ON st.actor_id = a.id WHERE st.token_hash = ?'
+    ).get(hash);
+    if (syncToken) {
+      if (syncToken.revoked_at) {
+        return res.status(401).json({ error: 'TOKEN_REVOKED', message: 'This sync token has been revoked' });
+      }
+      db.prepare('UPDATE sync_tokens SET last_used_at = ? WHERE id = ?').run(Date.now(), syncToken.id);
+      req.actor = { id: syncToken.aid, type: syncToken.atype, username: syncToken.username, display_name: syncToken.display_name, role: syncToken.role, avatar_url: syncToken.avatar_url };
+      req.agent = { id: syncToken.aid, name: syncToken.username, display_name: syncToken.display_name };
+      return next();
+    }
+
     return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid token' });
   }
 

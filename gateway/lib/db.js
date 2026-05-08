@@ -65,6 +65,19 @@ function openDatabase(dbPath) {
 }
 
 function runMigrations(db) {
+  // Migrate: create sync_tokens table (device-based sync auth)
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS sync_tokens (
+      id          TEXT PRIMARY KEY,
+      actor_id    TEXT NOT NULL REFERENCES actors(id),
+      token_hash  TEXT NOT NULL UNIQUE,
+      device_name TEXT NOT NULL DEFAULT 'Unknown device',
+      created_at  INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at  INTEGER
+    )`);
+  } catch (e) { console.warn('[gateway] sync_tokens migration:', e.message); }
+
   // Migrate: add pending_approval column to actors
   try { db.exec('ALTER TABLE actors ADD COLUMN pending_approval INTEGER DEFAULT 0'); } catch { /* already exists */ }
 

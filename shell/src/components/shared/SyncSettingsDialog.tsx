@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Cloud, CloudOff, Loader2, Check, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, Cloud, CloudOff, Loader2, Check, AlertCircle } from 'lucide-react';
 import { API_BASE } from '@/lib/api/config';
 import { useT } from '@/lib/i18n';
 
@@ -20,7 +20,8 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
   const [error, setError] = useState<string | null>(null);
 
   const [serverUrl, setServerUrl] = useState('');
-  const [serverToken, setServerToken] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('aose_token') : null;
 
@@ -46,33 +47,68 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
   }, [open, fetchStatus]);
 
   const handleConnect = async () => {
-    if (!serverUrl.trim() || !serverToken.trim()) return;
+    if (!serverUrl.trim() || !username.trim() || !password.trim()) return;
     setConnecting(true);
     setError(null);
 
     try {
       const cleanUrl = serverUrl.trim().replace(/\/+$/, '');
+      const gatewayUrl = cleanUrl.includes('/api/gateway')
+        ? cleanUrl
+        : cleanUrl.endsWith('/api')
+          ? cleanUrl.replace(/\/api$/, '/api/gateway')
+          : `${cleanUrl}/api/gateway`;
 
-      const res = await fetch(`${API_BASE}/sync/connect`, {
+      // Step 1: Login to cloud to get JWT
+      const loginRes = await fetch(`${gatewayUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password: password.trim() }),
+      });
+      if (!loginRes.ok) {
+        const data = await loginRes.json().catch(() => ({}));
+        throw new Error(data.error || t('sync.loginFailed'));
+      }
+      const { token: cloudJwt } = await loginRes.json();
+
+      // Step 2: Get a long-lived sync token
+      const hostname = typeof window !== 'undefined' ? window.navigator.userAgent : 'AOSE App';
+      const deviceName = `AOSE App - ${new Date().toLocaleDateString()}`;
+      const syncTokenRes = await fetch(`${gatewayUrl}/auth/sync-token`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cloudJwt}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ device_name: deviceName }),
+      });
+      if (!syncTokenRes.ok) {
+        const data = await syncTokenRes.json().catch(() => ({}));
+        throw new Error(data.error || t('sync.tokenFailed'));
+      }
+      const { sync_token } = await syncTokenRes.json();
+
+      // Step 3: Connect local gateway to cloud
+      const connectRes = await fetch(`${API_BASE}/sync/connect`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          remote_url: cleanUrl,
-          remote_token: serverToken.trim(),
+          remote_url: gatewayUrl,
+          remote_token: sync_token,
         }),
       });
-
-      if (!res.ok) {
-        const data = await res.json();
+      if (!connectRes.ok) {
+        const data = await connectRes.json().catch(() => ({}));
         throw new Error(data.error || 'Connection failed');
       }
 
       await fetchStatus();
       setServerUrl('');
-      setServerToken('');
+      setUsername('');
+      setPassword('');
     } catch (err: any) {
       setError(err.message);
     }
@@ -96,6 +132,9 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
 
   if (!open) return null;
 
+  const inputClass = 'w-full px-3 py-2 text-sm bg-black/[0.03] dark:bg-white/[0.05] border border-black/10 dark:border-white/10 rounded-md outline-none focus:ring-1 focus:ring-sidebar-primary';
+  const labelClass = 'block text-xs font-medium text-black/60 dark:text-white/60 mb-1';
+
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/30" onClick={onClose} />
@@ -111,7 +150,6 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
         </div>
 
         <div className="px-5 pb-5 space-y-4">
-          {/* Status */}
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-black/50">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -121,12 +159,12 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                 <Check className="h-4 w-4" />
-                Connected
+                {t('sync.connected')}
               </div>
               <div className="text-xs text-black/50 dark:text-white/50 space-y-1">
-                <div>Pending changes: {status.pending_changes}</div>
+                <div>{t('sync.pendingChanges')}: {status.pending_changes}</div>
                 {status.last_sync && (
-                  <div>Last sync: {new Date(status.last_sync).toLocaleString()}</div>
+                  <div>{t('sync.lastSync')}: {new Date(status.last_sync).toLocaleString()}</div>
                 )}
               </div>
               <button
@@ -134,52 +172,59 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
                 className="flex items-center gap-2 px-3 py-1.5 text-sm bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
               >
                 <CloudOff className="h-4 w-4" />
-                Disconnect
+                {t('sync.disconnect')}
               </button>
             </div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm text-black/50 dark:text-white/50">
                 <CloudOff className="h-4 w-4" />
-                Not connected
+                {t('sync.notConnected')}
               </div>
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-black/60 dark:text-white/60 mb-1">
-                    Server URL
-                  </label>
+                  <label className={labelClass}>{t('sync.serverUrl')}</label>
                   <input
                     type="url"
                     value={serverUrl}
                     onChange={(e) => setServerUrl(e.target.value)}
-                    placeholder="https://your-server.com/api/gateway"
-                    className="w-full px-3 py-2 text-sm bg-black/[0.03] dark:bg-white/[0.05] border border-black/10 dark:border-white/10 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="https://your-server.com"
+                    className={inputClass}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-black/60 dark:text-white/60 mb-1">
-                    Admin Token
-                  </label>
+                  <label className={labelClass}>{t('sync.username')}</label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder={t('sync.username')}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>{t('sync.password')}</label>
                   <input
                     type="password"
-                    value={serverToken}
-                    onChange={(e) => setServerToken(e.target.value)}
-                    placeholder="Your server's admin token"
-                    className="w-full px-3 py-2 text-sm bg-black/[0.03] dark:bg-white/[0.05] border border-black/10 dark:border-white/10 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t('sync.password')}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleConnect(); }}
+                    className={inputClass}
                   />
                 </div>
                 <button
                   onClick={handleConnect}
-                  disabled={connecting || !serverUrl.trim() || !serverToken.trim()}
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  disabled={connecting || !serverUrl.trim() || !username.trim() || !password.trim()}
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-sidebar-primary text-white rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {connecting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Cloud className="h-4 w-4" />
                   )}
-                  Connect
+                  {t('sync.connect')}
                 </button>
               </div>
             </div>

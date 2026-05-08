@@ -80,10 +80,20 @@ export class SyncWebSocketServer {
     try {
       const crypto = require('crypto');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      // Try agent token
       const actor = this.db.prepare(
         'SELECT id, username, type FROM actors WHERE token_hash = ? AND deleted_at IS NULL'
       ).get(tokenHash);
-      return actor || null;
+      if (actor) return actor;
+      // Try sync token
+      const syncRow = this.db.prepare(
+        'SELECT a.id, a.username, a.type FROM sync_tokens st JOIN actors a ON st.actor_id = a.id WHERE st.token_hash = ? AND st.revoked_at IS NULL'
+      ).get(tokenHash);
+      if (syncRow) {
+        this.db.prepare('UPDATE sync_tokens SET last_used_at = ? WHERE token_hash = ?').run(Date.now(), tokenHash);
+        return syncRow;
+      }
+      return null;
     } catch {
       return null;
     }

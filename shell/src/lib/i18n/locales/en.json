@@ -26,7 +26,28 @@
     "passwordMismatch": "Passwords do not match",
     "passwordTooShort": "At least 6 characters",
     "wrongPassword": "Current password is incorrect",
-    "cloudSync": "Cloud Sync"
+    "cloudSync": "Cloud Sync",
+    "connections": "Connections"
+  },
+  "sync": {
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "serverUrl": "Server URL",
+    "username": "Username",
+    "password": "Password",
+    "pendingChanges": "Pending changes",
+    "lastSync": "Last sync",
+    "loginFailed": "Login failed",
+    "tokenFailed": "Failed to create sync token"
+  },
+  "connections": {
+    "noDevices": "No devices connected",
+    "connected": "Connected",
+    "lastActive": "Last active",
+    "disconnect": "Disconnect",
+    "revoked": "Previously connected"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
