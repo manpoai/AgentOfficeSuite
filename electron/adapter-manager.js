@@ -142,8 +142,8 @@ class AdapterManager {
     writeInbox(agentName, content);
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
 
-    if (this.terminalWriter && platform !== 'gemini-cli') {
-      this.terminalWriter(agentName, content);
+    if (this.terminalWriter && platform === 'claude-code') {
+      this.terminalWriter(agentName, 'you have a new AOSE event');
       setTimeout(() => this.terminalWriter(agentName, '\r'), 100);
     }
 

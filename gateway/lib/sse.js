@@ -39,7 +39,7 @@ export function pushEvent(agentId, event) {
 
   if (_db && clientCount > 0 && eventId) {
     try {
-      _db.prepare('UPDATE events SET delivered_at = ?, delivery_method = ? WHERE id = ?')
+      _db.prepare('UPDATE events SET delivered = 1, delivered_at = ?, delivery_method = ? WHERE id = ?')
         .run(Date.now(), 'sse', eventId);
     } catch (e) {
       console.warn(`[sse] mark delivered failed event=${eventId}: ${e.message}`);
