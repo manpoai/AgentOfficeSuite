@@ -43,9 +43,9 @@ export class SyncWebSocketServer {
       return;
     }
 
-    const clientId = actor.id;
+    const clientId = `${actor.id}_${crypto.randomBytes(4).toString('hex')}`;
     this.clients.set(clientId, { ws, actor });
-    console.log(`[sync-ws] Client connected: ${actor.username}`);
+    console.log(`[sync-ws] Client connected: ${actor.username} (${clientId})`);
 
     ws.send(JSON.stringify({
       type: 'handshake',
