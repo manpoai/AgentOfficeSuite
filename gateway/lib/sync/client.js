@@ -45,19 +45,19 @@ export class SyncClient {
 
     this.running = true;
     console.log(`[sync-client] Starting sync to ${config.remoteUrl}`);
-    console.log(`[sync-client] Config: cursor=${config.lastPullCursor}, enabled=${config.syncEnabled}`);
 
-    // Initial snapshot sync if we've never synced before (or cursor was reset)
     if (config.lastPullCursor === 0) {
-      console.log('[sync-client] Cursor is 0, starting snapshot sync...');
       try {
         await this._initialSnapshotSync(config);
-        console.log('[sync-client] Snapshot sync completed successfully');
       } catch (err) {
-        console.error('[sync-client] Initial snapshot sync failed:', err.message, err.stack);
+        console.error('[sync-client] Initial snapshot sync failed:', err.message);
       }
-    } else {
-      console.log(`[sync-client] Skipping snapshot (cursor=${config.lastPullCursor} > 0)`);
+    }
+
+    try {
+      await this._pullMissingFiles(config);
+    } catch (err) {
+      console.error('[sync-client] File pull failed:', err.message);
     }
 
     this._connect(config);
@@ -110,8 +110,6 @@ export class SyncClient {
     // Also discover utbl_*_rows tables from both sides
     const localUtbl = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'utbl_%_rows'").all().map(r => r.name);
     const allTables = [...SYNC_TABLES, ...localUtbl];
-    console.log(`[sync-client] Starting initial snapshot sync for ${allTables.length} tables`);
-
     const res = await fetch(`${config.remoteUrl}/sync/snapshot?tables=${allTables.join(',')}`, {
       headers: { 'Authorization': `Bearer ${config.remoteToken}` },
     });
@@ -122,15 +120,12 @@ export class SyncClient {
 
     const body = await res.json();
     const { snapshot, cursor } = body;
-    console.log(`[sync-client] Snapshot response: cursor=${cursor}, tables=${Object.keys(snapshot || {}).join(',')}, sizes=${Object.entries(snapshot || {}).map(([k,v]) => `${k}:${v.length}`).join(',')}`);
 
-    // Set sync flag to prevent triggers from writing source='local'
     this.db.prepare("INSERT OR IGNORE INTO _sync_applying VALUES (1)").run();
 
     try {
       for (const tableName of allTables) {
         const remoteRows = snapshot[tableName] || [];
-        console.log(`[sync-client] Processing ${tableName}: ${remoteRows.length} remote rows`);
         if (remoteRows.length === 0) continue;
 
         const tableExists = this.db.prepare(
@@ -206,7 +201,9 @@ export class SyncClient {
           });
         }
 
-        console.log(`[sync-client] Snapshot ${tableName}: ${inserted} inserted, ${updated} updated, ${pushed} pushed to cloud`);
+        if (inserted + updated + pushed > 0) {
+          console.log(`[sync-client] ${tableName}: +${inserted} ↓${updated} ↑${pushed}`);
+        }
       }
     } finally {
       this.db.prepare("DELETE FROM _sync_applying").run();
@@ -247,7 +244,6 @@ export class SyncClient {
       this.reconnectDelay = 1000;
 
       const freshConfig = this.getConfig();
-      console.log(`[sync-client] Sending pull since=${freshConfig.lastPullCursor}`);
       this.ws.send(JSON.stringify({
         type: 'pull',
         since: freshConfig.lastPullCursor,
@@ -257,7 +253,6 @@ export class SyncClient {
     this.ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        console.log(`[sync-client] WS message: type=${msg.type}`);
         this._handleMessage(msg);
       } catch (err) {
         console.error('[sync-client] Invalid message:', err.message);
@@ -366,12 +361,9 @@ export class SyncClient {
   }
 
   async _pushLocalChanges(config) {
-    const total = this.db.prepare("SELECT COUNT(*) as n FROM _sync_log").get();
     const changes = this.db.prepare(
       "SELECT id, table_name, row_id, operation, data_json, actor_id, timestamp FROM _sync_log WHERE synced = 0 AND source = 'local' ORDER BY timestamp ASC LIMIT 500"
     ).all();
-
-    console.log(`[sync-client] Push check: ${changes.length} unsynced / ${total.n} total in _sync_log`);
     if (changes.length === 0) return;
 
     let pushed = false;
@@ -449,7 +441,7 @@ export class SyncClient {
    * Failures are logged but do not fail the sync.
    */
   async _pushReferencedFiles(config, changes) {
-    const FILE_REF_RE = /\/api\/uploads\/(files|avatars)\/([^\s"',]+)/g;
+    const FILE_REF_RE = /\/api\/uploads\/(thumbnails|files|avatars)\/([^\s"',]+)/g;
     const seen = new Set();
 
     for (const change of changes) {
@@ -473,6 +465,7 @@ export class SyncClient {
           const formData = new FormData();
           formData.append('file', new Blob([fileBuffer]), filename);
           formData.append('filename', filename);
+          formData.append('subdir', subDir);
 
           const res = await fetch(`${config.remoteUrl}/sync/files`, {
             method: 'POST',
@@ -499,6 +492,49 @@ export class SyncClient {
     }
   }
 
+  async _pullMissingFiles(config) {
+    try {
+      const res = await fetch(`${config.remoteUrl}/sync/files/list`, {
+        headers: { 'Authorization': `Bearer ${config.remoteToken}` },
+      });
+      if (!res.ok) {
+        console.warn(`[sync-client] File list request failed: ${res.status}`);
+        return;
+      }
+      const remoteFiles = await res.json();
+      let downloaded = 0;
+
+      for (const subDir of ['files', 'avatars', 'thumbnails']) {
+        const names = remoteFiles[subDir] || [];
+        const localDir = path.join(this.uploadsDir, subDir);
+        if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+
+        for (const name of names) {
+          const localPath = path.join(localDir, name);
+          if (fs.existsSync(localPath)) continue;
+
+          try {
+            const fileRes = await fetch(`${config.remoteUrl}/uploads/${subDir}/${encodeURIComponent(name)}`, {
+              headers: { 'Authorization': `Bearer ${config.remoteToken}` },
+            });
+            if (!fileRes.ok) continue;
+            const buf = Buffer.from(await fileRes.arrayBuffer());
+            fs.writeFileSync(localPath, buf);
+            downloaded++;
+          } catch (err) {
+            console.warn(`[sync-client] Failed to download ${subDir}/${name}:`, err.message);
+          }
+        }
+      }
+
+      if (downloaded > 0) {
+        console.log(`[sync-client] Downloaded ${downloaded} missing files from remote`);
+      }
+    } catch (err) {
+      console.warn('[sync-client] File pull error:', err.message);
+    }
+  }
+
   async _pullRemoteChanges(config) {
     const freshConfig = this.getConfig();
     const since = freshConfig.lastPullCursor;
@@ -516,7 +552,6 @@ export class SyncClient {
       }
 
       const { changes, cursor, server_timestamp, has_more } = await res.json();
-      console.log(`[sync-client] Pull check: ${changes?.length || 0} changes since cursor ${since}`);
       if (!Array.isArray(changes) || changes.length === 0) return;
 
       let applied = 0;

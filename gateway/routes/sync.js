@@ -9,7 +9,6 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { applyChange, SYNC_PROTOCOL_VERSION, checkVersionCompatibility, isSyncableTable } from '../lib/sync/protocol.js';
-import { resetSyncCache } from '../lib/sync-hook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
@@ -22,9 +21,7 @@ function seedSyncLog(db) {
   const allDbTables = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_*'"
   ).all().map(r => r.name);
-  console.log('[sync-debug] All non-underscore tables:', allDbTables.join(', '));
   const tables = allDbTables.filter(n => isSyncableTable(n));
-  console.log('[sync-debug] Syncable tables:', tables.join(', '));
 
   const utblTables = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'utbl_%_rows'"
@@ -198,7 +195,6 @@ export default function syncRoutes(db, syncClient) {
     upsert.run('remote_token', remote_token);
     upsert.run('sync_enabled', '1');
 
-    resetSyncCache();
 
     const seeded = seedSyncLog(db);
 
@@ -217,7 +213,6 @@ export default function syncRoutes(db, syncClient) {
     );
     upsert.run('sync_enabled', '0');
 
-    resetSyncCache();
 
     if (syncClient) {
       syncClient.stop();
@@ -230,6 +225,18 @@ export default function syncRoutes(db, syncClient) {
   router.post('/seed', (req, res) => {
     const seeded = seedSyncLog(db);
     res.json({ ok: true, seeded });
+  });
+
+  // GET /api/sync/files/list — list all uploaded filenames for pull-side sync
+  router.get('/files/list', (_req, res) => {
+    const result = {};
+    for (const subDir of ['files', 'avatars', 'thumbnails']) {
+      const dir = path.join(UPLOADS_ROOT, subDir);
+      try {
+        result[subDir] = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => !f.startsWith('.')) : [];
+      } catch { result[subDir] = []; }
+    }
+    res.json(result);
   });
 
   // POST /api/sync/files — receive uploaded file from remote
@@ -250,7 +257,9 @@ export default function syncRoutes(db, syncClient) {
       return res.status(400).json({ error: 'invalid filename' });
     }
 
-    const subDir = safeName.startsWith('avatar-') ? 'avatars' : 'files';
+    const subDir = req.body?.subdir && ['files', 'avatars', 'thumbnails'].includes(req.body.subdir)
+      ? req.body.subdir
+      : safeName.startsWith('avatar-') ? 'avatars' : 'files';
     const destDir = path.join(UPLOADS_ROOT, subDir);
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
