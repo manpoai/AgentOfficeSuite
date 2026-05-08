@@ -57,7 +57,7 @@ export function SidebarAgentBar({
   const overflowCount = Math.max(0, agents.length - visibleCount);
 
   return (
-    <div ref={containerRef} className="flex items-center gap-1 px-2 py-2 shrink-0" style={{ backgroundColor: colorTheme === 'dark' ? '#1a1a2e' : '#EEF0EE' }}>
+    <div ref={containerRef} className="flex items-center gap-1 px-2 py-2 shrink-0" style={{ backgroundColor: colorTheme === 'dark' ? '#1a1a2e' : '#EBEFEB' }}>
       {visibleAgents.map((agent) => {
         const isSelected = selectedAgentId === agent.name;
         const avatarUrl = resolveAvatarUrl(agent.avatar_url);
@@ -103,13 +103,13 @@ export function SidebarAgentBar({
       })}
 
       {/* Two-segment button: @ Agents | + */}
-      <div className="ml-auto flex items-center shrink-0">
+      <div className="ml-auto flex items-center shrink-0 rounded-lg overflow-hidden" style={{ height: 32 }}>
         <button
           onClick={onOpenAgentsPanel}
-          className="flex items-center gap-1 px-2 py-1 rounded-l-lg text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-3 h-full text-xs font-medium transition-colors"
           style={{
-            backgroundColor: 'hsl(var(--sidebar-primary))',
-            color: 'hsl(var(--sidebar-primary-foreground))',
+            backgroundColor: '#22C55E',
+            color: '#fff',
           }}
         >
           <AtSign className="h-3.5 w-3.5" />
@@ -118,17 +118,17 @@ export function SidebarAgentBar({
             <span className="ml-0.5">({overflowCount})</span>
           )}
         </button>
-        <div style={{ width: 1, backgroundColor: 'hsl(var(--sidebar-primary-foreground))', opacity: 0.3, alignSelf: 'stretch' }} />
         <button
           onClick={() => onOpenConnectAgents?.()}
-          className="flex items-center px-1.5 py-1 rounded-r-lg text-xs font-medium transition-colors"
+          className="flex items-center justify-center h-full transition-colors"
           style={{
-            backgroundColor: 'hsl(var(--sidebar-primary))',
-            color: 'hsl(var(--sidebar-primary-foreground))',
+            backgroundColor: '#1a1a2e',
+            color: '#fff',
+            width: 32,
           }}
           title={t('actions.addAgent') || 'Add Agent'}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </div>
     </div>

@@ -278,7 +278,8 @@ export function ContentSidebar({
 
     const onMouseMove = (event: MouseEvent) => {
       const delta = event.clientX - startX;
-      onWidthChange(Math.max(200, Math.min(480, startWidth + delta)));
+      const maxW = Math.floor(window.innerWidth * 0.5);
+      onWidthChange(Math.max(200, Math.min(maxW, startWidth + delta)));
     };
 
     const cleanup = () => {
@@ -464,7 +465,7 @@ export function ContentSidebar({
           />
 
           {/* ─── Search box ─── */}
-          <div className="px-2 mb-2 shrink-0">
+          <div className="px-2 pt-1 mb-1 shrink-0">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}

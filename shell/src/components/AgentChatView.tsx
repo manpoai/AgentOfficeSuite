@@ -63,7 +63,7 @@ export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark
   }, [handleSend]);
 
   const isDark = colorTheme === 'dark';
-  const bg = isDark ? '#1a1a2e' : '#EEF0EE';
+  const bg = isDark ? '#1a1a2e' : '#EBEFEB';
   const textColor = isDark ? '#e0e0e0' : '#1a1a1a';
   const mutedColor = isDark ? '#808080' : '#666';
   const borderColor = isDark ? '#333' : '#d4d6d4';
