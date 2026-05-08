@@ -13,7 +13,7 @@ export default function eventsRoutes(app, { db, authenticateAny, authenticateAge
     const limit = Math.min(parseInt(req.query.limit || '50'), 100);
     const cursor = req.query.cursor;
 
-    let query = 'SELECT * FROM events WHERE agent_id = ? AND occurred_at > ? ORDER BY occurred_at ASC LIMIT ?';
+    let query = 'SELECT * FROM events WHERE agent_id = ? AND occurred_at > ? AND delivered = 0 ORDER BY occurred_at ASC LIMIT ?';
     const params = [req.agent.id, cursor ? parseInt(cursor) : since, limit + 1];
 
     const rows = db.prepare(query).all(...params);

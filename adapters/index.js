@@ -174,7 +174,8 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // ─── Event handler ───────────────────────────────
 async function handleEvent(event) {
-  if (event.timestamp) saveLastEventTs(event.timestamp);
+  const eventTs = event.occurred_at || event.timestamp;
+  if (eventTs) saveLastEventTs(eventTs);
 
   const result = translateEvent(event, { gatewayUrl: GATEWAY_URL, agentToken: AGENT_TOKEN });
   if (!result) {
