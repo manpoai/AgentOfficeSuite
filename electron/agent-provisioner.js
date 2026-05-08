@@ -30,7 +30,7 @@ class AgentProvisioner {
       throw err;
     }
 
-    const mcpSrc = path.join(__dirname, '..', 'mcp-server');
+    const mcpSrc = path.join(__dirname, '..', 'mcp-server').replace('app.asar', 'app.asar.unpacked');
     let mcpEntryPoint;
 
     if (platform === 'gemini-cli') {
@@ -253,7 +253,7 @@ Respond by:
   }
 
   _copySkills(agentDir) {
-    const skillsSrc = path.join(__dirname, '..', 'mcp-server', 'skills');
+    const skillsSrc = path.join(__dirname, '..', 'mcp-server', 'skills').replace('app.asar', 'app.asar.unpacked');
     const skillsDest = path.join(agentDir, 'skills');
     if (!fs.existsSync(skillsSrc)) return;
     fs.mkdirSync(skillsDest, { recursive: true });
