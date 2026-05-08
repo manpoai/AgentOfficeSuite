@@ -139,31 +139,24 @@ class AdapterManager {
     const content = translateEvent(event);
     if (!content) return;
 
-    if (platform === 'claude-code') {
-      if (this.terminalWriter) {
-        this.terminalWriter(agentName, content);
-        setTimeout(() => {
-          this.terminalWriter(agentName, '\r');
-        }, 300);
-      }
-      console.log(`[adapter] Event written to terminal for ${agentName}: ${event.event}`);
-    } else if (platform === 'gemini-cli') {
-      writeInbox(agentName, content);
-      console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
-      if (agentDir) {
-        const child = spawn('gemini', [
-          '-p', 'You have a new AOSE event. Check your inbox by calling get_unread_events.',
-          '--resume', 'latest',
-          '--yolo',
-        ], { cwd: agentDir, stdio: 'ignore', detached: true });
-        child.unref();
-        child.on('error', (err) => {
-          console.error(`[adapter] gemini wake failed for ${agentName}: ${err.message}`);
-        });
-      }
-    } else {
-      writeInbox(agentName, content);
-      console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
+    writeInbox(agentName, content);
+    console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
+
+    if (this.terminalWriter && platform !== 'gemini-cli') {
+      this.terminalWriter(agentName, content);
+      setTimeout(() => this.terminalWriter(agentName, '\r'), 100);
+    }
+
+    if (platform === 'gemini-cli' && agentDir) {
+      const child = spawn('gemini', [
+        '-p', 'You have a new AOSE event. Check your inbox by calling get_unread_events.',
+        '--resume', 'latest',
+        '--yolo',
+      ], { cwd: agentDir, stdio: 'ignore', detached: true });
+      child.unref();
+      child.on('error', (err) => {
+        console.error(`[adapter] gemini wake failed for ${agentName}: ${err.message}`);
+      });
     }
   }
 
