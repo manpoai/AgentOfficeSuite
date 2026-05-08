@@ -7,7 +7,6 @@ import { insertNotification } from '../lib/notifications.js';
 import { restoreDocFromSnapshot, extractTextFromProseMirror } from '../lib/doc-restore-helper.js';
 import { parseMarkdownFragment } from '../lib/pm-parser.js';
 import { ensureTopLevelBlockIds, listTopLevelBlocks, replaceTopLevelBlock, insertBlocksAfter, appendBlocks, deleteTopLevelBlock } from '../lib/doc-block-ops.js';
-import { recordChange } from '../lib/sync-hook.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
@@ -55,7 +54,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     db.prepare(`INSERT INTO documents (id, title, text, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(docId, title, content_markdown || '', agentName, agentName, now, now);
-    recordChange(db, 'documents', docId, 'insert', { id: docId, title, text: content_markdown || '', created_by: agentName, updated_by: agentName, created_at: now, updated_at: now }, req.actor?.id, undefined);
 
     const nodeId = `doc:${docId}`;
     const actorId = req.actor?.id || req.agent?.id || null;
@@ -64,8 +62,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       null, parent_id || null, collection_id || null,
       agentName, agentName, now, now, null, actorId, Date.now()
     );
-    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: docId, type: 'doc', title }, req.actor?.id, undefined);
-
     // Create initial version snapshot only for agent-created docs (human-created docs start empty)
     if (isAgentRequest(req)) {
       const initData = data_json
@@ -142,7 +138,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     }
 
     db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-    recordChange(db, 'documents', req.params.doc_id, 'update', { title, content_markdown, updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     // Post-edit snapshot
     if (content_markdown !== undefined && content_markdown !== doc.text && isAgentRequest(req)) {
@@ -292,7 +287,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     db.prepare('UPDATE documents SET data_json = ?, updated_at = ?, updated_by = ? WHERE id = ?')
       .run(JSON.stringify(result.doc), now, agentName, req.params.doc_id);
-    recordChange(db, 'documents', req.params.doc_id, 'update', { block_id: req.params.block_id, updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, {
@@ -367,7 +361,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     db.prepare('UPDATE documents SET data_json = ?, updated_at = ?, updated_by = ? WHERE id = ?')
       .run(JSON.stringify(result.doc), now, agentName, req.params.doc_id);
-    recordChange(db, 'documents', req.params.doc_id, 'update', { action: 'insert_blocks', updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, { contentType: 'doc', contentId: req.params.doc_id, data: result.doc, triggerType: 'post_agent_edit', actorId: agentName, title: doc.title, description: req.body.revision_description || null });
@@ -420,7 +413,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     db.prepare('UPDATE documents SET data_json = ?, updated_at = ?, updated_by = ? WHERE id = ?')
       .run(JSON.stringify(result.doc), now, agentName, req.params.doc_id);
-    recordChange(db, 'documents', req.params.doc_id, 'update', { action: 'append_blocks', updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, { contentType: 'doc', contentId: req.params.doc_id, data: result.doc, triggerType: 'post_agent_edit', actorId: agentName, title: doc.title, description: req.body.revision_description || null });
@@ -475,7 +467,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     db.prepare('UPDATE documents SET data_json = ?, updated_at = ?, updated_by = ? WHERE id = ?')
       .run(JSON.stringify(result.doc), now, agentName, req.params.doc_id);
-    recordChange(db, 'documents', req.params.doc_id, 'update', { action: 'delete_block', block_id: req.params.block_id, updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     if (isAgentRequest(req)) {
       createSnapshot(db, { genId }, { contentType: 'doc', contentId: req.params.doc_id, data: result.doc, triggerType: 'post_agent_edit', actorId: agentName, title: doc.title });
@@ -680,7 +671,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     db.prepare(`INSERT INTO documents (id, title, text, data_json, icon, full_width, created_by, updated_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(docId, title, text, data_json ? JSON.stringify(data_json) : null, icon || null, full_width ? 1 : 0, agentName, agentName, now, now);
-    recordChange(db, 'documents', docId, 'insert', { id: docId, title, text, created_by: agentName, created_at: now }, req.actor?.id, undefined);
 
     const nodeId = `doc:${docId}`;
     const ownerId = req.actor?.id || req.agent?.id || null;
@@ -689,8 +679,6 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       icon || null, parent_id || null, collection_id || null,
       agentName, agentName, now, now, null, ownerId, Date.now()
     );
-    recordChange(db, 'content_items', nodeId, 'insert', { id: nodeId, raw_id: docId, type: 'doc', title }, req.actor?.id, undefined);
-
     // Create initial version snapshot only for agent-created docs (human-created start empty)
     if (isAgentRequest(req)) {
       const initData = data_json
@@ -766,13 +754,11 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     }
 
     db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-    recordChange(db, 'documents', req.params.id, 'update', { title, text, updated_at: now, updated_by: agentName }, req.actor?.id, undefined);
 
     // Sync title to content_items
     if (title !== undefined) {
       db.prepare('UPDATE content_items SET title = ?, updated_at = ? WHERE raw_id = ? AND type = ?')
         .run(title, now, req.params.id, 'doc');
-      recordChange(db, 'content_items', `doc:${req.params.id}`, 'update', { title, updated_at: now }, req.actor?.id, undefined);
     }
 
     const updated = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
@@ -803,18 +789,14 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     if (req.query.permanent === 'true') {
       db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
-      recordChange(db, 'documents', req.params.id, 'delete', null, req.actor?.id, undefined);
       db.prepare('DELETE FROM content_items WHERE raw_id = ? AND type = ?').run(req.params.id, 'doc');
-      recordChange(db, 'content_items', `doc:${req.params.id}`, 'delete', null, req.actor?.id, undefined);
       db.prepare('DELETE FROM doc_icons WHERE doc_id = ?').run(req.params.id);
       return res.json({ deleted: true, permanent: true });
     }
 
     const now = new Date().toISOString();
     db.prepare('UPDATE documents SET deleted_at = ? WHERE id = ?').run(now, req.params.id);
-    recordChange(db, 'documents', req.params.id, 'update', { deleted_at: now }, req.actor?.id, undefined);
     db.prepare('UPDATE content_items SET deleted_at = ? WHERE raw_id = ? AND type = ?').run(now, req.params.id, 'doc');
-    recordChange(db, 'content_items', `doc:${req.params.id}`, 'update', { deleted_at: now }, req.actor?.id, undefined);
     res.json({ deleted: true });
   });
 
@@ -825,9 +807,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (!doc.deleted_at) return res.status(400).json({ error: 'NOT_DELETED' });
 
     db.prepare('UPDATE documents SET deleted_at = NULL WHERE id = ?').run(req.params.id);
-    recordChange(db, 'documents', req.params.id, 'update', { deleted_at: null }, req.actor?.id, undefined);
     db.prepare('UPDATE content_items SET deleted_at = NULL WHERE raw_id = ? AND type = ?').run(req.params.id, 'doc');
-    recordChange(db, 'content_items', `doc:${req.params.id}`, 'update', { deleted_at: null }, req.actor?.id, undefined);
 
     const restored = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
     res.json(restored);

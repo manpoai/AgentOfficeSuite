@@ -10,6 +10,7 @@
  */
 
 import crypto from 'node:crypto';
+import { createSyncTriggers } from '../db.js';
 
 // ── uidt → SQLite physical column type ────────────────────────────────
 // CreatedTime/LastModifiedTime/CreatedBy/LastModifiedBy are virtual: they
@@ -117,6 +118,8 @@ export function createSchema(db) {
     });
     tx();
 
+    try { createSyncTriggers(db, physName, 'id'); } catch {}
+
     return getTable(tableId);
   }
 
@@ -198,13 +201,15 @@ export function createSchema(db) {
   }
 
   function addField(tableId, spec) {
-    const t = db.prepare('SELECT id FROM user_tables WHERE id = ?').get(tableId);
+    const t = db.prepare('SELECT * FROM user_tables WHERE id = ?').get(tableId);
     if (!t) throw validationError(`table not found: ${tableId}`);
     let fieldId;
     const tx = db.transaction(() => {
       fieldId = addFieldInternal(tableId, spec);
     });
     tx();
+    // Recreate sync triggers to include new column in json_object
+    try { createSyncTriggers(db, t.physical_name, 'id'); } catch {}
     return parseFieldOptions(db.prepare('SELECT * FROM user_fields WHERE id = ?').get(fieldId));
   }
 
@@ -274,6 +279,8 @@ export function createSchema(db) {
       db.prepare('DELETE FROM user_fields WHERE id = ?').run(fieldId);
     });
     tx();
+    // Recreate sync triggers to exclude removed column
+    try { createSyncTriggers(db, physicalTableName(f.table_id), 'id'); } catch {}
     return { ok: true, field_id: fieldId };
   }
 

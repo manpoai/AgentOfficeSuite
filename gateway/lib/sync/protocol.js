@@ -12,6 +12,7 @@ const SYNCABLE_TABLES = new Set([
   'user_tables', 'user_fields', 'user_views',
   'user_view_filters', 'user_view_sorts', 'user_view_columns',
   'user_links', 'user_select_options',
+  'agent_messages', 'notifications', 'preferences',
 ]);
 
 export function isSyncableTable(tableName) {

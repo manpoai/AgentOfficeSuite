@@ -8,7 +8,6 @@ import multer from 'multer';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
 import { insertNotification } from '../lib/notifications.js';
-import { recordChange } from '../lib/sync-hook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GATEWAY_DIR = path.dirname(__dirname);
@@ -1384,7 +1383,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(agentId, name, display_name, tokenHash, JSON.stringify(capabilities || []),
         webhook_url || null, webhook_secret || null, platform || null, now, now);
-    recordChange(db, 'actors', agentId, 'insert', { id: agentId, type: 'agent', username: name, display_name, platform: platform || null, created_at: now }, null, undefined);
 
     // Mark ticket used
     db.prepare('UPDATE tickets SET used = 1 WHERE id = ?').run(ticket);
@@ -1442,7 +1440,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
       VALUES (?, 'agent', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
       .run(agentId, name, effectiveDisplayName, tokenHash, JSON.stringify(capabilities || []),
         webhook_url || null, webhook_secret || null, platform || null, now, now);
-    recordChange(db, 'actors', agentId, 'insert', { id: agentId, type: 'agent', username: name, display_name: effectiveDisplayName, platform: platform || null, pending_approval: 1, created_at: now }, null, undefined);
 
     // Notify all human admins about new agent registration
     const admins = db.prepare("SELECT id FROM actors WHERE type = 'human' AND role = 'admin'").all();
@@ -1505,7 +1502,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     db.prepare(`INSERT INTO actors (id, type, username, display_name, token_hash, capabilities, platform, pending_approval, created_at, updated_at)
       VALUES (?, 'agent', ?, ?, ?, '[]', ?, 0, ?, ?)`)
       .run(agentId, name, name, token_hash, platform || 'claude-code', now, now);
-    recordChange(db, 'actors', agentId, 'insert', { id: agentId, type: 'agent', username: name, display_name: name, platform: platform || 'claude-code', pending_approval: 0, created_at: now }, null, undefined);
 
     res.status(201).json({ agent_id: agentId, name, created_at: now });
   });
@@ -1519,7 +1515,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     const now = Date.now();
     db.prepare('UPDATE actors SET pending_approval = 0, updated_at = ? WHERE id = ?')
       .run(now, agent.id);
-    recordChange(db, 'actors', agent.id, 'update', { pending_approval: 0, updated_at: now }, req.actor?.id, undefined);
 
     // Push approval event to the agent via SSE
     const approvalEvent = {
@@ -1535,7 +1530,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at)
       VALUES (?, ?, 'agent.approved', 'system', ?, ?, ?)`)
       .run(approvalEvent.id, agent.id, approvalEvent.occurred_at, JSON.stringify(approvalEvent), now);
-    recordChange(db, 'events', approvalEvent.id, 'insert', approvalEvent, req.actor?.id, undefined);
     if (pushEvent) pushEvent(agent.id, approvalEvent);
 
     res.json({ agent_id: agent.id, name: agent.username, status: 'approved' });
@@ -1548,14 +1542,12 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     if (!agent.pending_approval) return res.status(400).json({ error: 'NOT_PENDING', message: 'Agent is not pending approval' });
     const now = Date.now();
     db.prepare('UPDATE actors SET pending_approval = 0, deleted_at = ?, updated_at = ? WHERE id = ?').run(now, now, agent.id);
-    recordChange(db, 'actors', agent.id, 'update', { pending_approval: 0, deleted_at: now, updated_at: now }, req.actor?.id, undefined);
     const rejectEvent = {
       id: genId('evt'), type: 'agent.rejected', occurred_at: now,
       data: { agent_id: agent.id, name: agent.username, message: 'Your registration has been rejected.' },
     };
     db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, 'agent.rejected', 'system', ?, ?, ?)`)
       .run(rejectEvent.id, agent.id, rejectEvent.occurred_at, JSON.stringify(rejectEvent), now);
-    recordChange(db, 'events', rejectEvent.id, 'insert', rejectEvent, req.actor?.id, undefined);
     if (pushEvent) pushEvent(agent.id, rejectEvent);
     res.json({ agent_id: agent.id, name: agent.username, status: 'rejected' });
   });
@@ -1576,7 +1568,6 @@ export default function authRoutes(app, { express, db, JWT_SECRET, ADMIN_TOKEN, 
     const releasedName = `${originalName}.deleted.${now}`;
     db.prepare('UPDATE actors SET username = ?, deleted_at = ?, online = 0, updated_at = ? WHERE id = ?')
       .run(releasedName, now, now, agent.id);
-    recordChange(db, 'actors', agent.id, 'update', { username: releasedName, deleted_at: now, online: 0, updated_at: now }, req.actor?.id, undefined);
     const offboardingPrompt = buildOffboardingPrompt(agent.platform, originalName);
     res.json({
       agent_id: agent.id,

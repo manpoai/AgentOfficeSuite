@@ -9,7 +9,6 @@ import { fileURLToPath } from 'url';
 import { createUnifiedComment } from '../lib/comment-service.js';
 import { isAgentRequest } from '../lib/snapshot-helper.js';
 import { insertNotification } from '../lib/notifications.js';
-import { recordChange } from '../lib/sync-hook.js';
 import multer from 'multer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -443,10 +442,8 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const t = db.prepare('SELECT id FROM user_tables WHERE id = ?').get(tableId);
       if (!t) return res.status(404).json({ error: 'NOT_FOUND' });
       db.prepare('UPDATE user_tables SET title = ?, updated_at = ? WHERE id = ?').run(title, Date.now(), tableId);
-      recordChange(db, 'user_tables', tableId, 'update', { title, updated_at: Date.now() }, req.actor?.id, undefined);
       db.prepare('UPDATE content_items SET title = ?, updated_at = ? WHERE raw_id = ? AND type = ?')
         .run(title, new Date().toISOString(), tableId, 'table');
-      recordChange(db, 'content_items', `table:${tableId}`, 'update', { title }, req.actor?.id, undefined);
       res.json({ table_id: tableId, title });
     } catch (e) {
       console.error('[gateway] patch table failed:', e);
@@ -461,9 +458,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const t = db.prepare('SELECT id FROM user_tables WHERE id = ?').get(tableId);
       if (!t) return res.status(404).json({ error: 'NOT_FOUND' });
       tableEngine.dropTable(tableId);
-      recordChange(db, 'user_tables', tableId, 'delete', null, req.actor?.id, undefined);
       db.prepare('DELETE FROM content_items WHERE raw_id = ? AND type = ?').run(tableId, 'table');
-      recordChange(db, 'content_items', `table:${tableId}`, 'delete', null, req.actor?.id, undefined);
       res.json({ deleted: true });
     } catch (e) {
       console.error('[gateway] delete table failed:', e);
@@ -987,9 +982,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idRows = rows.map(r => payloadTitlesToIds(r, fields));
       const created = tableEngine.batchInsert(tableId, idRows, { actor: actorName(req) });
-      for (const r of created) {
-        recordChange(db, `utbl_${tableId}_rows`, r.id, 'insert', null, req.actor?.id, undefined);
-      }
       const linkResolver = makeLinkResolver();
       const items = created.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver));
       res.status(201).json({ items });
@@ -1020,9 +1012,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         return { id, data: payloadTitlesToIds(rest, fields) };
       });
       const updated = tableEngine.batchUpdate(tableId, updates, { actor: actorName(req) });
-      for (const r of updated) {
-        recordChange(db, `utbl_${tableId}_rows`, r.id, 'update', null, req.actor?.id, undefined);
-      }
       const linkResolver = makeLinkResolver();
       const items = updated.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver));
       res.json({ items });
@@ -1048,9 +1037,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
 
     try {
       tableEngine.batchDelete(tableId, ids);
-      for (const id of ids) {
-        recordChange(db, `utbl_${tableId}_rows`, id, 'delete', null, req.actor?.id, undefined);
-      }
       res.json({ deleted: ids.length });
 
       if (isAgentRequest(req)) {
@@ -1073,7 +1059,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       const created = tableEngine.insertRow(tableId, idData, { actor: actorName(req) });
-      recordChange(db, `utbl_${tableId}_rows`, created.id, 'insert', idData, req.actor?.id, undefined);
       const typed = tableEngine.readRow(tableId, created.id);
       res.status(201).json(rowIdsToTitles(typed, fields, makeLinkResolver()));
       if (isAgentRequest(req)) {
@@ -1100,7 +1085,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       tableEngine.updateRow(tableId, rowId, idData, { actor: actorName(req) });
-      recordChange(db, `utbl_${tableId}_rows`, rowId, 'update', idData, req.actor?.id, undefined);
       const typed = tableEngine.readRow(tableId, rowId);
       res.json(rowIdsToTitles(typed, fields, makeLinkResolver()));
       if (isAgentRequest(req)) {
@@ -1146,7 +1130,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         };
         db.prepare(`INSERT INTO events (id, agent_id, event_type, source, occurred_at, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
           .run(evt.event_id, target.id, evt.event, evt.source, evt.timestamp, JSON.stringify(evt), now);
-        recordChange(db, 'events', evt.event_id, 'insert', evt, req.actor?.id, undefined);
         pushEvent(target.id, evt);
         if (target.webhook_url) deliverWebhook(target, evt).catch(() => {});
       }
@@ -1163,7 +1146,6 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const existing = tableEngine.readRow(tableId, req.params.row_id);
       if (!existing) return res.status(404).json({ error: 'NOT_FOUND' });
       tableEngine.deleteRow(tableId, req.params.row_id);
-      recordChange(db, `utbl_${tableId}_rows`, req.params.row_id, 'delete', null, req.actor?.id, undefined);
       res.json({ deleted: true });
       if (isAgentRequest(req)) {
         createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});

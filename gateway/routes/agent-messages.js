@@ -2,7 +2,6 @@
  * Agent direct messages: human ↔ agent chat
  */
 import { insertNotification } from '../lib/notifications.js';
-import { recordChange } from '../lib/sync-hook.js';
 
 export default function agentMessagesRoutes(app, { db, authenticateAny, authenticateAgent, genId, pushEvent, pushHumanEvent, deliverWebhook, sseClients }) {
 
@@ -91,7 +90,6 @@ export default function agentMessagesRoutes(app, { db, authenticateAny, authenti
       }
     }
 
-    recordChange(db, 'agent_messages', id, 'insert', message, sender.id, undefined);
     res.status(201).json(message);
   });
 

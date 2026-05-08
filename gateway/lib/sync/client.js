@@ -98,10 +98,21 @@ export class SyncClient {
   }
 
   async _initialSnapshotSync(config) {
-    const SYNC_TABLES = ['content_items'];
-    console.log(`[sync-client] Starting initial snapshot sync for: ${SYNC_TABLES.join(', ')}`);
+    const SYNC_TABLES = [
+      'content_items', 'documents', 'presentations', 'diagrams', 'canvases', 'videos',
+      'actors', 'comments', 'content_snapshots', 'events', 'thread_links',
+      'doc_icons', 'content_pins',
+      'user_tables', 'user_fields', 'user_views',
+      'user_view_columns', 'user_view_filters', 'user_view_sorts',
+      'user_links', 'user_select_options',
+      'agent_messages', 'notifications', 'preferences',
+    ];
+    // Also discover utbl_*_rows tables from both sides
+    const localUtbl = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'utbl_%_rows'").all().map(r => r.name);
+    const allTables = [...SYNC_TABLES, ...localUtbl];
+    console.log(`[sync-client] Starting initial snapshot sync for ${allTables.length} tables`);
 
-    const res = await fetch(`${config.remoteUrl}/sync/snapshot?tables=${SYNC_TABLES.join(',')}`, {
+    const res = await fetch(`${config.remoteUrl}/sync/snapshot?tables=${allTables.join(',')}`, {
       headers: { 'Authorization': `Bearer ${config.remoteToken}` },
     });
 
@@ -117,7 +128,7 @@ export class SyncClient {
     this.db.prepare("INSERT OR IGNORE INTO _sync_applying VALUES (1)").run();
 
     try {
-      for (const tableName of SYNC_TABLES) {
+      for (const tableName of allTables) {
         const remoteRows = snapshot[tableName] || [];
         console.log(`[sync-client] Processing ${tableName}: ${remoteRows.length} remote rows`);
         if (remoteRows.length === 0) continue;

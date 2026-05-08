@@ -545,11 +545,65 @@ function migrateTableComments(db) {
   // Sync flag table — when a row exists, triggers write source='sync' instead of 'local'
   db.exec(`CREATE TABLE IF NOT EXISTS _sync_applying (flag INTEGER)`);
 
-  // Auto-sync triggers for content_items
-  createSyncTriggers(db, 'content_items', 'id');
+  // Preferences table (replaces JSON files in data/preferences/)
+  db.exec(`CREATE TABLE IF NOT EXISTS preferences (
+    key        TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`);
+
+  // Migrate preferences from JSON files to DB
+  migratePreferencesFiles(db);
+
+  // Auto-sync triggers for all syncable tables
+  const syncableTables = [
+    ['content_items', 'id'],
+    ['documents', 'id'],
+    ['presentations', 'id'],
+    ['diagrams', 'id'],
+    ['canvases', 'id'],
+    ['videos', 'id'],
+    ['actors', 'id'],
+    ['comments', 'id'],
+    ['content_snapshots', 'id'],
+    ['events', 'id'],
+    ['thread_links', 'id'],
+    ['doc_icons', 'id'],
+    ['content_pins', 'id'],
+    ['user_tables', 'id'],
+    ['user_fields', 'id'],
+    ['user_views', 'id'],
+    ['user_view_columns', 'id'],
+    ['user_view_filters', 'id'],
+    ['user_view_sorts', 'id'],
+    ['user_links', 'id'],
+    ['user_select_options', 'id'],
+    ['agent_messages', 'id'],
+    ['notifications', 'id'],
+    ['preferences', 'key'],
+  ];
+
+  for (const [table, pk] of syncableTables) {
+    try {
+      const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
+      if (exists) createSyncTriggers(db, table, pk);
+    } catch (err) {
+      console.warn(`[db] Failed to create sync triggers for ${table}:`, err.message);
+    }
+  }
+
+  // Also create triggers for any existing utbl_*_rows tables
+  const utblTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'utbl_%_rows'").all();
+  for (const { name } of utblTables) {
+    try {
+      createSyncTriggers(db, name, 'id');
+    } catch (err) {
+      console.warn(`[db] Failed to create sync triggers for ${name}:`, err.message);
+    }
+  }
 }
 
-function createSyncTriggers(db, tableName, pkColumn) {
+export function createSyncTriggers(db, tableName, pkColumn) {
   // Get all columns for building the data_json
   const cols = db.prepare(`PRAGMA table_info(${tableName})`).all().map(c => c.name);
   const jsonPairs = cols.map(c => `'${c}', NEW.${c}`).join(', ');
@@ -603,6 +657,43 @@ function createSyncTriggers(db, tableName, pkColumn) {
       );
     END
   `);
+}
+
+function migratePreferencesFiles(db) {
+  try {
+    const gatewayDir = path.dirname(process.env.GATEWAY_DB_PATH || '');
+    const prefsDir = path.join(gatewayDir, 'data', 'preferences');
+    if (!fs.existsSync(prefsDir)) {
+      // Also try relative to cwd
+      const altPrefsDir = path.join(process.cwd(), 'data', 'preferences');
+      if (!fs.existsSync(altPrefsDir)) return;
+      migratePrefsFromDir(db, altPrefsDir);
+      return;
+    }
+    migratePrefsFromDir(db, prefsDir);
+  } catch (err) {
+    console.warn('[db] Preferences migration skipped:', err.message);
+  }
+}
+
+function migratePrefsFromDir(db, prefsDir) {
+  const existing = db.prepare("SELECT COUNT(*) as count FROM preferences").get();
+  if (existing.count > 0) return;
+
+  const files = fs.readdirSync(prefsDir).filter(f => f.endsWith('.json'));
+  if (files.length === 0) return;
+
+  const insert = db.prepare("INSERT OR IGNORE INTO preferences (key, value_json, updated_at) VALUES (?, ?, ?)");
+  let migrated = 0;
+  for (const file of files) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(prefsDir, file), 'utf8'));
+      const key = raw.key || file.replace('.json', '');
+      insert.run(key, JSON.stringify(raw.value), raw.updated_at || Date.now());
+      migrated++;
+    } catch {}
+  }
+  if (migrated > 0) console.log(`[db] Migrated ${migrated} preferences from files to DB`);
 }
 
 function migrateDocComments(db) {
