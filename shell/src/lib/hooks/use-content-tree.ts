@@ -126,12 +126,20 @@ export function syncSelectionToURL(sel: Selection | null, replace = false) {
   }
 }
 
-/** Build a shareable link for a content item */
+/** Build a shareable link for a content item.
+ *  - Web mode: full HTTPS URL on the current origin (works in any browser).
+ *  - App mode with cloud sync configured: full HTTPS URL on the cached cloud origin.
+ *  - App mode without sync: aose:// URI (only resolves on machines with the App installed).
+ */
 export function buildContentLink(sel: NonNullable<Selection>): string {
   const origin = getPublicOrigin();
-  const url = new URL('/content', origin);
-  url.searchParams.set('id', `${sel.type}:${sel.id}`);
-  return url.toString();
+  if (origin) {
+    const url = new URL('/content', origin);
+    url.searchParams.set('id', `${sel.type}:${sel.id}`);
+    return url.toString();
+  }
+  // No HTTP origin available — fall back to custom protocol.
+  return `aose://content/${sel.type}/${encodeURIComponent(sel.id)}`;
 }
 
 // ═══════════════════════════════════════════════════

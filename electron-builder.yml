@@ -1,5 +1,5 @@
 appId: com.agentofficesuite.app
-productName: AgentOfficeSuite
+productName: AOSE
 directories:
   output: release
 files:

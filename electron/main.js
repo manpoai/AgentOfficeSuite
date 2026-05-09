@@ -202,6 +202,66 @@ function startAdaptersForExistingAgents() {
   }
 }
 
+// Register the aose:// custom protocol so links shared from one App can be
+// opened on another machine that has the App installed. This is best-effort:
+// when running in dev (`npx electron`) the OS may already have a registered
+// handler, in which case Electron falls back to the existing one.
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('aose', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('aose');
+}
+
+// Single-instance lock — second-instance launches forward their args
+// (including the aose:// URL) to the running App.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  return;
+}
+
+app.on('second-instance', (_event, argv) => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    const aoseUrl = argv.find(a => a.startsWith('aose://'));
+    if (aoseUrl) handleAoseUrl(aoseUrl);
+  }
+});
+
+// macOS: open-url is the canonical event for protocol launches.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (mainWindow) handleAoseUrl(url);
+  else pendingAoseUrl = url;
+});
+
+let pendingAoseUrl = null;
+
+function handleAoseUrl(url) {
+  // Format: aose://content/<type>/<id>
+  // Translate to in-app navigation: window.location → /content?id=<type>:<id>
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'aose:') return;
+    const parts = parsed.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    // host=content, parts=[type, id] OR host="" with first segment being content
+    const segments = [parsed.host, ...parts].filter(Boolean);
+    if (segments[0] === 'content' && segments[1] && segments[2]) {
+      const type = segments[1];
+      const id = decodeURIComponent(segments[2]);
+      const target = `/content?id=${encodeURIComponent(`${type}:${id}`)}`;
+      if (mainWindow) {
+        mainWindow.webContents.executeJavaScript(`window.location.href = ${JSON.stringify(target)}`);
+      }
+    }
+  } catch (e) {
+    console.warn('[app] Failed to parse aose:// URL:', e.message);
+  }
+}
+
 app.on('ready', async () => {
   ensureDataDir();
   const config = loadOrCreateConfig();
@@ -250,6 +310,14 @@ app.on('ready', async () => {
   createWindow(config.gateway_port, config);
   setupTray(mainWindow, app);
   setupUpdater();
+
+  // If the App was opened via an aose:// URL before the window existed,
+  // navigate to it now.
+  if (pendingAoseUrl) {
+    const url = pendingAoseUrl;
+    pendingAoseUrl = null;
+    mainWindow.webContents.once('did-finish-load', () => handleAoseUrl(url));
+  }
 });
 
 app.on('activate', () => {

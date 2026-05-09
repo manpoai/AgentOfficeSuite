@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Cloud, CloudOff, Loader2, Check, AlertCircle } from 'lucide-react';
 import { API_BASE } from '@/lib/api/config';
 import { useT } from '@/lib/i18n';
+import { setCachedCloudOrigin } from '@/lib/remote-access';
 
 interface SyncStatus {
   protocol_version: string;
@@ -106,6 +107,9 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
         throw new Error(data.error || 'Connection failed');
       }
 
+      // Cache the cloud origin so Copy link uses it instead of aose:// going forward.
+      try { setCachedCloudOrigin(cleanUrl); } catch {}
+
       await fetchStatus();
       setServerUrl('');
       setUsername('');
@@ -125,6 +129,7 @@ export function SyncSettingsDialog({ open, onClose }: { open: boolean; onClose: 
           'Content-Type': 'application/json',
         },
       });
+      try { setCachedCloudOrigin(''); } catch {}
       await fetchStatus();
     } catch (err: any) {
       setError(err.message);
