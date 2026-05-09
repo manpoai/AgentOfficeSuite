@@ -29,8 +29,6 @@ shell/.next/
 shell/tsconfig.tsbuildinfo
 shell/nohup.out
 
-# Platform-specific agent icons
-shell/public/icons/platform-*
 
 # OS
 .DS_Store
