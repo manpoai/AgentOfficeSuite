@@ -46,6 +46,11 @@ files:
   - "!**/*.map"
 asarUnpack:
   - mcp-server/**/*
+  # Gateway runs as a Node child process. External Node interpreters can't
+  # resolve modules from inside .asar archives, so the gateway tree must live
+  # on the filesystem next to the .asar. asarUnpack copies these paths into
+  # app.asar.unpacked/ which the gateway-manager spawn target can read.
+  - gateway/**/*
 extraMetadata:
   main: electron/main.js
 mac:

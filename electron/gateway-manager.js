@@ -5,16 +5,15 @@ const net = require('net');
 const fs = require('fs');
 
 function findSystemNode() {
-  // 1. Try `which node` with the inherited PATH — works when launched from a
-  //    shell (dev mode: `npx electron`).
+  // 1. Try `which node` with the inherited PATH — works when launched from
+  //    a shell (dev mode: `npx electron`).
   try {
     const found = execSync('which node', { encoding: 'utf-8' }).trim();
     if (found && fs.existsSync(found)) return found;
   } catch { /* fall through */ }
 
-  // 2. Try `which` with a PATH that includes typical macOS/Linux node install
-  //    locations. Packaged macOS apps launched from Finder inherit a minimal
-  //    PATH (/usr/bin:/bin:/usr/sbin:/sbin) that doesn't have node.
+  // 2. Try common install paths. macOS GUI launches inherit a minimal PATH
+  //    (/usr/bin:/bin:...) without /usr/local/bin or /opt/homebrew/bin.
   const extraPath = [
     '/usr/local/bin',
     '/opt/homebrew/bin',
@@ -29,10 +28,11 @@ function findSystemNode() {
     try { if (fs.existsSync(candidate)) return candidate; } catch {}
   }
 
-  // 3. Last resort: Electron's own bundled Node binary. process.execPath in
-  //    the main process is the Electron binary — running it with ELECTRON_RUN_AS_NODE=1
-  //    forces it to behave as a regular Node interpreter. This works in
-  //    packaged builds without requiring the user to install Node separately.
+  // 3. Fall back to Electron's bundled Node (process.execPath +
+  //    ELECTRON_RUN_AS_NODE=1). User doesn't need Node installed separately,
+  //    but does require the gateway dir to be asar-unpacked since external
+  //    Node has no way to read inside .asar — see asarUnpack in
+  //    electron-builder.yml for the gateway/ rule.
   return process.execPath;
 }
 
@@ -73,7 +73,15 @@ class GatewayManager {
   start(options = {}) {
     if (this.process) return;
 
-    const gatewayDir = path.join(__dirname, '..', 'gateway');
+    // In packaged App, electron-builder asarUnpack copies gateway/** into
+    // <Resources>/app.asar.unpacked/gateway/ — that's where the actual JS files
+    // live (the .asar copy is a stale stub that external node can't read).
+    // __dirname in packaged builds points inside app.asar; replace asar segment
+    // with asar.unpacked to get the real on-disk path.
+    const electronGatewayPath = path.join(__dirname, '..', 'gateway');
+    const gatewayDir = electronGatewayPath.includes('app.asar' + path.sep)
+      ? electronGatewayPath.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
+      : electronGatewayPath;
     this.port = options.port || 4000;
 
     const nodeBin = findSystemNode();
