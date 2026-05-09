@@ -881,19 +881,18 @@ export function VideoEditor({
         const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
         w = Math.round(w * ratio); h = Math.round(h * ratio);
       }
-      html = createImageHtml(probe.objectUrl, w, h);
-      uploadImageFile(file).then(serverUrl => {
-        // Persist canonical /api/gateway/uploads/... so the SVG renders on both
-        // App and web after sync round-trip. Don't bake a host into stored data.
-        const persisted = canonicalizeUploadUrl(serverUrl);
-        updateData(d => ({
-          ...d,
-          elements: d.elements.map(el =>
-            el.id === newElId ? { ...el, html: el.html.replace(probe.objectUrl, persisted) } : el
-          ),
-        }));
+      // Upload first, then insert with the canonical server URL. Inserting with
+      // a blob URL and swapping later races with autosave — the blob URL would
+      // get persisted and become useless on the other device after sync.
+      let serverUrl: string;
+      try {
+        serverUrl = await uploadImageFile(file);
+      } catch {
         URL.revokeObjectURL(probe.objectUrl);
-      }).catch(() => {});
+        return;
+      }
+      URL.revokeObjectURL(probe.objectUrl);
+      html = createImageHtml(canonicalizeUploadUrl(serverUrl), w, h);
     }
     const newEl: VideoElement = {
       id: newElId, type: elType,

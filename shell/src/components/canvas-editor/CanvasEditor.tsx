@@ -2338,35 +2338,33 @@ export function CanvasEditor({
       if (ratio >= 1) { w = MAX_SIZE; h = Math.round(MAX_SIZE / ratio); }
       else { h = MAX_SIZE; w = Math.round(MAX_SIZE * ratio); }
     }
+    // Upload to server FIRST, then insert with server URL. Previously we
+    // inserted with the blob URL and swapped after upload — but the autosave
+    // debounce could fire between insert and swap, persisting the blob URL.
+    // After sync round-trip the blob URL is meaningless on the other side,
+    // and useless on the originating side after a refresh.
+    let serverUrl: string;
+    try {
+      serverUrl = await uploadImageFile(file);
+    } catch (err) {
+      showError('Failed to upload image', err);
+      URL.revokeObjectURL(probed.objectUrl);
+      return;
+    }
+    URL.revokeObjectURL(probed.objectUrl);
+
     const elId = `el-${crypto.randomUUID().slice(0, 8)}`;
     const newEl: CanvasElement = {
       id: elId,
       x: Math.round(target.frame.width / 2 - w / 2),
       y: Math.round(target.frame.height / 2 - h / 2),
       w, h,
-      html: createImageHtml(probed.objectUrl, w, h),
+      html: createImageHtml(serverUrl, w, h),
       locked: false, z_index: target.frame.elements.length + 1,
       name: name ?? 'Image',
     };
     updateFrame(target.frameId, page => ({ ...page, elements: [...page.elements, newEl] }));
     setSelectedIds(new Set([elId]));
-
-    // Background: upload to server, preload server image into browser cache,
-    // then swap blob URL → server URL so the visible swap is from cache (no
-    // top-to-bottom progressive repaint).
-    uploadImageFile(file).then(serverUrl => {
-      const preload = new Image();
-      const swap = () => {
-        updateElement(elId, { html: createImageHtml(serverUrl, w, h) });
-        requestAnimationFrame(() => URL.revokeObjectURL(probed.objectUrl));
-      };
-      preload.onload = swap;
-      preload.onerror = swap;
-      preload.src = resolveUploadUrl(serverUrl);
-    }).catch(err => {
-      showError('Failed to upload image', err);
-      URL.revokeObjectURL(probed.objectUrl);
-    });
   }, [getTargetFrame, updateFrame, updateElement]);
 
   const handleAddImage = useCallback(() => {
