@@ -14,7 +14,10 @@ files:
   - "!**/.next"
   - "!**/shell"
   - "!**/adapters"
-  - "!**/dist"
+  # Don't `!**/dist` — that nukes npm package build outputs (e.g.
+  # node_modules/prosemirror-model/dist/index.js). Only exclude the
+  # top-level dist/ which is our own build artifact dir.
+  - "!dist"
   - "!**/docs"
   - "!**/*.tgz"
   # Database files (gateway.db, gateway.db.bak-*, gateway.db.backup-*, etc.)
@@ -39,10 +42,10 @@ files:
   - "!**/.gitignore"
   - "!**/.env*"
   - "!**/coverage/**"
-  - "!**/test/**"
-  - "!**/tests/**"
+  # Don't `!**/test/**` or `!**/tests/**` — they nuke required npm package
+  # files inside node_modules. If we want to slim the build later, do it
+  # via package.json `bundleDependencies` or a custom afterPack hook.
   - "!**/*.log"
-  - "!**/*.test.*"
   - "!**/*.map"
 asarUnpack:
   - mcp-server/**/*
