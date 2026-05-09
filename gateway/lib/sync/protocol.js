@@ -3,6 +3,8 @@
  * and version negotiation.
  */
 
+import { createSyncTriggers } from '../db.js';
+
 export const SYNC_PROTOCOL_VERSION = '1.0';
 
 const SYNCABLE_TABLES = new Set([
@@ -80,6 +82,10 @@ export function applyChange(db, change) {
         db.prepare(
           `INSERT OR REPLACE INTO ${table_name} (${cols.join(', ')}) VALUES (${placeholders})`
         ).run(...values);
+        // Side effects for table-engine metadata: when user_tables/user_fields rows
+        // arrive via sync, the physical utbl_*_rows table (and its columns) aren't
+        // auto-managed by triggers — we have to mirror createTable/addField here.
+        ensurePhysicalRowTable(db, table_name, filteredData);
         return true;
       }
 
@@ -146,4 +152,53 @@ function serializeValue(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === 'object') return JSON.stringify(value);
   return value;
+}
+
+// When a user_tables row syncs in, create the matching physical utbl_<id>_rows
+// table if it doesn't already exist. When a user_fields row syncs in, ALTER TABLE
+// ADD COLUMN on the physical table for that field. Mirrors what table-engine
+// createTable/addField do, but for sync application path.
+function ensurePhysicalRowTable(db, table_name, data) {
+  try {
+    if (table_name === 'user_tables' && data?.id) {
+      const physName = `utbl_${data.id}_rows`;
+      const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(physName);
+      if (!exists) {
+        db.exec(`CREATE TABLE IF NOT EXISTS ${physName} (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          created_by TEXT,
+          updated_by TEXT
+        )`);
+        try { createSyncTriggers(db, physName, 'id'); } catch (err) { console.warn(`[sync-protocol] trigger setup failed for ${physName}: ${err.message}`); }
+        console.log(`[sync-protocol] Created physical row table ${physName}`);
+      }
+    } else if (table_name === 'user_fields' && data?.table_id && data?.physical_column) {
+      const physName = `utbl_${data.table_id}_rows`;
+      const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(physName);
+      if (!tableExists) {
+        db.exec(`CREATE TABLE IF NOT EXISTS ${physName} (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          created_by TEXT,
+          updated_by TEXT
+        )`);
+      }
+      const cols = db.prepare(`PRAGMA table_info(${physName})`).all().map(c => c.name);
+      if (!cols.includes(data.physical_column)) {
+        try {
+          db.exec(`ALTER TABLE ${physName} ADD COLUMN "${data.physical_column}" TEXT`);
+          // Recreate triggers so they reference the new column in their JSON payload
+          try { createSyncTriggers(db, physName, 'id'); } catch (err) { console.warn(`[sync-protocol] trigger refresh failed for ${physName}: ${err.message}`); }
+          console.log(`[sync-protocol] Added column ${data.physical_column} to ${physName}`);
+        } catch (err) {
+          console.warn(`[sync-protocol] Failed to add column ${data.physical_column} to ${physName}: ${err.message}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[sync-protocol] ensurePhysicalRowTable error for ${table_name}:`, err.message);
+  }
 }
