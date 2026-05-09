@@ -69,13 +69,18 @@ export default function agentMessagesRoutes(app, { db, authenticateAny, authenti
         'SELECT sender_id FROM agent_messages WHERE agent_id = ? AND sender_type = ? ORDER BY created_at DESC LIMIT 1'
       ).get(agentId, 'human');
 
+      // Use the same {event, data} shape as handleSyncChangeSSE in server.js so
+      // the frontend SSEProvider's single handler matches both the direct push
+      // (this path) and the sync-applied broadcast (other-device path).
       const humanEvent = {
-        type: 'message.sent',
-        agent_id: agentId,
-        agent_name: agent.display_name || agent.username,
-        message_id: id,
-        content: content.trim(),
-        created_at: now,
+        event: 'message.sent',
+        data: {
+          agent_id: agentId,
+          agent_name: agent.display_name || agent.username,
+          message_id: id,
+          content: content.trim(),
+          created_at: now,
+        },
       };
 
       if (lastHumanMsg) {
