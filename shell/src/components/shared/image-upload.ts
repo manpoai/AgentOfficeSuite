@@ -14,6 +14,35 @@ export function resolveUploadUrl(p: string): string {
   return resolveGatewayUrl(p);
 }
 
+/**
+ * Normalize an upload path to the canonical form `/api/gateway/uploads/files/X.jpg`
+ * that works in both App and web modes without baking in a host. Use this when
+ * persisting URLs into document data (so they round-trip through sync).
+ *
+ * App mode: gateway has middleware that strips /api/gateway → /api, so the path resolves.
+ * Web mode: Caddy → Next.js → /api/gateway/* proxy → gateway.
+ *
+ * Avoid resolveUploadUrl() for persisted data — it bakes in `http://localhost:4000`
+ * (App) or `/api/gateway` (web), which breaks the OTHER side after sync.
+ */
+export function canonicalizeUploadUrl(p: string): string {
+  if (!p) return p;
+  if (p.startsWith('blob:') || p.startsWith('data:')) return p;
+  // Strip any host (http://localhost:4000, https://asuite.gridtabs.com, etc.)
+  let path = p;
+  try {
+    const u = new URL(p);
+    path = u.pathname;
+  } catch {
+    // not a full URL, leave as-is
+  }
+  // Strip /api/gateway if present, then re-add canonical /api/gateway prefix
+  if (path.startsWith('/api/gateway/')) path = path.slice('/api/gateway'.length);
+  if (path.startsWith('/api/')) path = path.slice('/api'.length);
+  if (!path.startsWith('/uploads/')) return p; // unknown shape, don't touch
+  return `/api/gateway${path}`;
+}
+
 /** Read image natural width/height without consuming the whole file. */
 export function probeImageSize(file: File): Promise<{ w: number; h: number; objectUrl: string }> {
   return new Promise((resolve, reject) => {
@@ -26,8 +55,11 @@ export function probeImageSize(file: File): Promise<{ w: number; h: number; obje
 }
 
 export function createImageHtml(src: string, w = 300, h = 200): string {
-  const resolved = resolveUploadUrl(src);
-  return `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><defs><pattern id="img-fill" patternUnits="objectBoundingBox" width="1" height="1"><image href="${resolved}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"/></pattern></defs><path d="M0 0h${w}v${h}H0z" fill="url(#img-fill)" stroke="none" stroke-width="0" vector-effect="non-scaling-stroke"/></svg></div>`;
+  // For blob: URLs (during upload), use as-is. For server URLs, store canonical
+  // /api/gateway/uploads/... form so the SVG renders correctly on both App and web
+  // after the data round-trips through sync.
+  const url = (src.startsWith('blob:') || src.startsWith('data:')) ? src : canonicalizeUploadUrl(src);
+  return `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><defs><pattern id="img-fill" patternUnits="objectBoundingBox" width="1" height="1"><image href="${url}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"/></pattern></defs><path d="M0 0h${w}v${h}H0z" fill="url(#img-fill)" stroke="none" stroke-width="0" vector-effect="non-scaling-stroke"/></svg></div>`;
 }
 
 export function extractDroppedImageFiles(e: DragEvent): File[] {

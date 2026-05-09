@@ -23,7 +23,7 @@ import { formatRelativeTime } from '@/lib/utils/time';
 import { useT, getT } from '@/lib/i18n';
 import { useKeyboardScope } from '@/lib/keyboard/useKeyboardScope';
 import type { ShortcutDef } from '@/lib/keyboard/types';
-import { readFileAsDataUrl, extractDroppedImageFiles, isSvgFile, createImageHtml, probeImageSize, uploadImageFile, resolveUploadUrl } from '@/components/shared/image-upload';
+import { readFileAsDataUrl, extractDroppedImageFiles, isSvgFile, createImageHtml, probeImageSize, uploadImageFile, resolveUploadUrl, canonicalizeUploadUrl } from '@/components/shared/image-upload';
 import { parseSvgFileContent } from '@/components/shared/svg-import';
 import { parsePath, expandCornerRadii, serializeSubPath, applyCornerRadiiToHtml, parseCornerRadiiFromHtml } from '@/components/shared/svg-path-utils';
 import { ContentTopBar } from '@/components/shared/ContentTopBar';
@@ -883,11 +883,13 @@ export function VideoEditor({
       }
       html = createImageHtml(probe.objectUrl, w, h);
       uploadImageFile(file).then(serverUrl => {
-        const resolved = resolveUploadUrl(serverUrl);
+        // Persist canonical /api/gateway/uploads/... so the SVG renders on both
+        // App and web after sync round-trip. Don't bake a host into stored data.
+        const persisted = canonicalizeUploadUrl(serverUrl);
         updateData(d => ({
           ...d,
           elements: d.elements.map(el =>
-            el.id === newElId ? { ...el, html: el.html.replace(probe.objectUrl, resolved) } : el
+            el.id === newElId ? { ...el, html: el.html.replace(probe.objectUrl, persisted) } : el
           ),
         }));
         URL.revokeObjectURL(probe.objectUrl);
