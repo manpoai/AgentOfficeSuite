@@ -68,6 +68,9 @@ function loadOrCreateConfig() {
 }
 
 function createWindow(port, config) {
+  // Pass admin token to preload via env so it's available before page JS runs
+  process.env.__AOSE_ADMIN_TOKEN__ = config.admin_token;
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -86,10 +89,6 @@ function createWindow(port, config) {
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
   mainWindow.webContents.on('dom-ready', () => {
-    const adminToken = JSON.stringify(config.admin_token);
-    mainWindow.webContents.executeJavaScript(
-      `window.__AOSE_ADMIN_TOKEN__ = ${adminToken};`
-    );
     if (process.platform === 'darwin') {
       mainWindow.webContents.executeJavaScript(
         "const s = document.createElement('style');" +

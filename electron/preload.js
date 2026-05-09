@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+if (process.env.__AOSE_ADMIN_TOKEN__) {
+  contextBridge.exposeInMainWorld('__AOSE_ADMIN_TOKEN__', process.env.__AOSE_ADMIN_TOKEN__);
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   isElectron: true,
