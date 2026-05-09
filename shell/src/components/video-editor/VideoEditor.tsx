@@ -474,7 +474,10 @@ function applyAnimatedStyleOverrides(
   const fs = snap.fontSize;
 
   if (isSvg) {
-    const hasImageFill = h.includes('url(#img-fill)');
+    // Pattern id may be either the legacy `img-fill` or the new
+    // `img-fill-<elementId>` form. Detect either so we don't overwrite the
+    // image fill with a flat color.
+    const hasImageFill = /url\(#img-fill(?:-[\w-]+)?\)/.test(h);
     if (!hasImageFill) h = h.replace(/fill="[^"]*"/, `fill="${fillHex}"`);
     h = h.replace(/stroke="[^"]*"/, `stroke="${strokeHex}"`);
   } else {
@@ -3129,7 +3132,7 @@ function ElementPropertyPanel({
       }
       if (isSvg) {
         html = html.replace(/<defs>[\s\S]*?<\/defs>/g, '');
-        html = html.replace(/fill="url\(#img-fill\)"/, 'fill="#D9D9D9"');
+        html = html.replace(/fill="url\(#img-fill(?:-[\w-]+)?\)"/, 'fill="#D9D9D9"');
       } else {
         html = html.replace(/background-image:[^;]+;?\s*/g, '');
         html = html.replace(/background-size:[^;]+;?\s*/g, '');
