@@ -50,7 +50,16 @@ asarUnpack:
   # resolve modules from inside .asar archives, so the gateway tree must live
   # on the filesystem next to the .asar. asarUnpack copies these paths into
   # app.asar.unpacked/ which the gateway-manager spawn target can read.
-  - gateway/**/*
+  # Be explicit about node_modules since some asar implementations don't
+  # recurse globs into nested package boundaries.
+  - "gateway/**/*"
+  - "gateway/node_modules/**/*"
+  - "gateway/lib/**/*"
+  - "gateway/routes/**/*"
+  - "gateway/middleware/**/*"
+  - "gateway/seed-assets/**/*"
+  - "gateway/locales/**/*"
+  - "gateway/scripts/**/*"
 extraMetadata:
   main: electron/main.js
 mac:
