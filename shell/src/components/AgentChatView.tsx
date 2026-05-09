@@ -117,7 +117,17 @@ export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark
 
       {/* Input bar — aligned with CommentPanel style */}
       {(() => {
-        const isOwnerDevice = agentKind === 'local' && !!myDeviceId && originDeviceId === myDeviceId;
+        // Local agents are owned by this device when:
+        //   - sync is not enabled (no concept of "another device" yet), OR
+        //   - sync IS enabled and the agent's origin_device_id matches our device_id
+        // The previous logic blocked the input even when sync was off, which
+        // meant a brand-new App with a freshly-registered local agent couldn't
+        // message its own agent until it connected to the cloud first.
+        const syncEnabled = !!syncStatus?.sync_enabled;
+        const isOwnerDevice = agentKind === 'local' && (
+          !syncEnabled ||
+          (!!myDeviceId && originDeviceId === myDeviceId)
+        );
         const canMessage = agentKind !== 'local' || isOwnerDevice;
         if (!canMessage) {
           return (
