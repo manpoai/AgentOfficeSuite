@@ -13,10 +13,14 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
+    console.log('[SSEProvider] useEffect ran, token:', token ? 'present' : 'NULL');
     if (!token) return;
 
-    const es = new EventSource(`${API_BASE}/notifications/stream?token=${token}`);
+    const url = `${API_BASE}/notifications/stream?token=${token}`;
+    console.log('[SSEProvider] connecting to:', url);
+    const es = new EventSource(url);
     esRef.current = es;
+    es.onopen = () => console.log('[SSEProvider] ES OPEN');
 
     es.onmessage = (e) => {
       try {
@@ -51,7 +55,8 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    es.onerror = () => {
+    es.onerror = (e) => {
+      console.error('[SSEProvider] ES error', e, 'readyState:', es.readyState);
       // EventSource auto-reconnects
     };
 
