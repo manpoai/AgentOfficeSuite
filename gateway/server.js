@@ -153,6 +153,12 @@ if (fs.existsSync(path.join(shellDistDir, 'index.html'))) {
   app.use(express.static(shellDistDir, { extensions: ['html'] }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
+    // Don't fall back to index.html for asset-shaped URLs (e.g. /icons/foo.png).
+    // If the asset is missing, return 404 so the browser knows — otherwise it
+    // gets index.html as the body and tries to decode HTML as the asset type.
+    if (/\.[a-zA-Z0-9]{2,5}$/.test(req.path)) {
+      return res.status(404).end();
+    }
     const htmlFile = path.join(shellDistDir, req.path + '.html');
     if (fs.existsSync(htmlFile)) return res.sendFile(htmlFile);
     res.sendFile(path.join(shellDistDir, 'index.html'));
