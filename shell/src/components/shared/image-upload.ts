@@ -54,12 +54,17 @@ export function probeImageSize(file: File): Promise<{ w: number; h: number; obje
   });
 }
 
-export function createImageHtml(src: string, w = 300, h = 200): string {
+export function createImageHtml(src: string, w = 300, h = 200, elementId?: string): string {
   // For blob: URLs (during upload), use as-is. For server URLs, store canonical
   // /api/gateway/uploads/... form so the SVG renders correctly on both App and web
   // after the data round-trips through sync.
   const url = (src.startsWith('blob:') || src.startsWith('data:')) ? src : canonicalizeUploadUrl(src);
-  return `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><defs><pattern id="img-fill" patternUnits="objectBoundingBox" width="1" height="1"><image href="${url}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"/></pattern></defs><path d="M0 0h${w}v${h}H0z" fill="url(#img-fill)" stroke="none" stroke-width="0" vector-effect="non-scaling-stroke"/></svg></div>`;
+  // The SVG pattern's id must be unique across the whole document — multiple
+  // image elements in one canvas/video would all collide on a hardcoded
+  // "img-fill" id and the browser would render every one with the FIRST
+  // pattern's image (so every later image looked like the first).
+  const patternId = `img-fill-${elementId || Math.random().toString(36).slice(2, 10)}`;
+  return `<div style="width:100%;height:100%;overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ${w + 2} ${h + 2}" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;"><defs><pattern id="${patternId}" patternUnits="objectBoundingBox" width="1" height="1"><image href="${url}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"/></pattern></defs><path d="M0 0h${w}v${h}H0z" fill="url(#${patternId})" stroke="none" stroke-width="0" vector-effect="non-scaling-stroke"/></svg></div>`;
 }
 
 export function extractDroppedImageFiles(e: DragEvent): File[] {

@@ -50,7 +50,7 @@ import { FramePresetPanel } from './FramePresetPanel';
 import { SubElementEditor, type SubElementSelection } from '@/components/shared/SubElementEditor';
 import { extractDesignTokens, updateDesignToken, applyProjection } from './projection';
 import { useUndoRedo } from './use-undo-redo';
-import { uploadImageFile, createImageHtml, extractDroppedImageFiles, isSvgFile, probeImageSize, resolveUploadUrl } from '@/components/shared/image-upload';
+import { uploadImageFile, createImageHtml, extractDroppedImageFiles, isSvgFile, probeImageSize, resolveUploadUrl, canonicalizeUploadUrl } from '@/components/shared/image-upload';
 import { parseSvgFileContent } from '@/components/shared/svg-import';
 import type { CanvasData, CanvasPage, CanvasElement } from './types';
 import { createEmptyPage, DEFAULT_PAGE_WIDTH, DEFAULT_PAGE_HEIGHT } from './types';
@@ -850,13 +850,20 @@ export function CanvasEditor({
     saveTimeoutRef.current = setTimeout(async () => {
       const toSave = pendingDataRef.current;
       if (!toSave) return;
+      // If any element still references a blob: URL (image upload in flight),
+      // defer the save. The post-upload swap will trigger another scheduleSave
+      // with the server URL, which will save cleanly.
+      const json = JSON.stringify(toSave);
+      if (json.includes('blob:')) {
+        // Don't clear pendingDataRef — leave it for the next swap to re-schedule
+        return;
+      }
       pendingDataRef.current = null;
       setSaveStatus('Saving...');
       try {
         await gw.saveCanvas(canvasId, toSave);
         setSaveStatus('Saved');
         setTimeout(() => setSaveStatus(''), 2000);
-        // Refresh updated_at / updated_by in the topbar's metaLine.
         queryClient.invalidateQueries({ queryKey: ['canvas', canvasId] });
       }
       catch (e) { setSaveStatus('Save failed'); showError('Failed to save canvas', e); }
@@ -2338,33 +2345,37 @@ export function CanvasEditor({
       if (ratio >= 1) { w = MAX_SIZE; h = Math.round(MAX_SIZE / ratio); }
       else { h = MAX_SIZE; w = Math.round(MAX_SIZE * ratio); }
     }
-    // Upload to server FIRST, then insert with server URL. Previously we
-    // inserted with the blob URL and swapped after upload — but the autosave
-    // debounce could fire between insert and swap, persisting the blob URL.
-    // After sync round-trip the blob URL is meaningless on the other side,
-    // and useless on the originating side after a refresh.
-    let serverUrl: string;
-    try {
-      serverUrl = await uploadImageFile(file);
-    } catch (err) {
-      showError('Failed to upload image', err);
-      URL.revokeObjectURL(probed.objectUrl);
-      return;
-    }
-    URL.revokeObjectURL(probed.objectUrl);
-
+    // Insert immediately with the blob URL so the user sees the image right
+    // away. The blob URL is local-only; scheduleSave detects it and defers
+    // persistence until the upload completes and we swap to the server URL.
     const elId = `el-${crypto.randomUUID().slice(0, 8)}`;
     const newEl: CanvasElement = {
       id: elId,
       x: Math.round(target.frame.width / 2 - w / 2),
       y: Math.round(target.frame.height / 2 - h / 2),
       w, h,
-      html: createImageHtml(serverUrl, w, h),
+      html: createImageHtml(probed.objectUrl, w, h, elId),
       locked: false, z_index: target.frame.elements.length + 1,
       name: name ?? 'Image',
     };
     updateFrame(target.frameId, page => ({ ...page, elements: [...page.elements, newEl] }));
     setSelectedIds(new Set([elId]));
+
+    // Background: upload, preload server URL into cache, swap blob → server URL.
+    uploadImageFile(file).then(serverUrl => {
+      const persisted = canonicalizeUploadUrl(serverUrl);
+      const preload = new Image();
+      const swap = () => {
+        updateElement(elId, { html: createImageHtml(persisted, w, h, elId) });
+        requestAnimationFrame(() => URL.revokeObjectURL(probed.objectUrl));
+      };
+      preload.onload = swap;
+      preload.onerror = swap;
+      preload.src = resolveUploadUrl(serverUrl);
+    }).catch(err => {
+      showError('Failed to upload image', err);
+      URL.revokeObjectURL(probed.objectUrl);
+    });
   }, [getTargetFrame, updateFrame, updateElement]);
 
   const handleAddImage = useCallback(() => {

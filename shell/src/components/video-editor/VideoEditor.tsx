@@ -769,6 +769,10 @@ export function VideoEditor({
     saveTimeoutRef.current = setTimeout(async () => {
       const toSave = pendingDataRef.current;
       if (!toSave) return;
+      // If any element still references a blob: URL (image upload in flight),
+      // defer the save. The post-upload swap re-triggers scheduleSave with the
+      // server URL, which will save cleanly.
+      if (JSON.stringify(toSave).includes('blob:')) return;
       pendingDataRef.current = null;
       setSaveStatus('Saving...');
       try {
@@ -869,30 +873,23 @@ export function VideoEditor({
     if (!data) return;
     const newElId = crypto.randomUUID();
     let html: string, w: number, h: number, elType: 'image' | 'shape' = 'shape';
+    let probe: { w: number; h: number; objectUrl: string } | null = null;
     if (isSvgFile(file)) {
       const text = await file.text();
       const parsed = parseSvgFileContent(text);
       html = parsed.html; w = parsed.w; h = parsed.h;
     } else {
       const MAX_SIZE = 600;
-      const probe = await probeImageSize(file);
+      probe = await probeImageSize(file);
       w = probe.w; h = probe.h;
       if (w > MAX_SIZE || h > MAX_SIZE) {
         const ratio = Math.min(MAX_SIZE / w, MAX_SIZE / h);
         w = Math.round(w * ratio); h = Math.round(h * ratio);
       }
-      // Upload first, then insert with the canonical server URL. Inserting with
-      // a blob URL and swapping later races with autosave — the blob URL would
-      // get persisted and become useless on the other device after sync.
-      let serverUrl: string;
-      try {
-        serverUrl = await uploadImageFile(file);
-      } catch {
-        URL.revokeObjectURL(probe.objectUrl);
-        return;
-      }
-      URL.revokeObjectURL(probe.objectUrl);
-      html = createImageHtml(canonicalizeUploadUrl(serverUrl), w, h);
+      // Insert immediately with the blob URL so the user sees the image right
+      // away. The blob URL is local-only; updateData -> scheduleSave detects it
+      // and defers persistence until the post-upload swap puts the server URL.
+      html = createImageHtml(probe.objectUrl, w, h, newElId);
     }
     const newEl: VideoElement = {
       id: newElId, type: elType,
@@ -902,6 +899,21 @@ export function VideoEditor({
     };
     updateData(d => ({ ...d, elements: [...d.elements, newEl] }));
     setSelectedElementId(newElId);
+
+    // Background: upload, swap blob → canonical server URL.
+    if (probe && !isSvgFile(file)) {
+      const probeUrl = probe.objectUrl;
+      uploadImageFile(file).then(serverUrl => {
+        const persisted = canonicalizeUploadUrl(serverUrl);
+        updateData(d => ({
+          ...d,
+          elements: d.elements.map(el =>
+            el.id === newElId ? { ...el, html: createImageHtml(persisted, w, h, newElId) } : el
+          ),
+        }));
+        URL.revokeObjectURL(probeUrl);
+      }).catch(() => { URL.revokeObjectURL(probeUrl); });
+    }
   }, [data, currentTime, updateData]);
 
   const handleImageUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
