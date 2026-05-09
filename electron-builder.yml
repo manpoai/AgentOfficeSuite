@@ -15,20 +15,35 @@ files:
   - "!**/docs"
   - "!**/*.tgz"
   - "!**/*.db"
+  - "!shell-dist/editor-test*"
+  - "!shell-dist/_next/static/chunks/app/editor-test/**"
 asarUnpack:
   - mcp-server/**/*
 extraMetadata:
   main: electron/main.js
 mac:
   category: public.app-category.productivity
+  icon: electron/assets/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
 win:
+  icon: electron/assets/icon.png
   target:
-    - nsis
-    - portable
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
 linux:
+  icon: electron/assets/icon.png
   target:
     - AppImage
     - deb

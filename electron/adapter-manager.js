@@ -5,6 +5,7 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 const INBOX_DIR = path.join(os.homedir(), '.aose', 'inbox');
+const STATE_DIR = path.join(os.homedir(), '.aose', 'adapter-state');
 
 let _translateEvent = null;
 async function loadTranslator() {
@@ -22,6 +23,23 @@ function writeInbox(agentName, content) {
   fs.appendFileSync(inboxPath, line);
 }
 
+function statePath(agentId) {
+  return path.join(STATE_DIR, `${agentId}.json`);
+}
+
+function loadState(agentId) {
+  try {
+    return JSON.parse(fs.readFileSync(statePath(agentId), 'utf8'));
+  } catch { return { lastEventId: null }; }
+}
+
+function saveState(agentId, state) {
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(statePath(agentId), JSON.stringify(state));
+  } catch (e) { console.warn(`[adapter] state write failed for ${agentId}:`, e.message); }
+}
+
 class AdapterManager {
   constructor(gatewayPort) {
     this.gatewayPort = gatewayPort;
@@ -33,12 +51,48 @@ class AdapterManager {
     this.terminalWriter = fn;
   }
 
-  start(agentConfig) {
+  async start(agentConfig) {
     const { agentId, agentName, agentToken, platform, agentDir } = agentConfig;
     if (this.connections.has(agentId)) return;
 
+    // Replay any events the agent missed while the App was closed BEFORE
+    // opening the live SSE stream. Without this, every restart would lose
+    // every event that arrived during downtime.
+    try {
+      await this._catchup(agentId, agentName, platform, agentDir, agentToken);
+    } catch (e) {
+      console.warn(`[adapter] catchup failed for ${agentName}:`, e.message);
+    }
+
     const url = `http://127.0.0.1:${this.gatewayPort}/api/me/events/stream?token=${agentToken}`;
     this._connect(agentId, agentName, platform, agentDir, agentToken, url);
+  }
+
+  async _catchup(agentId, agentName, platform, agentDir, agentToken) {
+    const state = loadState(agentId);
+    const sinceParam = state.lastEventId ? `?since=${encodeURIComponent(state.lastEventId)}` : '?since=0';
+    const url = `http://127.0.0.1:${this.gatewayPort}/api/me/events/catchup${sinceParam}`;
+    return new Promise((resolve, reject) => {
+      const req = http.get(url, { headers: { Authorization: `Bearer ${agentToken}` } }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c.toString(); });
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            return resolve(); // missing endpoint or auth — silently skip
+          }
+          try {
+            const events = JSON.parse(body).events || [];
+            for (const event of events) {
+              this._handleEvent(agentId, agentName, platform, agentDir, event);
+            }
+            console.log(`[adapter] Catchup delivered ${events.length} events for ${agentName}`);
+          } catch (e) { console.warn(`[adapter] catchup parse error for ${agentName}:`, e.message); }
+          resolve();
+        });
+      });
+      req.on('error', reject);
+      req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    });
   }
 
   _connect(agentId, agentName, platform, agentDir, agentToken, url) {
@@ -118,6 +172,12 @@ class AdapterManager {
 
     writeInbox(agentName, content);
     console.log(`[adapter] Event delivered to inbox for ${agentName}: ${event.event}`);
+
+    // Persist last-seen event id so that if the App is killed mid-stream,
+    // the next launch's catchup picks up from here instead of "now".
+    if (event.event_id) {
+      saveState(agentId, { lastEventId: event.event_id, lastEventAt: Date.now() });
+    }
 
     if (this.terminalWriter && platform === 'claude-code') {
       this.terminalWriter(agentName, 'you have a new AOSE event');

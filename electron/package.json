@@ -9,6 +9,7 @@
     "postinstall": "electron-rebuild -f -w node-pty"
   },
   "dependencies": {
+    "electron-log": "^5.4.3",
     "electron-updater": "^6.3.0",
     "node-pty": "^1.1.0"
   },

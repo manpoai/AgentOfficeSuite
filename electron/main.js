@@ -1,7 +1,8 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, crashReporter } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const log = require('electron-log/main');
 const { GatewayManager, findFreePort } = require('./gateway-manager');
 const { TerminalManager } = require('./terminal-manager');
 const { AdapterManager } = require('./adapter-manager');
@@ -15,6 +16,19 @@ const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const DB_PATH = path.join(DATA_SUBDIR, 'gateway.db');
 const UPLOADS_DIR = path.join(DATA_SUBDIR, 'uploads');
 const LOGS_DIR = path.join(DATA_DIR, 'logs');
+
+// Wire electron-log: route console.* calls into ~/.aose/logs/main.log so users
+// can attach a log file to bug reports without us asking them to run from a terminal.
+fs.mkdirSync(LOGS_DIR, { recursive: true });
+log.transports.file.resolvePathFn = () => path.join(LOGS_DIR, 'main.log');
+log.transports.file.maxSize = 5 * 1024 * 1024; // 5 MB rotation
+Object.assign(console, log.functions);
+
+// Crash reporter — collect minidumps locally; without an upload URL they just
+// stay on disk in app.getPath('crashDumps'), which the user can grab manually.
+try {
+  crashReporter.start({ submitURL: '', uploadToServer: false, compress: true, productName: 'AOSE' });
+} catch (e) { console.warn('[app] crashReporter init failed:', e.message); }
 
 const gateway = new GatewayManager();
 const terminalManager = new TerminalManager();
