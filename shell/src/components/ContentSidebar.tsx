@@ -202,17 +202,35 @@ export function ContentSidebar({
   }, []);
 
   // Sync terminalAgents fields when allAgents data updates (e.g. after rename or sync)
+  // Also auto-add the restored selectedAgentId if it's not yet in terminalAgents
   useEffect(() => {
     if (!allAgents) return;
-    setTerminalAgents(prev => prev.map(ta => {
-      const fresh = allAgents.find(a => a.name === ta.agentId);
-      if (!fresh) return ta;
-      if (fresh.display_name !== ta.displayName || fresh.agent_kind !== ta.agentKind || fresh.origin_device_id !== ta.originDeviceId) {
-        return { ...ta, displayName: fresh.display_name, agentKind: fresh.agent_kind, originDeviceId: fresh.origin_device_id };
+    setTerminalAgents(prev => {
+      let updated = prev.map(ta => {
+        const fresh = allAgents.find(a => a.name === ta.agentId);
+        if (!fresh) return ta;
+        if (fresh.display_name !== ta.displayName || fresh.agent_kind !== ta.agentKind || fresh.origin_device_id !== ta.originDeviceId) {
+          return { ...ta, displayName: fresh.display_name, agentKind: fresh.agent_kind, originDeviceId: fresh.origin_device_id };
+        }
+        return ta;
+      });
+      if (selectedAgentId && !updated.find(a => a.agentId === selectedAgentId)) {
+        const agentData = allAgents.find(a => a.name === selectedAgentId);
+        if (agentData) {
+          updated = [...updated, {
+            agentId: selectedAgentId,
+            agentName: selectedAgentId,
+            displayName: agentData.display_name,
+            platform: agentData.platform || 'unknown',
+            status: 'running' as const,
+            agentKind: agentData.agent_kind,
+            originDeviceId: agentData.origin_device_id,
+          }];
+        }
       }
-      return ta;
-    }));
-  }, [allAgents]);
+      return updated;
+    });
+  }, [allAgents, selectedAgentId]);
 
   // Listen for "open connect agents" event
   useEffect(() => {
@@ -746,8 +764,8 @@ export function ContentSidebar({
               <div className="px-2 pb-2">
                 {(() => {
                   const all = allAgents || [];
-                  const localList = all.filter(a => localAgentNames.has(a.name));
-                  const remoteList = all.filter(a => !localAgentNames.has(a.name));
+                  const localList = all.filter(a => a.agent_kind === 'local');
+                  const remoteList = all.filter(a => a.agent_kind !== 'local');
                   const renderAgent = (agent: typeof all[0]) => {
                     const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
                     const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
