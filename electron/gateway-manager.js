@@ -5,15 +5,19 @@ const net = require('net');
 const fs = require('fs');
 
 function findSystemNode() {
-  // 1. Try `which node` with the inherited PATH — works when launched from
-  //    a shell (dev mode: `npx electron`).
+  // In packaged builds, always use Electron's bundled Node (with
+  // ELECTRON_RUN_AS_NODE=1). This guarantees the correct architecture and
+  // eliminates dependency on system Node. The gateway dir is asar-unpacked
+  // so external Node can read it (see asarUnpack in electron-builder.yml).
+  const isPackaged = !process.defaultApp;
+  if (isPackaged) return process.execPath;
+
+  // Dev mode: try system Node first for faster gateway restarts.
   try {
     const found = execSync('which node', { encoding: 'utf-8' }).trim();
     if (found && fs.existsSync(found)) return found;
   } catch { /* fall through */ }
 
-  // 2. Try common install paths. macOS GUI launches inherit a minimal PATH
-  //    (/usr/bin:/bin:...) without /usr/local/bin or /opt/homebrew/bin.
   const extraPath = [
     '/usr/local/bin',
     '/opt/homebrew/bin',
@@ -28,11 +32,6 @@ function findSystemNode() {
     try { if (fs.existsSync(candidate)) return candidate; } catch {}
   }
 
-  // 3. Fall back to Electron's bundled Node (process.execPath +
-  //    ELECTRON_RUN_AS_NODE=1). User doesn't need Node installed separately,
-  //    but does require the gateway dir to be asar-unpacked since external
-  //    Node has no way to read inside .asar — see asarUnpack in
-  //    electron-builder.yml for the gateway/ rule.
   return process.execPath;
 }
 
