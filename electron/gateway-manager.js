@@ -5,33 +5,59 @@ const net = require('net');
 const fs = require('fs');
 
 function findSystemNode() {
-  // In packaged builds, always use Electron's bundled Node (with
-  // ELECTRON_RUN_AS_NODE=1). This guarantees the correct architecture and
-  // eliminates dependency on system Node. The gateway dir is asar-unpacked
-  // so external Node can read it (see asarUnpack in electron-builder.yml).
-  const isPackaged = !process.defaultApp;
-  if (isPackaged) return process.execPath;
+  // Gateway's native modules (better-sqlite3) are compiled against system
+  // Node's ABI, NOT Electron's. We must find a system Node whose arch
+  // matches the machine (process.arch from Electron = correct arch).
+  const wantArch = process.arch; // arm64 or x64
 
-  // Dev mode: try system Node first for faster gateway restarts.
-  try {
-    const found = execSync('which node', { encoding: 'utf-8' }).trim();
-    if (found && fs.existsSync(found)) return found;
-  } catch { /* fall through */ }
-
-  const extraPath = [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
-    '/opt/homebrew/opt/node/bin',
-    process.env.HOME ? `${process.env.HOME}/.nvm/versions/node/v24/bin` : null,
-    process.env.HOME ? `${process.env.HOME}/.volta/bin` : null,
-    '/usr/bin',
-    '/bin',
-  ].filter(Boolean);
-  for (const dir of extraPath) {
-    const candidate = path.join(dir, 'node');
-    try { if (fs.existsSync(candidate)) return candidate; } catch {}
+  function checkArch(nodePath) {
+    try {
+      const arch = execSync(`"${nodePath}" -p process.arch`, {
+        encoding: 'utf-8',
+        timeout: 3000,
+      }).trim();
+      return arch === wantArch;
+    } catch { return false; }
   }
 
+  // 1. Try `which node` — works when launched from shell (dev mode).
+  try {
+    const found = execSync('which node', { encoding: 'utf-8' }).trim();
+    if (found && fs.existsSync(found) && checkArch(found)) return found;
+  } catch { /* fall through */ }
+
+  // 2. Try common install paths. macOS GUI launches inherit a minimal PATH.
+  //    Scan nvm versions directory for any matching-arch Node.
+  const extraPath = [
+    '/opt/homebrew/bin',
+    '/opt/homebrew/opt/node/bin',
+    '/usr/local/bin',
+  ].filter(Boolean);
+
+  if (process.env.HOME) {
+    const nvmDir = path.join(process.env.HOME, '.nvm/versions/node');
+    try {
+      const versions = fs.readdirSync(nvmDir)
+        .filter(v => v.startsWith('v'))
+        .sort().reverse();
+      for (const v of versions) {
+        extraPath.push(path.join(nvmDir, v, 'bin'));
+      }
+    } catch { /* nvm not installed */ }
+    extraPath.push(path.join(process.env.HOME, '.volta/bin'));
+  }
+
+  extraPath.push('/usr/bin', '/bin');
+
+  for (const dir of extraPath) {
+    const candidate = path.join(dir, 'node');
+    try {
+      if (fs.existsSync(candidate) && checkArch(candidate)) return candidate;
+    } catch {}
+  }
+
+  // 3. Last resort: Electron's own binary. Native modules may ABI-mismatch
+  //    but at least the arch will be correct.
   return process.execPath;
 }
 
