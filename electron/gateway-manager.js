@@ -4,36 +4,50 @@ const http = require('http');
 const net = require('net');
 const fs = require('fs');
 
-function findSystemNode() {
-  // Gateway's native modules (better-sqlite3) are compiled against system
-  // Node's ABI, NOT Electron's. We must find a system Node whose arch
-  // matches the machine (process.arch from Electron = correct arch).
-  const wantArch = process.arch; // arm64 or x64
+function getRequiredModuleVersion(gatewayDir) {
+  try {
+    const nodePath = path.join(
+      gatewayDir, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+    );
+    const buf = fs.readFileSync(nodePath);
+    const str = buf.toString('utf-8', 0, Math.min(buf.length, 4096));
+    const match = str.match(/node_modules.api_version=(\d+)/);
+    if (match) return match[1];
+  } catch {}
+  return null;
+}
 
-  function checkArch(nodePath) {
+function findSystemNode(gatewayDir) {
+  const wantArch = process.arch;
+
+  function checkNode(nodePath) {
     try {
-      const arch = execSync(`"${nodePath}" -p process.arch`, {
-        encoding: 'utf-8',
-        timeout: 3000,
+      const out = execSync(`"${nodePath}" -p "process.arch+','+process.versions.modules"`, {
+        encoding: 'utf-8', timeout: 3000,
       }).trim();
-      return arch === wantArch;
-    } catch { return false; }
+      const [arch, modules] = out.split(',');
+      return { arch, modules, path: nodePath };
+    } catch { return null; }
   }
 
-  // 1. Try `which node` — works when launched from shell (dev mode).
+  const requiredABI = getRequiredModuleVersion(gatewayDir);
+  const candidates = [];
+
+  // 1. Try `which node` — works from shell (dev mode).
   try {
     const found = execSync('which node', { encoding: 'utf-8' }).trim();
-    if (found && fs.existsSync(found) && checkArch(found)) return found;
-  } catch { /* fall through */ }
+    if (found && fs.existsSync(found)) {
+      const info = checkNode(found);
+      if (info) candidates.push(info);
+    }
+  } catch {}
 
-  // 2. Try common install paths. macOS GUI launches inherit a minimal PATH.
-  //    Scan nvm versions directory for any matching-arch Node.
-  const extraPath = [
+  // 2. Common install paths + all nvm versions.
+  const dirs = [
     '/opt/homebrew/bin',
     '/opt/homebrew/opt/node/bin',
     '/usr/local/bin',
-  ].filter(Boolean);
-
+  ];
   if (process.env.HOME) {
     const nvmDir = path.join(process.env.HOME, '.nvm/versions/node');
     try {
@@ -41,23 +55,40 @@ function findSystemNode() {
         .filter(v => v.startsWith('v'))
         .sort().reverse();
       for (const v of versions) {
-        extraPath.push(path.join(nvmDir, v, 'bin'));
+        dirs.push(path.join(nvmDir, v, 'bin'));
       }
-    } catch { /* nvm not installed */ }
-    extraPath.push(path.join(process.env.HOME, '.volta/bin'));
+    } catch {}
+    dirs.push(path.join(process.env.HOME, '.volta/bin'));
   }
+  dirs.push('/usr/bin', '/bin');
 
-  extraPath.push('/usr/bin', '/bin');
-
-  for (const dir of extraPath) {
+  for (const dir of dirs) {
     const candidate = path.join(dir, 'node');
     try {
-      if (fs.existsSync(candidate) && checkArch(candidate)) return candidate;
+      if (!fs.existsSync(candidate)) continue;
+      if (candidates.some(c => c.path === candidate)) continue;
+      const info = checkNode(candidate);
+      if (info) candidates.push(info);
     } catch {}
   }
 
-  // 3. Last resort: Electron's own binary. Native modules may ABI-mismatch
-  //    but at least the arch will be correct.
+  // Pick best: matching arch + matching ABI > matching arch > any
+  const archMatch = candidates.filter(c => c.arch === wantArch);
+  if (requiredABI) {
+    const perfect = archMatch.find(c => c.modules === requiredABI);
+    if (perfect) {
+      console.log(`[gateway] Using Node ${perfect.path} (arch=${perfect.arch}, ABI=${perfect.modules})`);
+      return perfect.path;
+    }
+  }
+  if (archMatch.length > 0) {
+    const best = archMatch[0];
+    console.log(`[gateway] Using Node ${best.path} (arch=${best.arch}, ABI=${best.modules}, wanted ABI=${requiredABI})`);
+    return best.path;
+  }
+
+  // 3. Last resort: Electron's own binary.
+  console.log(`[gateway] No matching system Node found, using Electron binary`);
   return process.execPath;
 }
 
@@ -73,7 +104,6 @@ function isPortFree(port) {
     server.once('listening', () => {
       server.close(() => resolve(true));
     });
-    // Bind to 0.0.0.0 (all interfaces) — matches how gateway/express listens
     server.listen(port, '0.0.0.0');
   });
 }
@@ -84,7 +114,6 @@ function isPortFree(port) {
  */
 async function findFreePort(preferred = 4000, range = 100) {
   for (let port = preferred; port < preferred + range; port++) {
-    // eslint-disable-next-line no-await-in-loop
     if (await isPortFree(port)) return port;
   }
   throw new Error(`No free port in range ${preferred}..${preferred + range}`);
@@ -99,22 +128,13 @@ class GatewayManager {
   start(options = {}) {
     if (this.process) return;
 
-    // In packaged App, electron-builder asarUnpack copies gateway/** into
-    // <Resources>/app.asar.unpacked/gateway/ — that's where the actual JS files
-    // live (the .asar copy is a stale stub that external node can't read).
-    // __dirname in packaged builds points inside app.asar; replace asar segment
-    // with asar.unpacked to get the real on-disk path.
     const electronGatewayPath = path.join(__dirname, '..', 'gateway');
     const gatewayDir = electronGatewayPath.includes('app.asar' + path.sep)
       ? electronGatewayPath.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep)
       : electronGatewayPath;
     this.port = options.port || 4000;
 
-    const nodeBin = findSystemNode();
-    // If we're using Electron's own binary as Node, we MUST set
-    // ELECTRON_RUN_AS_NODE=1 so it skips Electron init and behaves as a Node
-    // interpreter. process.execPath includes "Electron" or the productName
-    // when packaged.
+    const nodeBin = findSystemNode(gatewayDir);
     const usingElectronAsNode = nodeBin === process.execPath;
     this.process = spawn(nodeBin, [path.join(gatewayDir, 'server.js')], {
       env: {
