@@ -1,7 +1,7 @@
 
 ![AOSE](docs/heropic.jpg)
 
-[English](./README.md) | [中文](./README.cn.md) | <u>日本語</u> | [X](https://x.com/manpoai)
+[English](./README.md) | [中文](./README.cn.md) | <u>日本語</u> | [X](https://x.com/manpo_wang)
 
 # AOSE — エージェント協働のためのオフィススイート
 
