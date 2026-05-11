@@ -119,6 +119,35 @@ async function findFreePort(preferred = 4000, range = 100) {
   throw new Error(`No free port in range ${preferred}..${preferred + range}`);
 }
 
+function rebuildNativeModules(nodeBin, gatewayDir) {
+  const sqlitePath = path.join(
+    gatewayDir, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+  );
+  const exists = fs.existsSync(sqlitePath);
+  const requiredABI = exists ? getRequiredModuleVersion(gatewayDir) : null;
+  try {
+    const nodeABI = execSync(`"${nodeBin}" -p "process.versions.modules"`, {
+      encoding: 'utf-8', timeout: 3000,
+    }).trim();
+    if (exists && requiredABI === nodeABI) return;
+    const reason = exists
+      ? `ABI mismatch: native module=${requiredABI}, node=${nodeABI}`
+      : 'native module binary missing';
+    console.log(`[gateway] ${reason}. Rebuilding better-sqlite3...`);
+    const npmPath = path.join(path.dirname(nodeBin), 'npm');
+    const npmBin = fs.existsSync(npmPath) ? npmPath : 'npm';
+    execSync(`"${npmBin}" rebuild better-sqlite3`, {
+      encoding: 'utf-8',
+      timeout: 120000,
+      cwd: gatewayDir,
+      env: { ...process.env, PATH: `${path.dirname(nodeBin)}:${process.env.PATH}` },
+    });
+    console.log(`[gateway] better-sqlite3 rebuilt successfully for ABI ${nodeABI}`);
+  } catch (e) {
+    console.error(`[gateway] Failed to rebuild better-sqlite3: ${e.message}`);
+  }
+}
+
 class GatewayManager {
   constructor() {
     this.process = null;
@@ -135,6 +164,7 @@ class GatewayManager {
     this.port = options.port || 4000;
 
     const nodeBin = findSystemNode(gatewayDir);
+    rebuildNativeModules(nodeBin, gatewayDir);
     const usingElectronAsNode = nodeBin === process.execPath;
     this.process = spawn(nodeBin, [path.join(gatewayDir, 'server.js')], {
       env: {
