@@ -4,19 +4,18 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 
-const AGENTS_DIR = path.join(os.homedir(), '.aose', 'agents');
-const HOOKS_DIR = path.join(os.homedir(), '.aose', 'hooks');
-
 class AgentProvisioner {
-  constructor(gatewayPort, adminToken) {
+  constructor(gatewayPort, adminToken, dataDir) {
     this.gatewayPort = gatewayPort;
     this.adminToken = adminToken;
+    this.agentsDir = path.join(dataDir, 'agents');
+    this.hooksDir = path.join(dataDir, 'hooks');
   }
 
   async provision(platform, permissions) {
     const shortId = crypto.randomBytes(4).toString('hex');
     const agentName = `${platform}-${shortId}`;
-    const agentDir = path.join(AGENTS_DIR, agentName);
+    const agentDir = path.join(this.agentsDir, agentName);
     const token = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
@@ -147,11 +146,11 @@ class AgentProvisioner {
   }
 
   _ensureHookScript(platform) {
-    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+    fs.mkdirSync(this.hooksDir, { recursive: true });
 
     if (platform === 'claude-code' || platform === 'codex') {
       const scriptName = platform === 'claude-code' ? 'stop-hook-claude-local.sh' : 'stop-hook-codex-local.sh';
-      const destPath = path.join(HOOKS_DIR, scriptName);
+      const destPath = path.join(this.hooksDir, scriptName);
 
       if (!fs.existsSync(destPath)) {
         const srcPath = path.join(__dirname, 'lib', scriptName);
@@ -162,13 +161,13 @@ class AgentProvisioner {
   }
 
   listAgents() {
-    if (!fs.existsSync(AGENTS_DIR)) return [];
-    const dirs = fs.readdirSync(AGENTS_DIR, { withFileTypes: true })
+    if (!fs.existsSync(this.agentsDir)) return [];
+    const dirs = fs.readdirSync(this.agentsDir, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name);
 
     return dirs.map(name => {
-      const agentDir = path.join(AGENTS_DIR, name);
+      const agentDir = path.join(this.agentsDir, name);
       const mcpPath = path.join(agentDir, '.mcp.json');
       const metaPath = path.join(agentDir, '.agent-meta.json');
       let platform = 'unknown';
@@ -272,7 +271,7 @@ Respond by:
   }
 
   removeAgent(agentName) {
-    const agentDir = path.join(AGENTS_DIR, agentName);
+    const agentDir = path.join(this.agentsDir, agentName);
     if (fs.existsSync(agentDir)) {
       fs.rmSync(agentDir, { recursive: true });
     }

@@ -301,7 +301,7 @@ app.on('ready', async () => {
   adapterManager.setTerminalWriter((agentName, data) => {
     terminalManager.write(agentName, data);
   });
-  provisioner = new AgentProvisioner(config.gateway_port, config.admin_token);
+  provisioner = new AgentProvisioner(config.gateway_port, config.admin_token, DATA_DIR);
 
   gateway.start({
     port: config.gateway_port,
