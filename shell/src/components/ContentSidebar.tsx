@@ -863,7 +863,8 @@ export function ContentSidebar({
                 {(() => {
                   const all = allAgents || [];
                   const localList = all.filter(a => a.agent_kind === 'local');
-                  const remoteList = all.filter(a => a.agent_kind !== 'local');
+                  const connectorList = all.filter(a => a.agent_kind === 'connector');
+                  const remoteList = all.filter(a => a.agent_kind !== 'local' && a.agent_kind !== 'connector');
                   const renderAgent = (agent: typeof all[0]) => {
                     const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
                     const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
@@ -912,6 +913,40 @@ export function ContentSidebar({
                             <div className="px-2 pt-1 pb-0.5 text-[10px] font-medium text-foreground/40 uppercase tracking-wider">Remote</div>
                           )}
                           {remoteList.map(renderAgent)}
+                        </>
+                      )}
+                      {connectorList.length > 0 && (
+                        <>
+                          {(localList.length > 0 || remoteList.length > 0) && (
+                            <div className="mx-2 my-1 border-t border-black/10 dark:border-white/10" />
+                          )}
+                          <div className="px-2 pt-1 pb-0.5 text-[10px] font-medium text-foreground/40 uppercase tracking-wider">Connectors</div>
+                          {connectorList.map(agent => {
+                            const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
+                            const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
+                            return (
+                              <div
+                                key={agent.name}
+                                className="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-left opacity-70"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                                  {avatarUrl ? (
+                                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                                  ) : platformFallback ? (
+                                    <img src={platformFallback} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-foreground/30">
+                                      <Users className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-foreground truncate">{agent.display_name || agent.name}</span>
+                                  <span className="text-xs text-green-500">Connected</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </>
                       )}
                     </>
