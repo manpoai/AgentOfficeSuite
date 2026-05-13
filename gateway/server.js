@@ -32,6 +32,7 @@ import memoriesRoutes from './routes/memories.js';
 import schedulesRoutes from './routes/schedules.js';
 import { createTaskWatcher } from './lib/task-watcher.js';
 import { createScheduleManager } from './lib/schedule-manager.js';
+import mcpRoutes from './routes/mcp.js';
 import { SyncWebSocketServer } from './lib/sync/ws.js';
 import { SyncClient } from './lib/sync/client.js';
 
@@ -140,6 +141,7 @@ tasksRoutes(app, shared);
 skillsRoutes(app, shared);
 memoriesRoutes(app, shared);
 schedulesRoutes(app, shared);
+mcpRoutes(app, shared);
 
 const taskWatcher = createTaskWatcher(db, shared);
 const scheduleManager = createScheduleManager(db, { genId: shared.genId, broadcastHumanEvent: shared.broadcastHumanEvent, taskWatcher });

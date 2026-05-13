@@ -12,6 +12,7 @@
     "test": "node --test 'lib/__tests__/*.test.mjs' 'lib/table-engine/__tests__/*.test.mjs'"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.0.0",
     "cors": "^2.8.6",
     "croner": "^10.0.1",
