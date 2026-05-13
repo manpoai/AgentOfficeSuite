@@ -12,6 +12,7 @@ const isAppMode = process.env.BUILD_MODE === 'app';
 
 const nextConfig = {
   output: isAppMode ? 'export' : 'standalone',
+  distDir: isAppMode ? '.next-app' : '.next',
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -26,6 +26,7 @@ gateway/data/preferences/
 
 # Next.js
 shell/.next/
+shell/.next-app/
 shell/out/
 shell/tsconfig.tsbuildinfo
 shell/nohup.out
