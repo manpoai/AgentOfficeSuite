@@ -15,7 +15,11 @@ const PLATFORM_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex CLI',
   'gemini-cli': 'Gemini CLI',
+  'claude.ai': 'Claude.ai',
+  chatgpt: 'ChatGPT',
 };
+
+const CONNECTOR_PLATFORMS = ['claude.ai', 'chatgpt'] as const;
 
 const LOCAL_PLATFORMS = ['claude-code'];
 
@@ -126,6 +130,7 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
       setPromptText('');
       setCopied(false);
       setShowPermissions(false);
+      setShowConnectorTutorial(false);
       setPermissions(defaultPermissions());
     }
   }, [open]);
@@ -168,7 +173,16 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
     setLoadingPrompt(false);
   }
 
+  const isConnectorPlatform = (p: string) => (CONNECTOR_PLATFORMS as readonly string[]).includes(p);
+  const [showConnectorTutorial, setShowConnectorTutorial] = useState(false);
+
   async function handleSelectPlatform(p: string, isLocal: boolean) {
+    if (isConnectorPlatform(p)) {
+      setSelectedPlatform(p);
+      setShowConnectorTutorial(true);
+      return;
+    }
+
     if (isLocal && isElectron) {
       setSelectedPlatform(p);
       if (p === 'claude-code') {
@@ -196,6 +210,14 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
+
+  function handleCopyText(text: string) {
+    navigator.clipboard.writeText(text);
+  }
+
+  const mcpUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/mcp`
+    : 'https://your-server.com/mcp';
 
   if (!open) return null;
 
@@ -228,8 +250,80 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
           {platformGrid(remotePlatforms, false)}
         </div>
       )}
+      <div>
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Connectors</h3>
+        {platformGrid([...CONNECTOR_PLATFORMS], false)}
+      </div>
     </div>
   );
+
+  const connectorTutorialView = selectedPlatform && isConnectorPlatform(selectedPlatform) ? (() => {
+    const isClaude = selectedPlatform === 'claude.ai';
+    const steps = isClaude
+      ? [
+          { text: 'Open Claude.ai → Settings → Connectors' },
+          { text: 'Click "Add custom connector"' },
+        ]
+      : [
+          { text: 'Open ChatGPT → Settings → Apps & Connectors' },
+          { text: 'Click "New App"' },
+        ];
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          {isClaude
+            ? 'Follow these steps to connect Claude.ai to your workspace:'
+            : 'Follow these steps to connect ChatGPT to your workspace:'}
+        </p>
+        <ol className="space-y-2 text-sm">
+          {steps.map((s, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="shrink-0 w-5 h-5 rounded-full bg-sidebar-primary/10 text-sidebar-primary text-xs flex items-center justify-center font-medium">{i + 1}</span>
+              <span>{s.text}</span>
+            </li>
+          ))}
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-sidebar-primary/10 text-sidebar-primary text-xs flex items-center justify-center font-medium">{steps.length + 1}</span>
+            <span>Fill in the following:</span>
+          </li>
+        </ol>
+        <div className="space-y-3 bg-black/[0.03] dark:bg-white/[0.05] rounded-lg p-4 border border-border">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Name</div>
+            <div className="flex items-center gap-2">
+              <code className="text-sm flex-1 font-mono">AgentOffice</code>
+              <button onClick={() => handleCopyText('AgentOffice')} className="text-xs px-2 py-1 rounded bg-sidebar-primary/10 hover:bg-sidebar-primary/20 transition-colors">
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">MCP Server URL</div>
+            <div className="flex items-center gap-2">
+              <code className="text-sm flex-1 font-mono break-all">{mcpUrl}</code>
+              <button onClick={() => handleCopyText(mcpUrl)} className="text-xs px-2 py-1 rounded bg-sidebar-primary/10 hover:bg-sidebar-primary/20 transition-colors">
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Authentication</div>
+            <code className="text-sm font-mono">OAuth</code>
+          </div>
+        </div>
+        <ol start={steps.length + 2} className="space-y-2 text-sm">
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-sidebar-primary/10 text-sidebar-primary text-xs flex items-center justify-center font-medium">{steps.length + 2}</span>
+            <span>Click {isClaude ? '"Add"' : '"Create"'}, then log in and authorize on the page that opens</span>
+          </li>
+          <li className="flex gap-2">
+            <span className="shrink-0 w-5 h-5 rounded-full bg-sidebar-primary/10 text-sidebar-primary text-xs flex items-center justify-center font-medium">{steps.length + 3}</span>
+            <span>Once authorized, the agent will appear in your Agents list automatically</span>
+          </li>
+        </ol>
+      </div>
+    );
+  })() : null;
 
   const promptView = (
     <div>
@@ -298,14 +392,14 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
         <div className="flex flex-col h-full">
           {selectedPlatform && (
             <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
-              <button onClick={() => { setSelectedPlatform(null); setPromptText(''); setCopied(false); setShowPermissions(false); }} className="p-1 text-muted-foreground">
+              <button onClick={() => { setSelectedPlatform(null); setPromptText(''); setCopied(false); setShowPermissions(false); setShowConnectorTutorial(false); }} className="p-1 text-muted-foreground">
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <span className="text-sm font-semibold">{platformLabel(selectedPlatform)}</span>
             </div>
           )}
           <div className="flex-1 overflow-y-auto px-4 py-3">
-            {!selectedPlatform ? platformList : showPermissions ? permissionsView : promptView}
+            {!selectedPlatform ? platformList : showConnectorTutorial ? connectorTutorialView : showPermissions ? permissionsView : promptView}
           </div>
         </div>
       </BottomSheet>
@@ -324,7 +418,7 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
             <div className="flex items-center gap-2">
               {selectedPlatform && (
                 <button
-                  onClick={() => { setSelectedPlatform(null); setPromptText(''); setCopied(false); setShowPermissions(false); }}
+                  onClick={() => { setSelectedPlatform(null); setPromptText(''); setCopied(false); setShowPermissions(false); setShowConnectorTutorial(false); }}
                   className="p-1 -ml-1 rounded-lg hover:bg-black/[0.05] dark:hover:bg-white/[0.1] transition-colors"
                 >
                   <ArrowLeft className="h-4 w-4 text-foreground/60" />
@@ -343,7 +437,7 @@ export function ConnectAgentsOverlay({ open, onClose }: ConnectAgentsOverlayProp
           </div>
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {!selectedPlatform ? platformList : showPermissions ? permissionsView : promptView}
+            {!selectedPlatform ? platformList : showConnectorTutorial ? connectorTutorialView : showPermissions ? permissionsView : promptView}
           </div>
         </div>
       </div>

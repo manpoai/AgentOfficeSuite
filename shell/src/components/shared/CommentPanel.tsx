@@ -630,6 +630,7 @@ export function CommentPanel({
   });
   const myDeviceId = syncStatus?.device_id || null;
   const agents = allAgents.filter(a => {
+    if (a.agent_kind === 'connector') return false;
     if (a.agent_kind !== 'local') return true;
     return !!myDeviceId && a.origin_device_id === myDeviceId;
   });

@@ -15,6 +15,9 @@ const PLATFORM_LABELS: Record<string, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex CLI',
   'gemini-cli': 'Gemini CLI',
+  'claude.ai': 'Claude.ai',
+  chatgpt: 'ChatGPT',
+  'mcp-connector': 'MCP',
 };
 
 function platformLabel(name: string) {
@@ -97,7 +100,8 @@ export function AgentPanelContent({ variant, onOpenConnectAgents, onOpenChat }: 
   const connected = allAgents?.filter(a => !a.pending_approval) || [];
   const pending   = allAgents?.filter(a => a.pending_approval)  || [];
   const localAgents = connected.filter(a => a.agent_kind === 'local');
-  const remoteAgents = connected.filter(a => a.agent_kind !== 'local');
+  const connectorAgents = connected.filter(a => a.agent_kind === 'connector');
+  const remoteAgents = connected.filter(a => a.agent_kind !== 'local' && a.agent_kind !== 'connector');
 
   async function handleAvatarUpload(agentId: string, e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -452,7 +456,46 @@ export function AgentPanelContent({ variant, onOpenConnectAgents, onOpenChat }: 
               })}
             </>
           )}
-          {localAgents.length === 0 && remoteAgents.length === 0 && connected.map(agent => {
+          {connectorAgents.length > 0 && (
+            <>
+              {(localAgents.length > 0 || remoteAgents.length > 0) && <div className="border-t border-border my-2" />}
+              <p className="text-xs font-medium text-foreground/50 mb-2 uppercase tracking-wider">Connectors</p>
+              {connectorAgents.map(agent => {
+                const agentId = agent.agent_id || agent.name;
+                return (
+                  <div key={agentId} className={cn('flex items-center gap-3 group rounded-lg transition-colors', styles.connectedPy, !isCompact && 'hover:bg-black/[0.05] dark:hover:bg-white/[0.05] px-2 -mx-2')}>
+                    <div className="relative">
+                      {renderAvatar(agent)}
+                      <div className={cn('absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-card', 'bg-green-500')} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-foreground truncate block">{agent.display_name || agent.name}</span>
+                      <span className="text-xs text-foreground/50">
+                        {agent.platform && <span className="px-1.5 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{platformLabel(agent.platform)}</span>}
+                      </span>
+                    </div>
+                    {deleteConfirmId === agentId ? (
+                      <div className="flex items-center gap-1 ml-1">
+                        <span className="text-[10px] text-foreground/60">{t('actions.confirmDelete')}</span>
+                        <button onClick={async () => {
+                          try {
+                            const r = await gw.deleteAgent(agentId);
+                            setOffboardingResult({ name: r.name, platform: r.platform, prompt: r.offboarding_prompt });
+                            queryClient.invalidateQueries({ queryKey: ['admin-agents'] });
+                          } catch {}
+                          setDeleteConfirmId(null);
+                        }} className="px-1.5 py-0.5 text-[10px] font-medium text-white bg-red-500 rounded hover:bg-red-600 transition-colors shrink-0">{t('actions.delete')}</button>
+                        <button onClick={() => setDeleteConfirmId(null)} className="px-1.5 py-0.5 text-[10px] font-medium text-foreground/60 bg-black/[0.05] rounded hover:bg-black/[0.1] transition-colors shrink-0">{t('common.cancel')}</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setDeleteConfirmId(agentId)} className="w-8 h-8 rounded flex items-center justify-center hover:bg-black/[0.05] opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-3.5 w-3.5 text-foreground/40" /></button>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {localAgents.length === 0 && remoteAgents.length === 0 && connectorAgents.length === 0 && connected.map(agent => {
             const agentId = agent.agent_id || agent.name;
             const isEditing = editingAgentId === agentId;
             return (

@@ -53,8 +53,9 @@ export function SidebarAgentBar({
     return () => observer.disconnect();
   }, []);
 
-  const visibleAgents = agents.slice(0, visibleCount);
-  const overflowCount = Math.max(0, agents.length - visibleCount);
+  const nonConnectorAgents = agents.filter(a => a.agent_kind !== 'connector');
+  const visibleAgents = nonConnectorAgents.slice(0, visibleCount);
+  const overflowCount = Math.max(0, nonConnectorAgents.length - visibleCount);
 
   const localVisible = visibleAgents.filter(a => a.agent_kind === 'local');
   const remoteVisible = visibleAgents.filter(a => a.agent_kind !== 'local');
