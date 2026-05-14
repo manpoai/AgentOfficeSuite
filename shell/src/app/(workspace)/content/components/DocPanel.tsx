@@ -117,6 +117,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
   const [showDocMenu, setShowDocMenu] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [commentQuote, setCommentQuote] = useState('');
+  const [commentFocusKey, setCommentFocusKey] = useState(0);
   const [title, setTitle] = useState(doc.title);
   const [emoji, setEmoji] = useState<string | null>(customIcon || doc.icon?.trim() || null);
   const [text, setText] = useState(doc.text);
@@ -160,6 +161,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
       if (detail?.text) {
         setCommentQuote(detail.text);
         setShowComments(true);
+        setCommentFocusKey(k => k + 1);
         // Calculate top offset of the selection for sidebar alignment
         const editorArea = document.querySelector('.doc-editor');
         if (editorArea) {
@@ -684,6 +686,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
         <>
           <div className="hidden md:flex w-[304px] bg-sidebar flex-col shrink-0 overflow-hidden h-full">
             <CommentPanel
+              key={commentFocusKey}
               targetType="doc"
               targetId={`doc:${doc.id}`}
               onClose={() => setShowComments(false)}
@@ -691,6 +694,7 @@ export function DocPanel({ doc, customIcon, breadcrumb, onBack, onSaved, onDelet
           </div>
           <BottomSheet open={true} onClose={() => setShowComments(false)} title="Comments" initialHeight="full">
             <CommentPanel
+              key={commentFocusKey}
               targetType="doc"
               targetId={`doc:${doc.id}`}
               onClose={() => setShowComments(false)}

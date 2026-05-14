@@ -215,6 +215,18 @@ function EditorInner({ defaultValue, defaultDocJson, onChange, onDocJson, readOn
           state,
           editable: () => !readOnlyRef.current,
           nodeViews: createNodeViews(() => documentId),
+          clipboardTextParser(text, _$context, _plain, _view) {
+            const mdIndicators = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|!\[|\[.+\]\(.+\)|\*\*|__|\*[^*]|_[^_]|~~)/m;
+            if (mdIndicators.test(text)) {
+              const doc = parseMarkdown(text);
+              if (doc) return doc.slice(0);
+            }
+            const lines = text.split(/\n/);
+            const nodes = lines.map(line =>
+              schema.node('paragraph', null, line ? [schema.text(line)] : []),
+            );
+            return schema.node('doc', null, nodes).slice(0);
+          },
           clipboardTextSerializer(slice) {
             // Serialize tables as tab-separated text for plain-text clipboard
             const parts: string[] = [];
