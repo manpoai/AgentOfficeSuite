@@ -36,9 +36,19 @@ export async function proxyToGateway(
     method: req.method,
     headers,
     body,
+    redirect: 'manual',
     // @ts-expect-error Node fetch supports duplex
     ...(opts?.hasBody && { duplex: 'half' }),
   });
+
+  if (resp.status >= 300 && resp.status < 400) {
+    const location = resp.headers.get('Location');
+    const respHeaders: Record<string, string> = {};
+    if (location) respHeaders['Location'] = location;
+    const setCookie = resp.headers.get('Set-Cookie');
+    if (setCookie) respHeaders['Set-Cookie'] = setCookie;
+    return new NextResponse(null, { status: resp.status, headers: respHeaders });
+  }
 
   if (opts?.streaming && resp.body) {
     const respCt = resp.headers.get('content-type') || '';
