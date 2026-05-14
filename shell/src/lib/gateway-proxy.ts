@@ -76,6 +76,8 @@ export async function proxyToGateway(
   const data = await resp.arrayBuffer();
   const contentType = resp.headers.get('Content-Type') || 'application/json';
   const respHeaders: Record<string, string> = { 'Content-Type': contentType };
+  const wwwAuth = resp.headers.get('WWW-Authenticate');
+  if (wwwAuth) respHeaders['WWW-Authenticate'] = wwwAuth;
   const origin = req.headers.get('origin');
   if (origin) {
     respHeaders['Access-Control-Allow-Origin'] = origin;
