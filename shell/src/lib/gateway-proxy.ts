@@ -25,6 +25,9 @@ export async function proxyToGateway(
   const clientAuth = req.headers.get('authorization');
   if (clientAuth) headers['Authorization'] = clientAuth;
 
+  const accept = req.headers.get('accept');
+  if (accept) headers['Accept'] = accept;
+
   const ct = req.headers.get('content-type') || '';
   let body: BodyInit | undefined;
   if (opts?.hasBody) {
