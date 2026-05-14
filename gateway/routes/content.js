@@ -1547,7 +1547,7 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     if (colonIdx > 0) {
       return { targetType: rawId.substring(0, colonIdx), targetId: rawId };
     }
-    const item = db.prepare('SELECT type FROM content_items WHERE id = ?').get(rawId);
+    const item = db.prepare('SELECT type FROM content_items WHERE raw_id = ?').get(rawId);
     if (!item) return null;
     return { targetType: item.type, targetId: `${item.type}:${rawId}` };
   }
