@@ -32,7 +32,7 @@ interface EditorProps {
   /** Callback when Cmd+F or Cmd+H is pressed */
   onSearchOpen?: (withReplace: boolean) => void;
   /** Comment quotes to highlight in the editor */
-  commentQuotes?: { id: string; text: string }[];
+  commentQuotes?: { id: string; text: string; anchorType?: string; blockId?: string; blockOffset?: number; blockEndOffset?: number }[];
 }
 
 /**
@@ -131,6 +131,32 @@ function EditorInner({ defaultValue, defaultDocJson, onChange, onDocJson, readOn
         if (!doc) {
           setError(getT()('errors.parseDocumentFailed'));
           return;
+        }
+
+        const genBlockId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+
+        // Ensure all top-level blocks have blockIds before creating editor state
+        {
+          const seen = new Set<string>();
+          let needsFix = false;
+          doc.forEach((node: any) => {
+            const id = node.attrs?.blockId;
+            if (!id || seen.has(id)) { needsFix = true; }
+            if (id) seen.add(id);
+          });
+          if (needsFix) {
+            const json = doc.toJSON();
+            const seen2 = new Set<string>();
+            for (const node of json.content || []) {
+              if (!node.attrs) node.attrs = {};
+              if (!node.attrs.blockId || seen2.has(node.attrs.blockId)) {
+                node.attrs.blockId = genBlockId();
+              }
+              seen2.add(node.attrs.blockId);
+            }
+            const { Node: PMNode } = await import('prosemirror-model');
+            doc = PMNode.fromJSON(schema, json);
+          }
         }
 
         const plugins = [
@@ -263,7 +289,31 @@ function EditorInner({ defaultValue, defaultDocJson, onChange, onDocJson, readOn
           },
           dispatchTransaction(transaction) {
             if (!view || destroyed) return;
-            const newState = view.state.apply(transaction);
+            let newState = view.state.apply(transaction);
+
+            // Ensure all top-level blocks have blockIds
+            if (transaction.docChanged) {
+              let needsBlockIds = false;
+              const seen = new Set<string>();
+              newState.doc.forEach((node: any) => {
+                const id = node.attrs?.blockId;
+                if (!id || seen.has(id)) needsBlockIds = true;
+                if (id) seen.add(id);
+              });
+              if (needsBlockIds) {
+                let tr = newState.tr;
+                const seen2 = new Set<string>();
+                newState.doc.forEach((node: any, pos: number) => {
+                  const id = node.attrs?.blockId;
+                  if (!id || seen2.has(id)) {
+                    tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, blockId: genBlockId() });
+                  }
+                  if (id) seen2.add(id);
+                });
+                newState = newState.apply(tr);
+              }
+            }
+
             view.updateState(newState);
             if (transaction.docChanged) {
               if (onChange) {
@@ -283,6 +333,21 @@ function EditorInner({ defaultValue, defaultDocJson, onChange, onDocJson, readOn
         viewRef.current = view;
         // Expose view on DOM for testing/debugging
         (editorRef.current as any).__pmView = view;
+
+        // Persist blockIds if they were assigned during initial doc load
+        if (onDocJson) {
+          let hasNewIds = false;
+          view.state.doc.forEach((node: any) => {
+            if (node.attrs?.blockId) hasNewIds = true;
+          });
+          if (hasNewIds && defaultDocJson) {
+            const origNodes = (defaultDocJson as any).content || [];
+            const needsSave = origNodes.some((n: any) => !n.attrs?.blockId);
+            if (needsSave) {
+              onDocJson(view.state.doc.toJSON());
+            }
+          }
+        }
 
         // Listen for content link picker trigger from slash menu
         contentLinkPickerHandler = (e: Event) => {

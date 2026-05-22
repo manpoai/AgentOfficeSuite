@@ -69,6 +69,9 @@ function buildAnchor(db, targetType, targetId, anchorType, anchorId, anchorMeta,
         meta: {
           quote: anchorMeta?.quote || null,
           heading_path: anchorMeta?.heading_path || null,
+          blockId: anchorMeta?.blockId || null,
+          blockOffset: anchorMeta?.blockOffset ?? null,
+          blockEndOffset: anchorMeta?.blockEndOffset ?? null,
         },
       };
 

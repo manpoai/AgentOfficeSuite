@@ -146,7 +146,7 @@ function QuoteBlock({ text, anchor }: { text?: string; anchor?: { label?: string
 function CommentText({ text, agents = [] }: { text: string; agents?: Agent[] }) {
   const parts = text.split(/(@\S+)/g);
   return (
-    <p className="text-sm leading-[22px] whitespace-pre-wrap break-words">
+    <p className="text-sm leading-[22px] whitespace-pre-wrap break-words select-text">
       {parts.map((part, i) => {
         if (/^@\S+/.test(part)) {
           const name = part.slice(1); // remove @
@@ -309,7 +309,7 @@ function CommentItem({
           </div>
           <div className="relative shrink-0">
             <button
-              onClick={() => setShowMenu(!showMenu)}
+              onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
               className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-accent transition-all"
             >
               <MoreHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
@@ -350,6 +350,7 @@ function CommentItem({
             <textarea
               value={editText}
               onChange={(e) => onEditTextChange(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
               rows={2}
               className="w-full resize-none rounded border border-border bg-card px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring text-foreground"
               autoFocus
@@ -440,6 +441,7 @@ function CommentThread({
   typingAgentsForThread?: Agent[];
 }) {
   const anchor = comment.context_payload?.anchor;
+  const mergedMeta = anchor?.meta ? { ...anchor.meta, ...(comment.anchor_meta || {}) } : comment.anchor_meta;
   return (
     <div
       className={cn(
@@ -448,8 +450,10 @@ function CommentThread({
         onNavigateToAnchor && anchor && 'cursor-pointer',
       )}
       onClick={() => {
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0) return;
         if (anchor && onNavigateToAnchor) {
-          onNavigateToAnchor({ type: anchor.type, id: anchor.id, meta: anchor.meta });
+          onNavigateToAnchor({ type: anchor.type, id: anchor.id, meta: mergedMeta });
         }
       }}
     >
@@ -550,7 +554,7 @@ function MenuButton({
 }) {
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       className={cn(
         'flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left transition-colors',
         danger ? 'text-red-500 hover:bg-destructive/10' : 'hover:bg-accent',
@@ -651,7 +655,8 @@ export function CommentPanel({
       const target = comments.find(c => c.id === focusCommentId);
       const anchor = target?.context_payload?.anchor;
       if (anchor) {
-        onNavigateToAnchor({ type: anchor.type, id: anchor.id, meta: anchor.meta });
+        const meta = anchor.meta ? { ...anchor.meta, ...(target?.anchor_meta || {}) } : target?.anchor_meta;
+        onNavigateToAnchor({ type: anchor.type, id: anchor.id, meta });
       }
     }
   }, [focusCommentId, comments, onNavigateToAnchor]);

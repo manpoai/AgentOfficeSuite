@@ -221,13 +221,15 @@ export function createDocsTextHandler(view: EditorView): ToolbarHandler {
           const { from, to } = view.state.selection;
           if (from === to) break;
           const selectedText = view.state.doc.textBetween(from, to, ' ');
-          // Collect heading path for context
           const headingPath: string[] = [];
           const $from = view.state.doc.resolve(from);
           for (let d = $from.depth; d > 0; d--) {
             const node = $from.node(d);
             if (node.type.name === 'heading') headingPath.unshift(node.textContent);
           }
+          const topBlock = $from.depth >= 1 ? $from.node(1) : null;
+          const topBlockPos = $from.depth >= 1 ? $from.before(1) : 0;
+          const blockId = topBlock?.attrs?.blockId || null;
           window.dispatchEvent(new CustomEvent('editor-comment', {
             detail: {
               text: selectedText,
@@ -237,6 +239,9 @@ export function createDocsTextHandler(view: EditorView): ToolbarHandler {
                 quote: selectedText,
                 from,
                 to,
+                blockId,
+                blockOffset: blockId ? from - topBlockPos : null,
+                blockEndOffset: blockId ? to - topBlockPos : null,
                 heading_path: headingPath.length > 0 ? headingPath : null,
               },
             },

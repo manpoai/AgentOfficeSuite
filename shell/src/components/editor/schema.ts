@@ -6,7 +6,7 @@ import { tableNodes } from 'prosemirror-tables';
 import { contentLinkNodeSpec } from './content-link-node';
 import { diagramEmbedNodeSpec } from './diagram-embed-node';
 
-const tNodes = tableNodes({
+const rawTNodes = tableNodes({
   tableGroup: 'block',
   cellContent: 'block+',
   cellAttributes: {
@@ -39,13 +39,14 @@ export const schema = new Schema({
   nodes: {
     doc: { content: 'block+' },
     paragraph: {
+      attrs: { blockId: { default: null } },
       content: 'inline*',
       group: 'block',
       parseDOM: [{ tag: 'p' }],
       toDOM() { return ['p', 0]; },
     },
     heading: {
-      attrs: { level: { default: 1 } },
+      attrs: { level: { default: 1 }, blockId: { default: null } },
       content: 'inline*',
       group: 'block',
       defining: true,
@@ -56,6 +57,7 @@ export const schema = new Schema({
       toDOM(node) { return [`h${node.attrs.level}`, 0]; },
     },
     blockquote: {
+      attrs: { blockId: { default: null } },
       content: 'block+',
       group: 'block',
       defining: true,
@@ -63,6 +65,7 @@ export const schema = new Schema({
       toDOM() { return ['blockquote', 0]; },
     },
     horizontal_rule: {
+      attrs: { blockId: { default: null } },
       group: 'block',
       parseDOM: [{ tag: 'hr' }],
       toDOM() { return ['hr']; },
@@ -73,7 +76,7 @@ export const schema = new Schema({
       group: 'block',
       code: true,
       defining: true,
-      attrs: { language: { default: '' } },
+      attrs: { language: { default: '' }, blockId: { default: null } },
       parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' as const, getAttrs(dom) {
         const code = (dom as HTMLElement).querySelector('code');
         const cls = code?.className?.match(/language-(\w+)/);
@@ -84,6 +87,7 @@ export const schema = new Schema({
       },
     },
     bullet_list: {
+      attrs: { blockId: { default: null } },
       content: 'list_item+',
       group: 'block',
       parseDOM: [{ tag: 'ul' }],
@@ -92,7 +96,7 @@ export const schema = new Schema({
     ordered_list: {
       content: 'list_item+',
       group: 'block',
-      attrs: { order: { default: 1 } },
+      attrs: { order: { default: 1 }, blockId: { default: null } },
       parseDOM: [{ tag: 'ol', getAttrs(dom) {
         return { order: (dom as HTMLElement).hasAttribute('start') ? +(dom as HTMLElement).getAttribute('start')! : 1 };
       }}],
@@ -107,6 +111,7 @@ export const schema = new Schema({
       defining: true,
     },
     checkbox_list: {
+      attrs: { blockId: { default: null } },
       content: 'checkbox_item+',
       group: 'block',
       parseDOM: [{ tag: 'ul.checkbox-list' }],
@@ -127,7 +132,7 @@ export const schema = new Schema({
       content: 'block+',
       group: 'block',
       defining: true,
-      attrs: { style: { default: 'info' } }, // info, warning, success, tip
+      attrs: { style: { default: 'info' }, blockId: { default: null } }, // info, warning, success, tip
       parseDOM: [{ tag: 'div.notice-block', getAttrs(dom) {
         return { style: (dom as HTMLElement).dataset.style || 'info' };
       }}],
@@ -142,6 +147,7 @@ export const schema = new Schema({
       code: true,
       defining: true,
       atom: true,
+      attrs: { blockId: { default: null } },
       parseDOM: [{ tag: 'div.math-block', preserveWhitespace: 'full' as const }],
       toDOM() { return ['div', { class: 'math-block' }, ['code', 0]]; },
     },
@@ -187,7 +193,13 @@ export const schema = new Schema({
     content_link: contentLinkNodeSpec,
     diagram_embed: diagramEmbedNodeSpec,
     text: { group: 'inline' },
-    ...tNodes,
+    ...(() => {
+      const t = { ...rawTNodes } as Record<string, any>;
+      if (t.table) {
+        t.table = { ...t.table, attrs: { ...t.table.attrs, blockId: { default: null } } };
+      }
+      return t;
+    })(),
   },
   marks: {
     strong: {

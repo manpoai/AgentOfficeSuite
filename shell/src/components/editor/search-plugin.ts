@@ -56,6 +56,7 @@ function buildDecorations(doc: any, query: string, caseSensitive: boolean, curre
 export function setSearchQuery(view: EditorView, query: string, caseSensitive: boolean = false) {
   const tr = view.state.tr.setMeta(searchPluginKey, { type: 'setQuery', query, caseSensitive });
   view.dispatch(tr);
+  if (query) scrollToCurrentMatch(view);
 }
 
 /** Navigate to next match */

@@ -16,6 +16,7 @@ export const diagramEmbedNodeSpec: NodeSpec = {
   attrs: {
     diagramId: { default: '' },
     title: { default: 'diagram.untitledDiagram' },
+    blockId: { default: null },
   },
   parseDOM: [{
     tag: 'div.diagram-embed-node',

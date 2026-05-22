@@ -46,6 +46,15 @@ export function SearchBar({ getView, showReplace: initialShowReplace = false, on
     }
   }, [getView]);
 
+  // When editor gets focus (user clicks in document), blur search input
+  useEffect(() => {
+    const view = getView();
+    if (!view) return;
+    const handler = () => { inputRef.current?.blur(); };
+    view.dom.addEventListener('focus', handler);
+    return () => { view.dom.removeEventListener('focus', handler); };
+  }, [getView]);
+
   useEffect(() => {
     setShowReplace(initialShowReplace);
   }, [initialShowReplace]);

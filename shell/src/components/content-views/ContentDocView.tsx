@@ -153,9 +153,19 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
         if (!anchor) return null;
         const quote = anchor.meta?.quote || anchor.preview;
         if (!quote && !anchor.type) return null;
-        return { id: c.id, text: (quote as string) || '', anchorType: anchor.type as string };
+        // Read blockId from context_payload.anchor.meta first, fallback to raw anchor_meta
+        const meta = anchor.meta || {};
+        const rawMeta = c.anchor_meta || {};
+        return {
+          id: c.id,
+          text: (quote as string) || '',
+          anchorType: anchor.type as string,
+          blockId: (meta.blockId as string) || (rawMeta.blockId as string) || undefined,
+          blockOffset: typeof meta.blockOffset === 'number' ? meta.blockOffset : typeof rawMeta.blockOffset === 'number' ? rawMeta.blockOffset : undefined,
+          blockEndOffset: typeof meta.blockEndOffset === 'number' ? meta.blockEndOffset : typeof rawMeta.blockEndOffset === 'number' ? rawMeta.blockEndOffset : undefined,
+        };
       })
-      .filter((q): q is { id: string; text: string; anchorType?: string } => q !== null);
+      .filter((q): q is { id: string; text: string; anchorType?: string; blockId?: string; blockOffset?: number; blockEndOffset?: number } => q !== null);
   }, [docComments]);
 
   const [activeFocusCommentId, setActiveFocusCommentId] = useState<string | undefined>(initialFocusCommentId);
@@ -171,21 +181,70 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
           const view = getPmView();
           if (!view) { console.warn('[navigateToAnchor] ProseMirror view not found'); return; }
           const { doc } = view.state;
+
+          // Try block ID positioning first
+          const blockId = anchor.meta?.blockId as string | undefined;
+          const blockOffset = anchor.meta?.blockOffset as number | undefined;
+          const blockEndOffset = anchor.meta?.blockEndOffset as number | undefined;
           let from = -1;
-          doc.descendants((node: any, pos: number) => {
-            if (from >= 0) return false;
-            if (node.isText && node.text?.includes(quote)) {
-              from = pos + node.text.indexOf(quote);
-              return false;
-            }
-          });
+          let to = -1;
+
+          console.log('[navigateToAnchor] input:', { blockId, blockOffset, blockEndOffset, quote });
+          if (blockId && blockOffset != null && blockEndOffset != null) {
+            doc.forEach((node: any, offset: number) => {
+              if (from >= 0) return;
+              if (node.attrs?.blockId === blockId) {
+                const f = offset + blockOffset;
+                const t = offset + blockEndOffset;
+                console.log('[navigateToAnchor] matched block:', { offset, nodeSize: node.nodeSize, f, t, textContent: node.textContent?.slice(0, 40) });
+                if (f >= offset && t <= offset + node.nodeSize) {
+                  from = f;
+                  to = t;
+                  return;
+                }
+                console.log('[navigateToAnchor] bounds check failed, trying block-text search');
+                if (quote.length >= 2) {
+                  const blockText = node.textContent || '';
+                  const idx = blockText.indexOf(quote);
+                  if (idx >= 0) {
+                    let charsSeen = 0;
+                    let startPos = -1;
+                    node.descendants((child: any, childPos: number) => {
+                      if (startPos >= 0) return false;
+                      if (child.isText) {
+                        const textStart = charsSeen;
+                        const textEnd = charsSeen + child.text.length;
+                        if (idx >= textStart && idx < textEnd) {
+                          startPos = offset + 1 + childPos + (idx - textStart);
+                        }
+                        charsSeen = textEnd;
+                      }
+                    });
+                    if (startPos >= 0) {
+                      from = startPos;
+                      to = startPos + quote.length;
+                      console.log('[navigateToAnchor] block-text fallback:', { from, to });
+                    }
+                  }
+                }
+              }
+            });
+          }
+
           if (from >= 0) {
-            view.dispatch(view.state.tr.setSelection(
-              TextSelection.create(doc, from, from + quote.length)
-            ).scrollIntoView());
-            view.focus();
+            try {
+              view.dispatch(view.state.tr.setSelection(
+                TextSelection.create(doc, from, to)
+              ).scrollIntoView());
+              view.focus();
+              const domAtPos = view.domAtPos(from);
+              const domNode = domAtPos.node instanceof Element ? domAtPos.node : domAtPos.node.parentElement;
+              if (domNode) domNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (selErr) {
+              console.error('[navigateToAnchor] selection failed:', selErr);
+            }
           } else {
-            console.warn('[navigateToAnchor] Quote not found in doc:', quote);
+            console.warn('[navigateToAnchor] Quote not found in doc:', quote, { blockId, blockOffset, blockEndOffset });
           }
         } else {
           const typeMap: Record<string, string> = {
@@ -237,6 +296,7 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
   const latestTextRef = useRef(doc.text);
   const latestEmojiRef = useRef((customIcon || doc.icon || null) as string | null);
   const latestDocJsonRef = useRef<Record<string, unknown> | null>(doc.data_json || null);
+  const blockIdsJustAssignedRef = useRef(false);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
@@ -409,6 +469,10 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
         old ? { ...old, title: confirmedTitle, text: savingText, icon: confirmedEmoji, data_json: savingDocJson || old.data_json } : old
       );
       queryClient.invalidateQueries({ queryKey: ['content-items'] });
+      if (blockIdsJustAssignedRef.current) {
+        blockIdsJustAssignedRef.current = false;
+        queryClient.invalidateQueries({ queryKey: ['comments', 'doc', `doc:${saveDocId}`] });
+      }
       if (saveDocId === docIdRef.current) {
             setReliabilityStatus('clean');
         setFlushRetryCount(0);
@@ -863,7 +927,16 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
                 defaultValue={doc.text}
                 defaultDocJson={doc.data_json}
                 onChange={handleTextChange}
-                onDocJson={(json) => { latestDocJsonRef.current = json; scheduleTextSave(latestTextRef.current); }}
+                onDocJson={(json) => {
+                  const prev = latestDocJsonRef.current;
+                  const prevHadNoBlockIds = !prev || ((prev as any).content || []).every((n: any) => !n.attrs?.blockId);
+                  const newHasBlockIds = ((json as any).content || []).some((n: any) => n.attrs?.blockId);
+                  if (prevHadNoBlockIds && newHasBlockIds) {
+                    blockIdsJustAssignedRef.current = true;
+                  }
+                  latestDocJsonRef.current = json;
+                  scheduleTextSave(latestTextRef.current);
+                }}
                 readOnly={mobileReadOnly}
                 placeholder={t('content.editorPlaceholder')}
                 documentId={doc.id}

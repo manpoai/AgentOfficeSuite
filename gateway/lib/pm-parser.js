@@ -23,24 +23,27 @@ export const schema = new Schema({
     doc: { content: 'block+' },
 
     paragraph: {
+      attrs: { blockId: { default: null } },
       content: 'inline*',
       group: 'block',
     },
 
     heading: {
-      attrs: { level: { default: 1 } },
+      attrs: { level: { default: 1 }, blockId: { default: null } },
       content: 'inline*',
       group: 'block',
       defining: true,
     },
 
     blockquote: {
+      attrs: { blockId: { default: null } },
       content: 'block+',
       group: 'block',
       defining: true,
     },
 
     horizontal_rule: {
+      attrs: { blockId: { default: null } },
       group: 'block',
     },
 
@@ -50,10 +53,11 @@ export const schema = new Schema({
       group: 'block',
       code: true,
       defining: true,
-      attrs: { language: { default: '' } },
+      attrs: { language: { default: '' }, blockId: { default: null } },
     },
 
     bullet_list: {
+      attrs: { blockId: { default: null } },
       content: 'list_item+',
       group: 'block',
     },
@@ -61,7 +65,7 @@ export const schema = new Schema({
     ordered_list: {
       content: 'list_item+',
       group: 'block',
-      attrs: { order: { default: 1 } },
+      attrs: { order: { default: 1 }, blockId: { default: null } },
     },
 
     list_item: {
@@ -71,6 +75,7 @@ export const schema = new Schema({
 
     // Table support (matches prosemirror-tables node names used by the editor)
     table: {
+      attrs: { blockId: { default: null } },
       content: 'table_row+',
       group: 'block',
       tableRole: 'table',

@@ -13,42 +13,13 @@ export interface CommentQuote {
   id: string;
   text: string;         // the quoted text (text-range) or anchor preview (block)
   anchorType?: string;  // anchor type — if block type, use findBlockByType
+  blockId?: string;     // stable block ID for precise positioning
+  blockOffset?: number; // character offset within the block
+  blockEndOffset?: number;
 }
 
 const commentHighlightKey = new PluginKey('commentHighlight');
 
-/**
- * Find all occurrences of a string in a ProseMirror document.
- * Returns array of { from, to } positions.
- */
-function findTextInDoc(doc: any, searchText: string): { from: number; to: number }[] {
-  const results: { from: number; to: number }[] = [];
-  if (!searchText || searchText.length < 2) return results;
-
-  const fullText: string[] = [];
-  const positions: number[] = [];
-
-  doc.descendants((node: any, pos: number) => {
-    if (node.isText) {
-      for (let i = 0; i < node.text.length; i++) {
-        fullText.push(node.text[i]);
-        positions.push(pos + i);
-      }
-    }
-    return true;
-  });
-
-  const joined = fullText.join('');
-  let idx = 0;
-  while ((idx = joined.indexOf(searchText, idx)) !== -1) {
-    const from = positions[idx];
-    const to = positions[idx + searchText.length - 1] + 1;
-    results.push({ from, to });
-    idx += searchText.length;
-  }
-
-  return results;
-}
 
 export function commentHighlightPlugin(initialQuotes: CommentQuote[] = []) {
   return new Plugin({
@@ -77,9 +48,6 @@ export function commentHighlightPlugin(initialQuotes: CommentQuote[] = []) {
     },
   });
 }
-
-/** Known block-comment identifiers that won't match inline text */
-const BLOCK_COMMENT_MARKERS = new Set(['Image', 'Table', 'Mermaid diagram', 'Math block', 'Code block', 'Notice', '---']);
 
 /**
  * Try to find a block node matching a comment quote text.
@@ -118,6 +86,45 @@ function findBlockForQuote(doc: any, quoteText: string): { pos: number; end: num
   });
 
   return found;
+}
+
+function findByBlockId(doc: any, blockId: string, blockOffset: number, blockEndOffset: number, quoteText?: string): { from: number; to: number } | null {
+  let result: { from: number; to: number } | null = null;
+  doc.forEach((node: any, offset: number) => {
+    if (result) return;
+    if (node.attrs?.blockId === blockId) {
+      const from = offset + blockOffset;
+      const to = offset + blockEndOffset;
+      if (from >= offset && to <= offset + node.nodeSize) {
+        result = { from, to };
+        return;
+      }
+      // Offsets stale (content edited) — search for quote text within this block
+      if (quoteText && quoteText.length >= 2) {
+        const blockText = node.textContent || '';
+        const idx = blockText.indexOf(quoteText);
+        if (idx >= 0) {
+          let charsSeen = 0;
+          let startPos = -1;
+          node.descendants((child: any, childPos: number) => {
+            if (startPos >= 0) return false;
+            if (child.isText) {
+              const textStart = charsSeen;
+              const textEnd = charsSeen + child.text.length;
+              if (idx >= textStart && idx < textEnd) {
+                startPos = offset + 1 + childPos + (idx - textStart);
+              }
+              charsSeen = textEnd;
+            }
+          });
+          if (startPos >= 0) {
+            result = { from: startPos, to: startPos + quoteText.length };
+          }
+        }
+      }
+    }
+  });
+  return result;
 }
 
 const BLOCK_ANCHOR_TYPES = new Set(['image', 'table', 'mermaid', 'diagram_embed']);
@@ -171,24 +178,13 @@ function buildDecorations(doc: any, quotes: CommentQuote[]): DecorationSet {
       continue;
     }
 
-    // text-range anchor: inline text match
-    const matches = findTextInDoc(doc, quote.text);
-    if (matches.length > 0) {
-      const { from, to } = matches[0];
-      decorations.push(
-        Decoration.inline(from, to, {
-          class: 'comment-marker',
-          id: `comment-${quote.id}`,
-          'data-comment-id': quote.id,
-        })
-      );
-    } else {
-      // Fallback: try block-level matching by text
-      const block = findBlockForQuote(doc, quote.text);
-      if (block) {
+    // text-range anchor: blockId-based positioning only
+    if (quote.blockId && quote.blockOffset != null && quote.blockEndOffset != null) {
+      const byBlock = findByBlockId(doc, quote.blockId, quote.blockOffset, quote.blockEndOffset, quote.text);
+      if (byBlock) {
         decorations.push(
-          Decoration.node(block.pos, block.end, {
-            class: 'comment-marker comment-marker-block',
+          Decoration.inline(byBlock.from, byBlock.to, {
+            class: 'comment-marker',
             id: `comment-${quote.id}`,
             'data-comment-id': quote.id,
           })

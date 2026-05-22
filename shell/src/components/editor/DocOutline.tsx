@@ -26,17 +26,18 @@ export function extractHeadings(doc: ProseMirrorNode): HeadingItem[] {
 
 export function scrollToHeading(view: EditorView | null, pos: number) {
   if (!view) return;
-  // Set selection so ProseMirror knows the cursor position
-  const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, pos + 1));
-  view.dispatch(tr);
-  // Find the DOM node at this position and scroll it into view natively
   try {
-    const domAtPos = view.domAtPos(pos + 1);
+    const resolvedPos = view.state.doc.resolve(pos);
+    const targetPos = resolvedPos.nodeAfter ? pos + 1 : pos;
+    const tr = view.state.tr.setSelection(TextSelection.create(view.state.doc, targetPos));
+    view.dispatch(tr);
+    const domAtPos = view.domAtPos(targetPos);
     const node = domAtPos.node instanceof Element ? domAtPos.node : domAtPos.node.parentElement;
     if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch {
-    // fallback: let ProseMirror handle it
-    view.dispatch(view.state.tr.scrollIntoView());
+    try {
+      view.dispatch(view.state.tr.scrollIntoView());
+    } catch { /* position entirely invalid, ignore */ }
   }
 }
 
@@ -46,7 +47,7 @@ interface DocOutlineListProps {
 }
 
 export function DocOutlineList({ headings, onSelect }: DocOutlineListProps) {
-  const t = useT();
+  const { t } = useT();
   if (headings.length === 0) {
     return <p className="text-sm text-muted-foreground px-3 py-4 text-center">{t('editor.outlineNoHeadings')}</p>;
   }
@@ -102,7 +103,7 @@ export function DocOutline({ getView }: DocOutlineProps) {
   }, [open]);
 
   return (
-    <div ref={panelRef} className="fixed top-[40vh] right-4 z-30">
+    <div ref={panelRef} className="absolute top-[30vh] right-4 z-30">
       <button
         onClick={() => setOpen(v => !v)}
         className={cn(

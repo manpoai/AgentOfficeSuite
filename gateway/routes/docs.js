@@ -5,12 +5,75 @@ import { createUnifiedComment } from '../lib/comment-service.js';
 import { createSnapshot, isAgentRequest } from '../lib/snapshot-helper.js';
 import { insertNotification } from '../lib/notifications.js';
 import { restoreDocFromSnapshot, extractTextFromProseMirror } from '../lib/doc-restore-helper.js';
-import { parseMarkdownFragment } from '../lib/pm-parser.js';
+import { parseMarkdownToDoc, parseMarkdownFragment } from '../lib/pm-parser.js';
 import { ensureTopLevelBlockIds, listTopLevelBlocks, replaceTopLevelBlock, insertBlocksAfter, appendBlocks, deleteTopLevelBlock } from '../lib/doc-block-ops.js';
 
 // Get display name for the authenticated actor (human or agent)
 function actorName(req) {
   return req.actor?.display_name || req.actor?.username || req.agent?.name || null;
+}
+
+/**
+ * Re-anchor text-range comments when a doc's blocks first receive stable blockIds.
+ * For each comment whose quote text is found inside a block, update anchor_meta
+ * and context_payload with the correct blockId and recalculated offsets.
+ */
+function reanchorComments(db, docId, docJson) {
+  const targetId = `doc:${docId}`;
+  const comments = db.prepare(
+    "SELECT id, anchor_type, anchor_meta, context_payload FROM comments WHERE target_id = ? AND anchor_type = 'text-range'"
+  ).all(targetId);
+  if (comments.length === 0) return;
+
+  const blocks = (docJson.content || []);
+
+  for (const c of comments) {
+    try {
+      const am = typeof c.anchor_meta === 'string' ? JSON.parse(c.anchor_meta) : c.anchor_meta;
+      if (!am?.quote) continue;
+      const quote = am.quote;
+
+      // Find which block contains this quote
+      let matchedBlockId = null;
+      let blockOffset = null;
+      let blockEndOffset = null;
+      for (const block of blocks) {
+        const bid = block.attrs?.blockId;
+        if (!bid) continue;
+        const blockText = extractBlockText(block);
+        const idx = blockText.indexOf(quote);
+        if (idx >= 0) {
+          matchedBlockId = bid;
+          // +1 accounts for ProseMirror node open tag offset
+          blockOffset = idx + 1;
+          blockEndOffset = idx + 1 + quote.length;
+          break;
+        }
+      }
+      if (!matchedBlockId) continue;
+
+      // Update anchor_meta
+      const newAm = { ...am, blockId: matchedBlockId, blockOffset, blockEndOffset };
+      // Update context_payload
+      let cp = typeof c.context_payload === 'string' ? JSON.parse(c.context_payload) : c.context_payload;
+      if (cp?.anchor?.meta) {
+        cp = { ...cp, anchor: { ...cp.anchor, meta: { ...cp.anchor.meta, blockId: matchedBlockId, blockOffset, blockEndOffset } } };
+      }
+
+      db.prepare('UPDATE comments SET anchor_meta = ?, context_payload = ? WHERE id = ?')
+        .run(JSON.stringify(newAm), JSON.stringify(cp), c.id);
+    } catch { /* skip individual comment errors */ }
+  }
+}
+
+function extractBlockText(block) {
+  if (!block.content) return '';
+  let text = '';
+  for (const child of block.content) {
+    if (child.text) text += child.text;
+    else if (child.content) text += extractBlockText(child);
+  }
+  return text;
 }
 
 export default function docsRoutes(app, { db, authenticateAgent, genId, contentItemsUpsert, pushEvent, pushHumanEvent, humanClients, deliverWebhook }) {
@@ -51,9 +114,18 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     const agentName = actorName(req);
     const docId = genId('doc');
 
-    db.prepare(`INSERT INTO documents (id, title, text, created_by, updated_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(docId, title, content_markdown || '', agentName, agentName, now, now);
+    let initDataJson = null;
+    if (data_json) {
+      const d = typeof data_json === 'string' ? JSON.parse(data_json) : data_json;
+      initDataJson = JSON.stringify(ensureTopLevelBlockIds(d).doc);
+    } else if (content_markdown) {
+      const parsed = parseMarkdownToDoc(content_markdown);
+      if (parsed) initDataJson = JSON.stringify(ensureTopLevelBlockIds(parsed.toJSON()).doc);
+    }
+
+    db.prepare(`INSERT INTO documents (id, title, text, data_json, created_by, updated_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(docId, title, content_markdown || '', initDataJson, agentName, agentName, now, now);
 
     const nodeId = `doc:${docId}`;
     const actorId = req.actor?.id || req.agent?.id || null;
@@ -64,9 +136,7 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     );
     // Create initial version snapshot only for agent-created docs (human-created docs start empty)
     if (isAgentRequest(req)) {
-      const initData = data_json
-        ? (typeof data_json === 'string' ? JSON.parse(data_json) : data_json)
-        : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: content_markdown || '' }] }] };
+      const initData = initDataJson ? JSON.parse(initDataJson) : { type: 'doc', content: [{ type: 'paragraph', content: [] }] };
       createSnapshot(db, { genId }, {
         contentType: 'doc',
         contentId: docId,
@@ -115,10 +185,9 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     if (title !== undefined) { updates.push('title = ?'); params.push(title); }
     if (content_markdown !== undefined) {
       updates.push('text = ?'); params.push(content_markdown);
-      // Clear stale ProseMirror JSON so the editor falls back to parsing the
-      // fresh markdown on next load. Editor.tsx prefers data_json when present;
-      // leaving the old tree in place would silently hide the agent's write.
-      updates.push('data_json = ?'); params.push(null);
+      const parsed = parseMarkdownToDoc(content_markdown);
+      const parsedJson = parsed ? JSON.stringify(ensureTopLevelBlockIds(parsed.toJSON()).doc) : null;
+      updates.push('data_json = ?'); params.push(parsedJson);
     }
     params.push(req.params.doc_id);
 
@@ -141,7 +210,8 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     // Post-edit snapshot
     if (content_markdown !== undefined && content_markdown !== doc.text && isAgentRequest(req)) {
-      const postData = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: content_markdown }] }] };
+      const postParsed = parseMarkdownToDoc(content_markdown);
+      const postData = postParsed ? ensureTopLevelBlockIds(postParsed.toJSON()).doc : { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: content_markdown }] }] };
       createSnapshot(db, { genId }, {
         contentType: 'doc',
         contentId: req.params.doc_id,
@@ -221,7 +291,13 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
       docJson = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: doc.text || '' }] }] };
     }
 
-    const { doc: annotated } = ensureTopLevelBlockIds(docJson);
+    const { doc: annotated, changed } = ensureTopLevelBlockIds(docJson);
+
+    if (changed) {
+      db.prepare('UPDATE documents SET data_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(annotated), new Date().toISOString(), req.params.doc_id);
+    }
+
     const allBlocks = listTopLevelBlocks(annotated);
 
     const result = blockIds.length > 0
@@ -754,6 +830,19 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
     }
 
     db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    // Re-anchor text-range comments when blockIds are first assigned
+    if (data_json !== undefined) {
+      try {
+        const oldData = doc.data_json ? JSON.parse(doc.data_json) : null;
+        const newData = typeof data_json === 'object' ? data_json : JSON.parse(data_json);
+        const oldHadNoBlockIds = !oldData || (oldData.content || []).every(n => !n.attrs?.blockId);
+        const newHasBlockIds = (newData.content || []).some(n => n.attrs?.blockId);
+        if (oldHadNoBlockIds && newHasBlockIds) {
+          reanchorComments(db, req.params.id, newData);
+        }
+      } catch { /* ignore re-anchor errors — non-critical */ }
+    }
 
     // Sync title to content_items
     if (title !== undefined) {
