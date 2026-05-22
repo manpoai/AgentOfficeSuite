@@ -189,20 +189,17 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
           let from = -1;
           let to = -1;
 
-          console.log('[navigateToAnchor] input:', { blockId, blockOffset, blockEndOffset, quote });
           if (blockId && blockOffset != null && blockEndOffset != null) {
             doc.forEach((node: any, offset: number) => {
               if (from >= 0) return;
               if (node.attrs?.blockId === blockId) {
                 const f = offset + blockOffset;
                 const t = offset + blockEndOffset;
-                console.log('[navigateToAnchor] matched block:', { offset, nodeSize: node.nodeSize, f, t, textContent: node.textContent?.slice(0, 40) });
                 if (f >= offset && t <= offset + node.nodeSize) {
                   from = f;
                   to = t;
                   return;
                 }
-                console.log('[navigateToAnchor] bounds check failed, trying block-text search');
                 if (quote.length >= 2) {
                   const blockText = node.textContent || '';
                   const idx = blockText.indexOf(quote);
@@ -223,7 +220,6 @@ export function ContentDocView({ doc, customIcon, breadcrumb, onBack, onSaved, o
                     if (startPos >= 0) {
                       from = startPos;
                       to = startPos + quote.length;
-                      console.log('[navigateToAnchor] block-text fallback:', { from, to });
                     }
                   }
                 }

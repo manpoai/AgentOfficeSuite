@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import * as gw from '@/lib/api/gateway';
 import { IS_APP_MODE } from '@/lib/api/config';
 
+const draftInputs = new Map<string, string>();
+
 interface AgentChatViewProps {
   agentId: string;
   agentName: string;
@@ -17,7 +19,7 @@ interface AgentChatViewProps {
 }
 
 export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark', agentKind, originDeviceId }: AgentChatViewProps) {
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => draftInputs.get(agentId) || '');
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +46,11 @@ export function AgentChatView({ agentId, agentName, isActive, colorTheme = 'dark
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages.length]);
+
+  useEffect(() => {
+    if (input) draftInputs.set(agentId, input);
+    else draftInputs.delete(agentId);
+  }, [input, agentId]);
 
   useEffect(() => {
     if (isActive) inputRef.current?.focus();

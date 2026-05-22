@@ -332,6 +332,7 @@ export function SidebarTerminal({
       <div className="flex-1 min-h-0 overflow-hidden">
         {viewMode === 'chat' && (
           <AgentChatView
+            key={selectedAgentId}
             agentId={selectedAgentId}
             agentName={agentLabel}
             isActive={true}
