@@ -487,6 +487,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     null: 'is_empty', notnull: 'is_not_empty',
     in: 'in', notin: 'not_in',
     has_any: 'has_any', has_all: 'has_all',
+    checked: 'is_true', notchecked: 'is_false',
   };
   // Reverse for GET responses — pick the canonical name.
   const ENGINE_TO_FILTER_OP = {
@@ -496,6 +497,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     is_empty: 'null', is_not_empty: 'notnull',
     in: 'in', not_in: 'notin',
     has_any: 'has_any', has_all: 'has_all',
+    is_true: 'checked', is_false: 'notchecked',
   };
 
   function mapViewToWire(v) {
@@ -840,6 +842,8 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     notnull: 'is_not_empty',
     in: 'in',
     notin: 'not_in',
+    checked: 'is_true',
+    notchecked: 'is_false',
   };
 
   // Inlined parseWhere — pure string parser for (field,op,value)~and(…) syntax.
@@ -849,7 +853,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     const parts = where.split(/~(and|or)/);
     for (const part of parts) {
       if (part === 'and' || part === 'or') continue;
-      const match = part.match(/^\((.+?),(eq|neq|like|nlike|gt|gte|lt|lte|is|isnot|null|notnull|in|notin),(.*)?\)$/);
+      const match = part.match(/^\((.+?),(checked|notchecked|eq|neq|like|nlike|gt|gte|lt|lte|is|isnot|null|notnull|in|notin),(.*)?\)$/);
       if (match) filters.push({ field: match[1], op: match[2], value: match[3] || '' });
     }
     return filters;

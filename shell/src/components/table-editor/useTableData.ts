@@ -347,13 +347,15 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       newVal = editValue === '' ? null : Number(editValue);
       if (typeof newVal === 'number' && isNaN(newVal)) newVal = null;
     }
+    const colId = colDef?.column_id;
+    const patch = colId ? { [col]: newVal, [colId]: newVal } : { [col]: newVal };
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       if (!old || typeof old !== 'object' || !('list' in (old as Record<string, unknown>))) return old;
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown };
       if (!Array.isArray(data.list)) return old;
       return {
         ...data,
-        list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r),
+        list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r),
       };
     });
     try {
@@ -367,10 +369,13 @@ export function useTableData(tableId: string, pageSize: number = 50) {
 
   const toggleCheckbox = useCallback(async (rowId: number, col: string, current: unknown) => {
     const newVal = !current;
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: newVal, [colId]: newVal } : { [col]: newVal };
+    const rollback = colId ? { [col]: current, [colId]: current } : { [col]: current };
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     try {
       await br.updateRow(tableId, rowId, { [col]: newVal });
@@ -379,10 +384,10 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
         if (!data) return old;
-        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: current } : r) };
+        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...rollback } : r) };
       });
     }
-  }, [tableId, queryClient]);
+  }, [meta?.columns, tableId, queryClient]);
 
   const ensureSelectOption = useCallback(async (colTitle: string, optionTitle: string) => {
     const colDef = meta?.columns?.find(c => c.title === colTitle);
@@ -398,10 +403,12 @@ export function useTableData(tableId: string, pageSize: number = 50) {
   }, [meta?.columns, tableId]);
 
   const setSelectValue = useCallback(async (rowId: number, col: string, value: string) => {
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: value, [colId]: value } : { [col]: value };
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     try {
       if (value) await ensureSelectOption(col, value);
@@ -411,17 +418,20 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       showError(t('errors.setOptionFailed'), e);
       refresh();
     }
-  }, [tableId, queryClient, ensureSelectOption, refreshMeta, refresh]);
+  }, [meta?.columns, tableId, queryClient, ensureSelectOption, refreshMeta, refresh]);
 
   const toggleMultiSelect = useCallback(async (rowId: number, col: string, current: unknown, option: string) => {
     const currentItems = parseMultiSelect(current);
     const newItems = currentItems.includes(option)
       ? currentItems.filter(i => i !== option)
       : [...currentItems, option];
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const joined = newItems.join(',');
+    const patch = colId ? { [col]: joined, [colId]: joined } : { [col]: joined };
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newItems.join(',') } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     try {
       if (!currentItems.includes(option)) await ensureSelectOption(col, option);
@@ -432,14 +442,16 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       showError(t('errors.toggleMultiSelectFailed'), e);
       refresh();
     }
-  }, [tableId, queryClient, ensureSelectOption, refresh, refreshMeta]);
+  }, [meta?.columns, tableId, queryClient, ensureSelectOption, refresh, refreshMeta]);
 
   const setRating = useCallback(async (rowId: number, col: string, value: number) => {
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: value, [colId]: value } : { [col]: value };
     try {
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
         if (!data) return old;
-        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
+        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
       });
       await br.updateRow(tableId, rowId, { [col]: value });
       refresh();
@@ -447,7 +459,7 @@ export function useTableData(tableId: string, pageSize: number = 50) {
       showError(t('errors.setRatingFailed'), e);
       refresh();
     }
-  }, [tableId, queryClient, refresh]);
+  }, [meta?.columns, tableId, queryClient, refresh]);
 
   // ── Attachment upload ──
   const handleAttachmentUpload = useCallback(async (rowId: number, colTitle: string, files: FileList, existingRows: Record<string, unknown>[]) => {

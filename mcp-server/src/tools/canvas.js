@@ -487,4 +487,27 @@ export function registerCanvasTools(server, gw) {
       return { content: [{ type: 'text', text: JSON.stringify({ updated: true, page_id }) }] };
     }
   );
+
+  server.tool(
+    'export_canvas_png',
+    'Export a canvas page as a PNG image. Returns the image data. If page_id is omitted, exports the first page.',
+    {
+      canvas_id: z.string().describe('Canvas ID'),
+      page_id: z.string().optional().describe('Page ID to export (defaults to first page)'),
+      scale: z.number().optional().describe('Pixel density multiplier (1=normal, 2=retina, default 2)'),
+    },
+    async ({ canvas_id, page_id, scale }) => {
+      const qs = new URLSearchParams();
+      if (page_id) qs.set('page_id', page_id);
+      if (scale) qs.set('scale', String(scale));
+      const suffix = qs.toString() ? `?${qs}` : '';
+      const buf = await gw.getBuffer(`/canvases/${canvas_id}/export-png${suffix}`);
+      return {
+        content: [
+          { type: 'image', data: buf.toString('base64'), mimeType: 'image/png' },
+          { type: 'text', text: JSON.stringify({ exported: true, canvas_id, page_id: page_id || 'first', size_bytes: buf.length }) },
+        ],
+      };
+    }
+  );
 }

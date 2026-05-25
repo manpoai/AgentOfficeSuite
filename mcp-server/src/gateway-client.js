@@ -30,6 +30,17 @@ export class GatewayClient {
     return data;
   }
 
+  async getBuffer(path) {
+    const url = `${this.baseUrl}${path}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+    if (res.status >= 400) {
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch { data = text; }
+      throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  }
+
   get(path) { return this.request('GET', path); }
   post(path, body) { return this.request('POST', path, body); }
   patch(path, body) { return this.request('PATCH', path, body); }

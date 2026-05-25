@@ -1067,22 +1067,23 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
 
   const toggleCheckbox = async (rowId: number, col: string, current: unknown) => {
     const newVal = !current;
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: newVal, [colId]: newVal } : { [col]: newVal };
+    const rollback = colId ? { [col]: current, [colId]: current } : { [col]: current };
     // Optimistic update
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: newVal } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     try {
-      // Backend requires boolean values, not integers (1/0 causes type error)
       await br.updateRow(tableId, rowId, { [col]: newVal });
     } catch (e) {
       console.error('Toggle failed:', e);
-      // Rollback optimistic update
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
         if (!data) return old;
-        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: current } : r) };
+        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...rollback } : r) };
       });
     }
   };
@@ -1103,11 +1104,13 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   const setSelectValue = async (rowId: number, col: string, value: string) => {
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: value, [colId]: value } : { [col]: value };
     // Optimistic update
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     setSelectDropdown(null);
     try {
@@ -1116,7 +1119,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       refreshMeta();
     } catch (e) {
       console.error('Set select failed:', e);
-      refresh(); // revert optimistic update
+      refresh();
     }
   };
 
@@ -1136,14 +1139,15 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       ? currentItems.filter(i => i !== option)
       : [...currentItems, option];
     const wireValue = newItems.join(','); // display form for the grid
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: wireValue, [colId]: wireValue } : { [col]: wireValue };
     queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
       const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
       if (!data) return old;
-      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: wireValue } : r) };
+      return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
     });
     try {
       if (!currentItems.includes(option)) await ensureSelectOption(col, option);
-      // Backend requires an array for MultiSelect (coerce throws on string).
       await br.updateRow(tableId, rowId, { [col]: newItems });
       refresh();
       refreshMeta();
@@ -1154,12 +1158,14 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   };
 
   const setRating = async (rowId: number, col: string, value: number) => {
+    const colId = meta?.columns?.find(c => c.title === col)?.column_id;
+    const patch = colId ? { [col]: value, [colId]: value } : { [col]: value };
     try {
       // Optimistic update
       queryClient.setQueriesData({ queryKey: ['nc-rows', tableId] }, (old: unknown) => {
         const data = old as { list: Record<string, unknown>[]; pageInfo?: unknown } | undefined;
         if (!data) return old;
-        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, [col]: value } : r) };
+        return { ...data, list: data.list.map(r => (r.Id as number) === rowId ? { ...r, ...patch } : r) };
       });
       await br.updateRow(tableId, rowId, { [col]: value });
       refresh();

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud, Monitor } from 'lucide-react';
+import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud, Monitor, Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -867,9 +867,11 @@ export function ContentSidebar({
               <div className="px-2 pb-2">
                 {(() => {
                   const all = allAgents || [];
-                  const localList = all.filter(a => a.agent_kind === 'local');
-                  const connectorList = all.filter(a => a.agent_kind === 'connector');
-                  const remoteList = all.filter(a => a.agent_kind !== 'local' && a.agent_kind !== 'connector');
+                  const pendingList = all.filter(a => a.pending_approval);
+                  const approved = all.filter(a => !a.pending_approval);
+                  const localList = approved.filter(a => a.agent_kind === 'local');
+                  const connectorList = approved.filter(a => a.agent_kind === 'connector');
+                  const remoteList = approved.filter(a => a.agent_kind !== 'local' && a.agent_kind !== 'connector');
                   const renderAgent = (agent: typeof all[0]) => {
                     const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
                     const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
@@ -903,6 +905,52 @@ export function ContentSidebar({
                   };
                   return (
                     <>
+                      {pendingList.length > 0 && (
+                        <>
+                          <div className="px-2 pt-1 pb-0.5 text-[10px] font-medium text-foreground/40 uppercase tracking-wider">{t('sidebar.pendingApproved')}</div>
+                          {pendingList.map(agent => {
+                            const avatarUrl = gw.resolveAvatarUrl(agent.avatar_url);
+                            const platformFallback = agent.platform ? `/icons/platform-${agent.platform}.png` : null;
+                            return (
+                              <div key={agent.name} className="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg">
+                                <div className="w-8 h-8 rounded-full bg-muted overflow-hidden shrink-0">
+                                  {avatarUrl ? (
+                                    <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                                  ) : platformFallback ? (
+                                    <img src={platformFallback} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-foreground/30">
+                                      <Users className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <span className="text-sm font-medium text-foreground truncate">{agent.display_name || agent.name}</span>
+                                  <span className="text-xs text-foreground/50 truncate">
+                                    {agent.name}
+                                    {agent.platform && <span className="ml-1 px-1 py-0.5 bg-sidebar-primary/10 text-sidebar-primary rounded text-[10px]">{agent.platform}</span>}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={async () => { try { await gw.rejectAgent(agent.agent_id || agent.name); queryClient.invalidateQueries({ queryKey: ['admin-agents'] }); } catch {} }}
+                                  className="w-7 h-7 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0 hover:bg-red-100 transition-colors"
+                                >
+                                  <X className="h-3.5 w-3.5 text-red-500" />
+                                </button>
+                                <button
+                                  onClick={async () => { try { await gw.approveAgent(agent.agent_id || agent.name); queryClient.invalidateQueries({ queryKey: ['admin-agents'] }); } catch {} }}
+                                  className="w-7 h-7 rounded-full bg-sidebar-primary flex items-center justify-center shrink-0 hover:opacity-90 transition-colors"
+                                >
+                                  <Check className="h-3.5 w-3.5 text-white" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          {(localList.length > 0 || remoteList.length > 0 || connectorList.length > 0) && (
+                            <div className="mx-2 my-1 border-t border-black/10 dark:border-white/10" />
+                          )}
+                        </>
+                      )}
                       {localList.length > 0 && (
                         <>
                           <div className="px-2 pt-1 pb-0.5 text-[10px] font-medium text-foreground/40 uppercase tracking-wider">Local</div>

@@ -2916,11 +2916,12 @@ export function CanvasEditor({
     url: typeof window !== 'undefined' ? `${getPublicOrigin()}${window.location.pathname}${window.location.search}` : '',
     startRename: () => {}, openIconPicker: () => {},
     togglePin: () => onTogglePin?.(), deleteItem: handleDelete, shareItem: () => {},
+    downloadItem: activeFrameId ? () => handleExportFramePng(activeFrameId) : undefined,
     copyLink: () => onCopyLink?.(),
     showHistory: () => { setShowRevisions(v => !v); onCloseComments(); },
     showComments: () => { onShowComments(); setShowRevisions(false); },
     showHistoryActive: showRevisions, showCommentsActive: showComments,
-  }), [canvasId, title, isPinned, handleDelete, onTogglePin, onCopyLink, showRevisions, showComments, onCloseComments, onShowComments]);
+  }), [canvasId, title, isPinned, handleDelete, onTogglePin, onCopyLink, showRevisions, showComments, onCloseComments, onShowComments, activeFrameId, handleExportFramePng]);
 
   const menuItems = useMemo(() => buildContentTopBarCommonMenuItems(t, topBarCtx), [t, topBarCtx]);
   const fixedActions = useMemo(() => buildFixedTopBarActionItems(t, topBarCtx), [t, topBarCtx]);

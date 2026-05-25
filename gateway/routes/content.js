@@ -752,6 +752,68 @@ export default function contentRoutes(app, { db, authenticateAny, authenticateAg
     res.json({ saved: true, updated_at: now });
   });
 
+  // ─── Canvas export PNG ──────────────────────────
+  app.get('/api/canvases/:id/export-png', authenticateAgent, async (req, res) => {
+    try {
+      const canvas = db.prepare('SELECT * FROM canvases WHERE id = ?').get(req.params.id);
+      if (!canvas) return res.status(404).json({ error: 'NOT_FOUND' });
+      const data = JSON.parse(canvas.data_json);
+      const pageId = req.query.page_id;
+      const page = pageId ? data.pages.find(p => p.page_id === pageId) : data.pages[0];
+      if (!page) return res.status(404).json({ error: 'PAGE_NOT_FOUND' });
+
+      const pw = page.width || 1920;
+      const ph = page.height || 1080;
+      const scale = parseInt(req.query.scale || '2', 10);
+
+      const elementsHtml = (page.elements || [])
+        .filter(el => el.visible !== false)
+        .sort((a, b) => (a.z_index ?? 0) - (b.z_index ?? 0))
+        .map(el => {
+          const style = [
+            'position:absolute',
+            `left:${el.x}px`, `top:${el.y}px`,
+            `width:${el.w}px`, `height:${el.h}px`,
+            'overflow:hidden',
+          ].join(';');
+          return `<div style="${style}">${el.html}</div>`;
+        }).join('\n');
+
+      const headHtml = page.head_html || '';
+
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: ${pw}px; height: ${ph}px; overflow: hidden; position: relative; background: white; }
+  [contenteditable] { outline: none; }
+</style>
+${headHtml}
+</head><body>${elementsHtml}</body></html>`;
+
+      const puppeteer = await import('puppeteer-core');
+      const chromePath = process.env.CHROME_PATH
+        || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        executablePath: chromePath,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
+      const bp = await browser.newPage();
+      await bp.setViewport({ width: pw, height: ph, deviceScaleFactor: scale });
+      await bp.setContent(html, { waitUntil: 'networkidle0' });
+      const png = await bp.screenshot({ type: 'png', fullPage: false });
+      await browser.close();
+
+      res.set('Content-Type', 'image/png');
+      res.set('Content-Disposition', `attachment; filename="canvas-${req.params.id}.png"`);
+      res.send(png);
+    } catch (e) {
+      console.error('[gateway] canvas export-png failed:', e);
+      res.status(500).json({ error: 'EXPORT_FAILED', detail: e.message });
+    }
+  });
+
   // ─── Videos ─────────────────────────────────────
   app.post('/api/videos', authenticateAgent, (req, res) => {
     const { title = '' } = req.body;
