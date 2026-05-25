@@ -792,8 +792,19 @@ ${headHtml}
 </head><body>${elementsHtml}</body></html>`;
 
       const puppeteer = await import('puppeteer-core');
-      const chromePath = process.env.CHROME_PATH
-        || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+      const fs = await import('fs');
+      const chromeCandidates = [
+        process.env.CHROME_PATH,
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+      ].filter(Boolean);
+      const chromePath = chromeCandidates.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!chromePath) {
+        return res.status(500).json({ error: 'CHROME_NOT_FOUND', detail: 'No Chrome/Chromium found. Set CHROME_PATH env var.' });
+      }
       const browser = await puppeteer.default.launch({
         headless: true,
         executablePath: chromePath,
