@@ -477,7 +477,7 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
   const colTitleRef = useRef<HTMLInputElement>(null);
   const newColRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
-  const pageSize = 5000;
+  const pageSize = 50000;
 
   // Adapter: Table snapshots → RevisionItem[] for unified RevisionHistory
   const fetchTableRevisions = useCallback(async (_contentId: string): Promise<RevisionItem[]> => {

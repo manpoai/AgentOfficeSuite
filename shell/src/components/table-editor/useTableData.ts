@@ -20,7 +20,7 @@ function parseMultiSelect(value: unknown): string[] {
   return typeof value === 'string' ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
 }
 
-export function useTableData(tableId: string, pageSize: number = 5000) {
+export function useTableData(tableId: string, pageSize: number = 50000) {
   const { t } = useT();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
