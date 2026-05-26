@@ -249,6 +249,7 @@ export function createTableEngine(db) {
     dropTable: schema.dropTable,
     addField: schema.addField,
     updateField: schema.updateField,
+    changeFieldType: schema.changeFieldType,
     dropField: schema.dropField,
     listFields: schema.listFields,
     getField: schema.getField,

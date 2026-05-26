@@ -350,9 +350,13 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         }
       }
 
-      // I5: uidt change is forbidden for everyone (agent or human).
+      // uidt change: atomic type migration (preserves field ID, view refs)
       if (req.body.uidt && req.body.uidt !== currentField.uidt) {
-        return res.status(400).json({ error: 'VALIDATION_ERROR', detail: 'field uidt cannot be changed; delete and recreate' });
+        const metaObj = req.body.meta
+          ? (typeof req.body.meta === 'string' ? JSON.parse(req.body.meta) : req.body.meta)
+          : null;
+        const changed = tableEngine.changeFieldType(columnId, req.body.uidt, { options: metaObj });
+        return res.json({ column_id: changed.id, title: changed.title, type: changed.uidt });
       }
 
       const updated = Object.keys(patch).length
@@ -360,7 +364,7 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         : currentField;
 
       // Select options diff: replace strategy. Existing options not in payload → delete; new ones → add.
-      if (Array.isArray(req.body.options) && (currentField.uidt === 'SingleSelect' || currentField.uidt === 'MultiSelect')) {
+      if (Array.isArray(req.body.options) && (updated.uidt === 'SingleSelect' || updated.uidt === 'MultiSelect')) {
         const existing = tableEngine.listOptions(columnId);
         const existingByValue = new Map(existing.map(o => [o.value, o]));
         const seenValues = new Set();

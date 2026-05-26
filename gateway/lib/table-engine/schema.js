@@ -249,6 +249,103 @@ export function createSchema(db) {
     return parseFieldOptions(db.prepare('SELECT * FROM user_fields WHERE id = ?').get(fieldId));
   }
 
+  // ── changeFieldType ──────────────────────────────────
+  // Atomically changes a field's uidt while preserving the field ID so that
+  // view columns, filters, sorts, and row references all keep working.
+  // Steps: create new physical column → coerce+migrate data → drop old column
+  // → update user_fields row (uidt, physical_column, options).
+  // Link↔Link changes are forbidden — caller must delete+recreate.
+  function changeFieldType(fieldId, newUidt, { options: newOptions = null } = {}) {
+    const f = db.prepare('SELECT * FROM user_fields WHERE id = ?').get(fieldId);
+    if (!f) throw validationError(`field not found: ${fieldId}`);
+
+    if (f.uidt === newUidt) return parseFieldOptions(f);
+
+    if (VIRTUAL_UIDTS.has(f.uidt) || VIRTUAL_UIDTS.has(newUidt)) {
+      throw validationError('cannot change type of virtual fields');
+    }
+    if (LINK_UIDTS.has(f.uidt) || LINK_UIDTS.has(newUidt)) {
+      throw validationError('cannot change type to/from Link; delete and recreate');
+    }
+    if (!SUPPORTED_UIDTS.has(newUidt)) throw validationError(`unsupported uidt: ${newUidt}`);
+
+    const physName = physicalTableName(f.table_id);
+    const oldPhysCol = f.physical_column;
+    const newPhysCol = physicalColumnName(genId('ufld'));
+    const newPhysType = UIDT_PHYSICAL_TYPE[newUidt];
+    const now = nowMs();
+
+    const tx = db.transaction(() => {
+      // 1. Add new physical column
+      db.exec(`ALTER TABLE ${quoteIdent(physName)} ADD COLUMN ${quoteIdent(newPhysCol)} ${newPhysType}`);
+
+      // 2. Migrate data with coercion
+      const castExpr = buildCastExpression(oldPhysCol, f.uidt, newUidt);
+      if (castExpr) {
+        db.exec(`UPDATE ${quoteIdent(physName)} SET ${quoteIdent(newPhysCol)} = ${castExpr} WHERE ${quoteIdent(oldPhysCol)} IS NOT NULL`);
+      }
+
+      // 3. Drop old physical column
+      try {
+        db.exec(`ALTER TABLE ${quoteIdent(physName)} DROP COLUMN ${quoteIdent(oldPhysCol)}`);
+      } catch {
+        rebuildPhysicalTableWithoutColumn(f.table_id, oldPhysCol);
+      }
+
+      // 4. Clean up select options if leaving SingleSelect/MultiSelect
+      if ((f.uidt === 'SingleSelect' || f.uidt === 'MultiSelect') &&
+          newUidt !== 'SingleSelect' && newUidt !== 'MultiSelect') {
+        db.prepare('DELETE FROM user_select_options WHERE field_id = ?').run(fieldId);
+      }
+
+      // 5. Clean up view filters/sorts that reference this field
+      //    (type change may make existing filters invalid)
+      db.prepare('DELETE FROM user_view_filters WHERE field_id = ?').run(fieldId);
+      db.prepare('DELETE FROM user_view_sorts WHERE field_id = ?').run(fieldId);
+
+      // 6. Update user_fields row
+      const optionsJson = newOptions ? JSON.stringify(newOptions) : null;
+      db.prepare(`UPDATE user_fields SET uidt = ?, physical_column = ?, options = ?, updated_at = ? WHERE id = ?`)
+        .run(newUidt, newPhysCol, optionsJson, now, fieldId);
+    });
+    tx();
+
+    // Recreate sync triggers with new column name
+    try { createSyncTriggers(db, physName, 'id'); } catch {}
+
+    return parseFieldOptions(db.prepare('SELECT * FROM user_fields WHERE id = ?').get(fieldId));
+  }
+
+  // Build a CAST/coercion SQL expression for data migration between types.
+  function buildCastExpression(oldCol, oldUidt, newUidt) {
+    const q = quoteIdent(oldCol);
+    const oldPhys = UIDT_PHYSICAL_TYPE[oldUidt];
+    const newPhys = UIDT_PHYSICAL_TYPE[newUidt];
+
+    // Same physical type — direct copy
+    if (oldPhys === newPhys) return q;
+
+    // TEXT → REAL/INTEGER
+    if (oldPhys === 'TEXT' && (newPhys === 'REAL' || newPhys === 'INTEGER')) {
+      return `CASE WHEN typeof(${q}) = 'text' AND ${q} GLOB '*[0-9]*' THEN CAST(${q} AS ${newPhys}) ELSE NULL END`;
+    }
+
+    // REAL → TEXT
+    if (oldPhys === 'REAL' && newPhys === 'TEXT') return `CAST(${q} AS TEXT)`;
+
+    // INTEGER → TEXT
+    if (oldPhys === 'INTEGER' && newPhys === 'TEXT') return `CAST(${q} AS TEXT)`;
+
+    // REAL → INTEGER (truncate)
+    if (oldPhys === 'REAL' && newPhys === 'INTEGER') return `CAST(${q} AS INTEGER)`;
+
+    // INTEGER → REAL
+    if (oldPhys === 'INTEGER' && newPhys === 'REAL') return `CAST(${q} AS REAL)`;
+
+    // Fallback: try CAST
+    return `CAST(${q} AS ${newPhys})`;
+  }
+
   // ── dropField — full cleanup sequence (I6) ─────────
   function dropField(fieldId) {
     const f = db.prepare('SELECT * FROM user_fields WHERE id = ?').get(fieldId);
@@ -363,6 +460,7 @@ export function createSchema(db) {
     dropTable,
     listFields,
     getField,
+    changeFieldType,
     // exposed for tests
     _physicalTableName: physicalTableName,
     _physicalColumnName: physicalColumnName,
