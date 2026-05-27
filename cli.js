@@ -73,7 +73,7 @@ async function findAvailablePort(startPort, maxAttempts = 50, checker = isPortFr
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-function waitForPort(port, host = '127.0.0.1', timeoutMs = 30000) {
+function waitForPort(port, host = '127.0.0.1', timeoutMs = 120000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const tryConnect = () => {
