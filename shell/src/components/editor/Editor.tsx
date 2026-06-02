@@ -241,6 +241,25 @@ function EditorInner({ defaultValue, defaultDocJson, onChange, onDocJson, readOn
           state,
           editable: () => !readOnlyRef.current,
           nodeViews: createNodeViews(() => documentId),
+          handlePaste(view, event) {
+            const dt = event.clipboardData;
+            if (!dt) return false;
+            const plain = dt.getData('text/plain');
+            const html = dt.getData('text/html');
+            if (!plain) return false;
+            const mdIndicators = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|!\[|\[.+\]\(.+\)|\*\*|__|\*[^*]|_[^_]|~~)/m;
+            if (!mdIndicators.test(plain)) return false;
+            // If HTML is present but is just plain paragraphs (no rich tags), prefer markdown parsing
+            if (html) {
+              const hasRichHtml = /<(h[1-6]|strong|em|b|i|ul|ol|li|blockquote|pre|code|table|a\s)[>\s/]/i.test(html);
+              if (hasRichHtml) return false;
+            }
+            const doc = parseMarkdown(plain);
+            if (!doc) return false;
+            const tr = view.state.tr.replaceSelection(doc.slice(0));
+            view.dispatch(tr);
+            return true;
+          },
           clipboardTextParser(text, _$context, _plain, _view) {
             const mdIndicators = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|!\[|\[.+\]\(.+\)|\*\*|__|\*[^*]|_[^_]|~~)/m;
             if (mdIndicators.test(text)) {
