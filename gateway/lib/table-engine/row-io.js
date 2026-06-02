@@ -280,6 +280,10 @@ export function createRowIo(db, { linkApi = null, schemaApi = null } = {}) {
     switch (uidt) {
       case 'Checkbox': return raw === 1;
       case 'MultiSelect':
+        try { return JSON.parse(raw); } catch {
+          if (typeof raw === 'string' && raw.length > 0) return raw.split(',').map(s => s.trim()).filter(Boolean);
+          return null;
+        }
       case 'Attachment':
       case 'LinkToAnotherRecord':
       case 'Links':

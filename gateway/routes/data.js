@@ -385,10 +385,18 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
                 const distinct = db.prepare(
                   `SELECT DISTINCT [${field.physical_column}] as val FROM [${tbl.physical_name}] WHERE [${field.physical_column}] IS NOT NULL AND [${field.physical_column}] != ''`
                 ).all();
-                for (let i = 0; i < distinct.length; i++) {
-                  const v = String(distinct[i].val).trim();
-                  if (!v) continue;
-                  tableEngine.addOption(columnId, { value: v, color: SELECT_COLORS[i % SELECT_COLORS.length] });
+                const seen = new Set();
+                let colorIdx = 0;
+                for (const row of distinct) {
+                  // For MultiSelect, split comma-separated values into individual options
+                  const parts = changed.uidt === 'MultiSelect'
+                    ? String(row.val).split(',').map(s => s.trim()).filter(Boolean)
+                    : [String(row.val).trim()];
+                  for (const v of parts) {
+                    if (!v || seen.has(v)) continue;
+                    seen.add(v);
+                    tableEngine.addOption(columnId, { value: v, color: SELECT_COLORS[colorIdx++ % SELECT_COLORS.length] });
+                  }
                 }
               }
             }
