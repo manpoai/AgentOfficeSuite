@@ -1047,6 +1047,7 @@
     "newFlowchart": "新建流程图",
     "newCanvas": "新建画布",
     "newVideo": "新建视频",
+    "importCSV": "导入 CSV",
     "newAgent": "新建 Agent",
     "openNewTab": "在新标签页打开",
     "rename": "重命名",
@@ -1265,6 +1266,24 @@
         "row": "数据库行"
       }
     }
+  },
+  "csvImport": {
+    "title": "导入 CSV 为新表",
+    "preview": "预览",
+    "importing": "导入中…",
+    "success": "表格创建成功",
+    "fileName": "文件",
+    "tableName": "表名",
+    "columns": "{n} 列",
+    "rows": "{n} 行",
+    "importBtn": "导入",
+    "fileTooLarge": "文件过大（最大 10MB）",
+    "tooManyRows": "行数过多（最多 50,000 行）",
+    "tooManyColumns": "列数过多（最多 100 列）",
+    "emptyFile": "文件为空或没有数据行",
+    "parseError": "无法解析 CSV 文件",
+    "createTableFailed": "创建表格失败",
+    "insertRowsFailed": "部分行导入失败。已导入 {inserted}/{total} 行。"
   },
   "serverSnapshots": {
     "pre_agent_edit": "agent 编辑前自动保存",

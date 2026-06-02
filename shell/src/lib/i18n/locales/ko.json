@@ -1026,6 +1026,7 @@
     "newFlowchart": "새 플로차트",
     "newCanvas": "새 캔버스",
     "newVideo": "새 비디오",
+    "importCSV": "CSV 가져오기",
     "newAgent": "새 에이전트",
     "openNewTab": "새 탭에서 열기",
     "rename": "이름 변경",
@@ -1242,6 +1243,24 @@
         "row": "데이터베이스 행"
       }
     }
+  },
+  "csvImport": {
+    "title": "Import CSV as New Table",
+    "preview": "Preview",
+    "importing": "Importing…",
+    "success": "Table created successfully",
+    "fileName": "File",
+    "tableName": "Table name",
+    "columns": "{n} columns",
+    "rows": "{n} rows",
+    "importBtn": "Import",
+    "fileTooLarge": "File is too large (max 10MB)",
+    "tooManyRows": "Too many rows (max 50,000)",
+    "tooManyColumns": "Too many columns (max 100)",
+    "emptyFile": "File is empty or has no data rows",
+    "parseError": "Could not parse CSV file",
+    "createTableFailed": "Failed to create table",
+    "insertRowsFailed": "Failed to import some rows. {inserted} of {total} rows imported."
   },
   "serverSnapshots": {
     "pre_agent_edit": "에이전트 편집 전 자동 저장",

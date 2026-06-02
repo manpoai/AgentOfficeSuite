@@ -1026,6 +1026,7 @@
     "newFlowchart": "新規フローチャート",
     "newCanvas": "新規キャンバス",
     "newVideo": "新規ビデオ",
+    "importCSV": "CSVインポート",
     "newAgent": "新規エージェント",
     "openNewTab": "新しいタブで開く",
     "rename": "名前を変更",
@@ -1242,6 +1243,24 @@
         "row": "データベース行"
       }
     }
+  },
+  "csvImport": {
+    "title": "Import CSV as New Table",
+    "preview": "Preview",
+    "importing": "Importing…",
+    "success": "Table created successfully",
+    "fileName": "File",
+    "tableName": "Table name",
+    "columns": "{n} columns",
+    "rows": "{n} rows",
+    "importBtn": "Import",
+    "fileTooLarge": "File is too large (max 10MB)",
+    "tooManyRows": "Too many rows (max 50,000)",
+    "tooManyColumns": "Too many columns (max 100)",
+    "emptyFile": "File is empty or has no data rows",
+    "parseError": "Could not parse CSV file",
+    "createTableFailed": "Failed to create table",
+    "insertRowsFailed": "Failed to import some rows. {inserted} of {total} rows imported."
   },
   "serverSnapshots": {
     "pre_agent_edit": "エージェント編集前に自動保存",
