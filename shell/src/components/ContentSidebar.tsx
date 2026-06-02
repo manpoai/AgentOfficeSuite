@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud, Monitor, Check, X } from 'lucide-react';
+import { Globe, ChevronRight, ChevronDown, Trash2, Plus, PlusCircle, Search, Settings, PanelLeftClose, Users, HelpCircle, MessageSquare, AtSign, Pencil, Bell, Camera, Key, LogOut, Cloud, Monitor, Check, X, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/lib/auth';
@@ -43,6 +43,7 @@ interface ContentSidebarProps {
   onShowNewMenuChange: (show: boolean) => void;
   creating: boolean;
   onCreateByType: (type: CreatableType) => void;
+  onImportCsv?: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSidebarTabChange?: (tab: SidebarTab) => void;
@@ -68,6 +69,7 @@ export function ContentSidebar({
   onShowNewMenuChange,
   creating,
   onCreateByType,
+  onImportCsv,
   searchQuery,
   onSearchChange,
   onSidebarTabChange,
@@ -1112,6 +1114,18 @@ export function ContentSidebar({
                 </button>
               );
             })}
+            {onImportCsv && (
+              <>
+                <div className="border-t border-black/10 dark:border-border my-1" />
+                <button
+                  onClick={onImportCsv}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-black/70 dark:text-white/70 hover:bg-black/[0.04] transition-colors"
+                >
+                  <Upload className="h-4 w-4 text-[#939493] dark:text-[#818181]" />
+                  {t('actions.importCSV')}
+                </button>
+              </>
+            )}
             <div className="border-t border-black/10 dark:border-border my-1" />
             <button
               onClick={() => { onShowNewMenuChange(false); setShowConnectAgents(true); }}

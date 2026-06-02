@@ -54,6 +54,9 @@ const VideoEditor = dynamic(
   { ssr: false, loading: () => <EditorSkeleton /> }
 );
 import * as gw from '@/lib/api/gateway';
+import * as br from '@/lib/api/tables';
+import { CsvImportNewTableDialog } from '@/components/table-editor/CsvImportNewTableDialog';
+import type { CsvParseResult } from '@/lib/csv-parser';
 import { useT, LOCALE_LABELS, type Locale } from '@/lib/i18n';
 import { getAutoPosition } from '@/lib/hooks/use-auto-position';
 import { useContextMenu } from '@/lib/hooks/use-context-menu';
@@ -223,6 +226,7 @@ export default function ContentPage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [mobileView, setMobileView] = useState<'list' | 'detail'>('list');
   const [showNewMenu, setShowNewMenu] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [showMobileFabMenu, setShowMobileFabMenu] = useState(false);
   const [showMobileProfile, setShowMobileProfile] = useState(false);
   const [showMobileAgents, setShowMobileAgents] = useState(false);
@@ -924,6 +928,26 @@ export default function ContentPage() {
     return handleCreateDiagram(parentNodeId);
   };
 
+  const handleCsvImport = async (tableName: string, parsed: CsvParseResult) => {
+    const columns = parsed.headers.map(h => ({ title: h, uidt: 'SingleLineText' }));
+    const item = await gw.createContentItem({
+      type: 'table',
+      title: tableName,
+      columns,
+    });
+
+    if (parsed.rows.length > 0) {
+      await br.batchInsertRows(item.raw_id, parsed.rows);
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ['content-items'] });
+    const sel = { type: 'table' as const, id: item.raw_id };
+    setSelection(sel);
+    syncSelectionToURL(sel);
+    setMobileView('detail');
+    setShowCsvImport(false);
+  };
+
   const updateTreeParent = (nodeId: string, parentId: string) => {
     setTreeState(prev => {
       const next = {
@@ -1153,6 +1177,7 @@ export default function ContentPage() {
         onShowNewMenuChange={setShowNewMenu}
         creating={creating}
         onCreateByType={(type) => handleCreateByType(type)}
+        onImportCsv={() => { setShowNewMenu(false); setShowCsvImport(true); }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSidebarTabChange={setActiveSidebarTab}
@@ -1474,6 +1499,13 @@ export default function ContentPage() {
       {/* Change Password Dialog */}
       <ChangePasswordDialog open={showChangePassword} onClose={() => setShowChangePassword(false)} />
       <SyncSettingsDialog open={showSyncSettings} onClose={() => setShowSyncSettings(false)} />
+
+      {showCsvImport && (
+        <CsvImportNewTableDialog
+          onClose={() => setShowCsvImport(false)}
+          onImport={handleCsvImport}
+        />
+      )}
 
       {/* Mobile sidebar (only visible on mobile when in list view) */}
       {mobileView === 'list' && (
