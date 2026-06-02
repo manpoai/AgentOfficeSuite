@@ -178,6 +178,19 @@ export function registerDataTools(server, gw) {
   );
 
   server.tool(
+    'batch_insert_rows',
+    'Insert multiple rows into a database table at once. More efficient than calling insert_row repeatedly. Maximum 500 rows per call.',
+    {
+      table_id: z.string().describe('Table ID to insert into'),
+      rows: z.array(z.record(z.any())).min(1).max(500).describe('Array of row objects, each as {column_title: value}'),
+    },
+    async ({ table_id, rows }) => {
+      const result = await gw.post(`/data/${table_id}/rows/batch`, { rows });
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+  );
+
+  server.tool(
     'update_row',
     'Update an existing row in a database table.',
     {
