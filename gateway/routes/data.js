@@ -369,11 +369,29 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         }
 
         // Process select options if changing TO a select type
-        if (Array.isArray(req.body.options) && (changed.uidt === 'SingleSelect' || changed.uidt === 'MultiSelect')) {
-          for (const o of req.body.options) {
-            const v = typeof o === 'string' ? o : (o.title || o.value || '');
-            if (!v) continue;
-            tableEngine.addOption(columnId, { value: v, color: (typeof o === 'object' && o.color) || SELECT_COLORS[0] });
+        if (changed.uidt === 'SingleSelect' || changed.uidt === 'MultiSelect') {
+          if (Array.isArray(req.body.options) && req.body.options.length > 0) {
+            for (const o of req.body.options) {
+              const v = typeof o === 'string' ? o : (o.title || o.value || '');
+              if (!v) continue;
+              tableEngine.addOption(columnId, { value: v, color: (typeof o === 'object' && o.color) || SELECT_COLORS[0] });
+            }
+          } else {
+            // Auto-generate options from existing distinct values in the column
+            const field = db.prepare('SELECT physical_column, table_id FROM user_fields WHERE id = ?').get(columnId);
+            if (field) {
+              const tbl = db.prepare('SELECT physical_name FROM user_tables WHERE id = ?').get(field.table_id);
+              if (tbl) {
+                const distinct = db.prepare(
+                  `SELECT DISTINCT [${field.physical_column}] as val FROM [${tbl.physical_name}] WHERE [${field.physical_column}] IS NOT NULL AND [${field.physical_column}] != ''`
+                ).all();
+                for (let i = 0; i < distinct.length; i++) {
+                  const v = String(distinct[i].val).trim();
+                  if (!v) continue;
+                  tableEngine.addOption(columnId, { value: v, color: SELECT_COLORS[i % SELECT_COLORS.length] });
+                }
+              }
+            }
           }
         }
 
