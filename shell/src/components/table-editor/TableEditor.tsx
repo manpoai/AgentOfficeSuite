@@ -36,6 +36,7 @@ import { LinkRecordPicker } from './LinkRecordPicker';
 import { RevisionHistory, type RevisionItem } from '@/components/shared/RevisionHistory';
 import { getPublicOrigin } from '@/lib/remote-access';
 import { RevisionPreviewBanner } from '@/components/shared/RevisionPreviewBanner';
+import { parseCsv } from '@/lib/csv-parser';
 
 interface SnapshotPreview {
   snapshotId: string;
@@ -1531,32 +1532,9 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       if (!text) return;
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) return;
-      // Simple CSV parser (handles quoted fields)
-      const parseLine = (line: string): string[] => {
-        const result: string[] = [];
-        let current = '';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (inQuotes) {
-            if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-            else if (ch === '"') { inQuotes = false; }
-            else { current += ch; }
-          } else {
-            if (ch === '"') { inQuotes = true; }
-            else if (ch === ',') { result.push(current); current = ''; }
-            else { current += ch; }
-          }
-        }
-        result.push(current);
-        return result;
-      };
-      const headers = parseLine(lines[0]);
-      const dataRows = lines.slice(1).map(parseLine);
-      setCsvImportData({ headers, rows: dataRows });
-      // Auto-map by matching header names to table column titles
+      const { headers, rawRows } = parseCsv(text);
+      if (headers.length === 0 || rawRows.length === 0) return;
+      setCsvImportData({ headers, rows: rawRows });
       const autoMap: Record<number, string> = {};
       headers.forEach((h, i) => {
         const match = editableCols.find(c => c.title.toLowerCase() === h.trim().toLowerCase());
@@ -1565,7 +1543,6 @@ function TableEditorInner({ tableId, breadcrumb, onBack, onDeleted, onDuplicate,
       setCsvColMap(autoMap);
     };
     reader.readAsText(file);
-    // Reset input so same file can be re-selected
     e.target.value = '';
   };
 
