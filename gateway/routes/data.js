@@ -277,8 +277,10 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       }
       if (meta) {
         const metaObj = typeof meta === 'string' ? JSON.parse(meta) : meta;
-        if (metaObj.precision != null) fieldOptions.precision = metaObj.precision;
-        if (metaObj.decimals != null) fieldOptions.precision = metaObj.decimals;
+        if (metaObj.decimals != null && metaObj.precision == null) {
+          metaObj.precision = metaObj.decimals;
+        }
+        Object.assign(fieldOptions, metaObj);
       }
 
       const f = tableEngine.addField(tableId, {
@@ -355,7 +357,26 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         const metaObj = req.body.meta
           ? (typeof req.body.meta === 'string' ? JSON.parse(req.body.meta) : req.body.meta)
           : null;
-        const changed = tableEngine.changeFieldType(columnId, req.body.uidt, { options: metaObj });
+        let changed = tableEngine.changeFieldType(columnId, req.body.uidt, { options: metaObj });
+
+        // Apply title/position/is_primary changes that were also sent
+        const postPatch = {};
+        if (req.body.title) postPatch.title = req.body.title;
+        if (req.body.is_primary != null) postPatch.is_primary = req.body.is_primary;
+        if (req.body.position != null) postPatch.position = req.body.position;
+        if (Object.keys(postPatch).length) {
+          changed = tableEngine.updateField(columnId, postPatch);
+        }
+
+        // Process select options if changing TO a select type
+        if (Array.isArray(req.body.options) && (changed.uidt === 'SingleSelect' || changed.uidt === 'MultiSelect')) {
+          for (const o of req.body.options) {
+            const v = typeof o === 'string' ? o : (o.title || o.value || '');
+            if (!v) continue;
+            tableEngine.addOption(columnId, { value: v, color: (typeof o === 'object' && o.color) || SELECT_COLORS[0] });
+          }
+        }
+
         return res.json({ column_id: changed.id, title: changed.title, type: changed.uidt });
       }
 
