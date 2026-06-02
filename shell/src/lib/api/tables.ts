@@ -155,6 +155,27 @@ export async function deleteRow(tableId: string, rowId: number | string): Promis
   await brFetch(`/${tableId}/rows/${rowId}`, { method: 'DELETE' });
 }
 
+export async function batchInsertRows(
+  tableId: string,
+  rows: Record<string, unknown>[],
+  batchSize = 500
+): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = [];
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const chunk = rows.slice(i, i + batchSize);
+    const res = await brFetch<{ items: Record<string, unknown>[] }>(
+      `/${tableId}/rows/batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: chunk }),
+      }
+    );
+    all.push(...res.items);
+  }
+  return all;
+}
+
 // ── Column management ──
 
 export async function addColumn(
