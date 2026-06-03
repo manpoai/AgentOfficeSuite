@@ -168,6 +168,30 @@ export const schema = new Schema({
 const md = markdownIt('default', { html: false, breaks: false, linkify: true });
 md.enable('table');
 
+// Table cells in markdown-it contain inline tokens directly, but ProseMirror's
+// table_cell/table_header nodes require block+ content (a paragraph wrapper).
+// Without this, createAndFill returns null and cells are silently dropped.
+md.core.ruler.push('table_cell_paragraph_wrap', (state) => {
+  const tokens = state.tokens;
+  const cellTags = new Set(['th', 'td']);
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const tok = tokens[i];
+    if (tok.type === 'inline' && i > 0 && i < tokens.length - 1) {
+      const prev = tokens[i - 1];
+      const next = tokens[i + 1];
+      if (prev.nesting === 1 && cellTags.has(prev.tag) &&
+          next.nesting === -1 && cellTags.has(next.tag)) {
+        const pOpen = new state.Token('paragraph_open', 'p', 1);
+        pOpen.block = true;
+        const pClose = new state.Token('paragraph_close', 'p', -1);
+        pClose.block = true;
+        tokens.splice(i + 1, 0, pClose);
+        tokens.splice(i, 0, pOpen);
+      }
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // MarkdownParser — maps token types to schema nodes
 // ---------------------------------------------------------------------------

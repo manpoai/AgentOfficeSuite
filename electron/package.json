@@ -1,7 +1,7 @@
 {
   "name": "agentofficesuite",
-  "version": "3.2.0",
-  "description": "AgentOfficeSuite \u2014 AI-native workspace for human-agent collaboration",
+  "version": "3.3.0",
+  "description": "AgentOfficeSuite — AI-native workspace for human-agent collaboration",
   "main": "main.js",
   "author": "manpoai",
   "license": "AGPL-3.0",

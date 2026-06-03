@@ -848,20 +848,25 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     return { resolve };
   }
 
-  function rowIdsToTitles(row, fields, linkResolver = null) {
+  function rowIdsToTitles(row, fields, linkResolver = null, opts = {}) {
     if (!row) return null;
-    const out = { id: row.id, Id: row.id };
-    if (row.created_at != null) out.created_at = new Date(row.created_at).toISOString();
-    if (row.updated_at != null) out.updated_at = new Date(row.updated_at).toISOString();
-    if (row.created_by != null) out.created_by = row.created_by;
-    if (row.updated_by != null) out.updated_by = row.updated_by;
+    const { selectSet, fieldKey = 'both' } = opts;
+    const out = { id: row.id };
+    if (fieldKey === 'both') out.Id = row.id;
+    if (!selectSet) {
+      if (row.created_at != null) out.created_at = new Date(row.created_at).toISOString();
+      if (row.updated_at != null) out.updated_at = new Date(row.updated_at).toISOString();
+      if (row.created_by != null) out.created_by = row.created_by;
+      if (row.updated_by != null) out.updated_by = row.updated_by;
+    }
     for (const f of fields) {
+      if (selectSet && !selectSet.has(f.title) && !selectSet.has(f.id)) continue;
       if (!(f.id in row)) continue;
       const val = row[f.id];
       let emitVal;
       if ((f.uidt === 'Links' || f.uidt === 'LinkToAnotherRecord') && Array.isArray(val)) {
-        const opts = typeof f.options === 'string' ? (() => { try { return JSON.parse(f.options); } catch { return {}; } })() : (f.options || {});
-        const targetTableId = opts.target_table_id;
+        const fopts = typeof f.options === 'string' ? (() => { try { return JSON.parse(f.options); } catch { return {}; } })() : (f.options || {});
+        const targetTableId = fopts.target_table_id;
         if (targetTableId && linkResolver) {
           emitVal = linkResolver.resolve(targetTableId, val);
         } else {
@@ -870,9 +875,10 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       } else {
         emitVal = val;
       }
-      out[f.id] = emitVal;
-      // Keep title as alias; column_id is the stable key that survives duplicates.
-      if (!(f.title in out)) out[f.title] = emitVal;
+      if (fieldKey === 'id' || fieldKey === 'both') out[f.id] = emitVal;
+      if (fieldKey === 'title' || fieldKey === 'both') {
+        if (!(f.title in out)) out[f.title] = emitVal;
+      }
     }
     return out;
   }
@@ -966,6 +972,12 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     return { filters, sorts };
   }
 
+  function parseRowOutputOpts(query) {
+    const selectSet = query.fields ? new Set(query.fields.split(',').map(s => s.trim())) : null;
+    const fieldKey = query.field_key || 'both';
+    return { selectSet, fieldKey };
+  }
+
   function rowsListResponse(tableId, viewId, query) {
     const limit = parseInt(query.limit || '25', 10);
     const offset = parseInt(query.offset || '0', 10);
@@ -975,10 +987,8 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
     const { filters, sorts } = applyViewFiltersAndSorts(viewId, baseFilters, baseSorts);
     const rows = tableEngine.queryRows(tableId, { filters, sorts, limit, offset, search: query.search || null });
     const linkResolver = makeLinkResolver();
-    const wireRows = rows.map(r => rowIdsToTitles(r, fields, linkResolver));
-    // Total count: rerun without limit/offset to count. For now skip exact total
-    // (frontend pagination uses isFirstPage/isLastPage). totalRows = len if we
-    // got fewer than limit, else estimate next-page presence.
+    const rowOpts = parseRowOutputOpts(query);
+    const wireRows = rows.map(r => rowIdsToTitles(r, fields, linkResolver, rowOpts));
     const page = Math.floor(offset / limit) + 1;
     return {
       list: wireRows,
@@ -1037,10 +1047,15 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idRows = rows.map(r => payloadTitlesToIds(r, fields));
       const created = tableEngine.batchInsert(tableId, idRows, { actor: actorName(req) });
-      const linkResolver = makeLinkResolver();
-      const items = created.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver));
-      res.status(201).json({ items });
-
+      const returnMode = req.query.return || req.body._return;
+      if (returnMode === 'minimal') {
+        res.status(201).json({ items: created.map(r => ({ id: r.id, status: 'ok' })), count: created.length });
+      } else {
+        const linkResolver = makeLinkResolver();
+        const rowOpts = parseRowOutputOpts(req.query);
+        const items = created.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver, rowOpts));
+        res.status(201).json({ items });
+      }
       if (isAgentRequest(req)) {
         createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
@@ -1067,10 +1082,15 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
         return { id, data: payloadTitlesToIds(rest, fields) };
       });
       const updated = tableEngine.batchUpdate(tableId, updates, { actor: actorName(req) });
-      const linkResolver = makeLinkResolver();
-      const items = updated.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver));
-      res.json({ items });
-
+      const returnMode = req.query.return || req.body._return;
+      if (returnMode === 'minimal') {
+        res.json({ items: updated.map(r => ({ id: r.id, status: 'ok' })), count: updated.length });
+      } else {
+        const linkResolver = makeLinkResolver();
+        const rowOpts = parseRowOutputOpts(req.query);
+        const items = updated.map(r => rowIdsToTitles(tableEngine.readRow(tableId, r.id), fields, linkResolver, rowOpts));
+        res.json({ items });
+      }
       if (isAgentRequest(req)) {
         createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
@@ -1114,8 +1134,13 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       const created = tableEngine.insertRow(tableId, idData, { actor: actorName(req) });
-      const typed = tableEngine.readRow(tableId, created.id);
-      res.status(201).json(rowIdsToTitles(typed, fields, makeLinkResolver()));
+      if (req.query.return === 'minimal' || req.body._return === 'minimal') {
+        res.status(201).json({ id: created.id, status: 'ok' });
+      } else {
+        const typed = tableEngine.readRow(tableId, created.id);
+        const rowOpts = parseRowOutputOpts(req.query);
+        res.status(201).json(rowIdsToTitles(typed, fields, makeLinkResolver(), rowOpts));
+      }
       if (isAgentRequest(req)) {
         createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }
@@ -1140,8 +1165,13 @@ export default function dataRoutes(app, { db, authenticateAgent, genId, contentI
       const fields = tableEngine.listFields(tableId);
       const idData = payloadTitlesToIds(req.body, fields);
       tableEngine.updateRow(tableId, rowId, idData, { actor: actorName(req) });
-      const typed = tableEngine.readRow(tableId, rowId);
-      res.json(rowIdsToTitles(typed, fields, makeLinkResolver()));
+      if (req.query.return === 'minimal' || req.body._return === 'minimal') {
+        res.json({ id: rowId, status: 'ok' });
+      } else {
+        const typed = tableEngine.readRow(tableId, rowId);
+        const rowOpts = parseRowOutputOpts(req.query);
+        res.json(rowIdsToTitles(typed, fields, makeLinkResolver(), rowOpts));
+      }
       if (isAgentRequest(req)) {
         createTableSnapshot(tableId, 'post_agent_edit', actorName(req), null).catch(() => {});
       }

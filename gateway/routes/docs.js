@@ -270,7 +270,8 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
         .run(JSON.stringify(annotated), new Date().toISOString(), req.params.doc_id);
     }
 
-    const blocks = listTopLevelBlocks(annotated);
+    const previewLength = parseInt(req.query.preview_length) || 160;
+    const blocks = listTopLevelBlocks(annotated, { previewLength });
     res.json({ doc_id: req.params.doc_id, blocks });
   });
 
@@ -300,9 +301,19 @@ export default function docsRoutes(app, { db, authenticateAgent, genId, contentI
 
     const allBlocks = listTopLevelBlocks(annotated);
 
-    const result = blockIds.length > 0
-      ? allBlocks.filter(b => blockIds.includes(b.block_id))
-      : allBlocks;
+    const fromIndex = req.query.from_index != null ? parseInt(req.query.from_index) : null;
+    const toIndex = req.query.to_index != null ? parseInt(req.query.to_index) : null;
+
+    let result;
+    if (blockIds.length > 0) {
+      result = allBlocks.filter(b => blockIds.includes(b.block_id));
+    } else if (fromIndex != null || toIndex != null) {
+      const start = fromIndex != null ? fromIndex : 0;
+      const end = toIndex != null ? toIndex + 1 : allBlocks.length;
+      result = allBlocks.slice(start, end);
+    } else {
+      result = allBlocks;
+    }
 
     const content = annotated.content || [];
     const blockMap = new Map(content.map(n => [n?.attrs?.blockId, n]));

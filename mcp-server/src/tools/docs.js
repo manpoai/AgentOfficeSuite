@@ -38,26 +38,32 @@ export function registerDocTools(server, gw) {
 
   server.tool(
     'read_doc_outline',
-    'List the top-level blocks of a document with their blockIds, types, and text previews. Use this before doc_replace_block to find the block you want to edit.',
+    'List the top-level blocks of a document with their blockIds, types, and text previews. Use this before doc_replace_block to find the block you want to edit. If you already know the block_id, you can call doc_replace_block directly.',
     {
       doc_id: z.string().describe('Document ID'),
+      preview_length: z.number().optional().describe('Max characters per block preview (default 160, increase for better block identification)'),
     },
-    async ({ doc_id }) => {
-      const result = await gw.get(`/docs/${doc_id}/outline`);
+    async ({ doc_id, preview_length }) => {
+      const params = preview_length ? `?preview_length=${preview_length}` : '';
+      const result = await gw.get(`/docs/${doc_id}/outline${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
 
   server.tool(
     'read_doc_blocks',
-    'Read one or more specific blocks from a document by blockId. Returns block metadata and raw node content.',
+    'Read specific blocks from a document. Filter by block_ids, or by index range (from_index/to_index) to read a section without knowing block IDs. Returns block metadata and raw node content.',
     {
       doc_id: z.string().describe('Document ID'),
-      block_ids: z.array(z.string()).optional().describe('Block IDs to fetch (omit to return all blocks)'),
+      block_ids: z.array(z.string()).optional().describe('Block IDs to fetch (omit to use index range or return all)'),
+      from_index: z.number().optional().describe('Start block index (0-based, inclusive). Use with to_index to read a range.'),
+      to_index: z.number().optional().describe('End block index (0-based, inclusive). Omit to read from from_index to end.'),
     },
-    async ({ doc_id, block_ids }) => {
+    async ({ doc_id, block_ids, from_index, to_index }) => {
       const params = new URLSearchParams();
       if (block_ids && block_ids.length > 0) params.set('block_ids', block_ids.join(','));
+      if (from_index != null) params.set('from_index', String(from_index));
+      if (to_index != null) params.set('to_index', String(to_index));
       const url = params.toString() ? `/docs/${doc_id}/blocks?${params}` : `/docs/${doc_id}/blocks`;
       const result = await gw.get(url);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };

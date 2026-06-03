@@ -147,18 +147,22 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'query_rows',
-    'Query rows from a database table. Supports filtering with where clauses and sorting.',
+    'Query rows from a database table. Supports filtering, sorting, and field selection to reduce token usage.',
     {
       table_id: z.string().describe('Table ID to query'),
       where: z.string().optional().describe('Filter expression, e.g. "(Status,eq,Active)" or "(Agent,eq,zylos-thinker)"'),
       sort: z.string().optional().describe('Sort expression, e.g. "-created_at" for descending'),
       limit: z.number().optional().default(25).describe('Max rows to return (default 25)'),
       offset: z.number().optional().default(0).describe('Skip first N rows (for pagination)'),
+      fields: z.string().optional().describe('Comma-separated column names to return (omit for all columns). Example: "Name,Status,URL"'),
+      field_key: z.enum(['title', 'id', 'both']).optional().describe('Which key to use for field names in response: "title" (human-readable, default for MCP), "id" (stable field IDs), "both" (legacy, returns both)'),
     },
-    async ({ table_id, where, sort, limit, offset }) => {
+    async ({ table_id, where, sort, limit, offset, fields, field_key }) => {
       const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
       if (where) params.set('where', where);
       if (sort) params.set('sort', sort);
+      if (fields) params.set('fields', fields);
+      params.set('field_key', field_key || 'title');
       const result = await gw.get(`/data/${table_id}/rows?${params}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
@@ -166,13 +170,15 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'insert_row',
-    'Insert a new row into a database table. Pass column values as key-value pairs.',
+    'Insert a new row into a database table. Pass column values as key-value pairs. Use return="minimal" to save tokens.',
     {
       table_id: z.string().describe('Table ID to insert into'),
       data: z.record(z.any()).describe('Row data as {column_title: value} object'),
+      return: z.enum(['full', 'minimal']).optional().describe('Response detail: "minimal" returns {id, status} only (saves tokens), "full" returns complete row (default)'),
     },
-    async ({ table_id, data }) => {
-      const result = await gw.post(`/data/${table_id}/rows`, data);
+    async ({ table_id, data, return: returnMode }) => {
+      const params = returnMode ? `?return=${returnMode}` : '';
+      const result = await gw.post(`/data/${table_id}/rows${params}`, data);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
@@ -183,23 +189,43 @@ export function registerDataTools(server, gw) {
     {
       table_id: z.string().describe('Table ID to insert into'),
       rows: z.array(z.record(z.any())).min(1).max(500).describe('Array of row objects, each as {column_title: value}'),
+      return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns [{id, status}] only (saves tokens)'),
     },
-    async ({ table_id, rows }) => {
-      const result = await gw.post(`/data/${table_id}/rows/batch`, { rows });
+    async ({ table_id, rows, return: returnMode }) => {
+      const params = returnMode ? `?return=${returnMode}` : '';
+      const result = await gw.post(`/data/${table_id}/rows/batch${params}`, { rows });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
 
   server.tool(
     'update_row',
-    'Update an existing row in a database table.',
+    'Update an existing row in a database table. Use return="minimal" to save tokens.',
     {
       table_id: z.string().describe('Table ID'),
       row_id: z.string().describe('Row ID to update'),
       data: z.record(z.any()).describe('Updated fields as {column_title: value} object'),
+      return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns {id, status} only (saves tokens)'),
     },
-    async ({ table_id, row_id, data }) => {
-      const result = await gw.patch(`/data/${table_id}/rows/${row_id}`, data);
+    async ({ table_id, row_id, data, return: returnMode }) => {
+      const params = returnMode ? `?return=${returnMode}` : '';
+      const result = await gw.patch(`/data/${table_id}/rows/${row_id}${params}`, data);
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+    }
+  );
+
+  server.tool(
+    'batch_update_rows',
+    'Update multiple rows in a database table at once. More efficient than calling update_row repeatedly.',
+    {
+      table_id: z.string().describe('Table ID'),
+      rows: z.array(z.record(z.any())).min(1).max(500)
+        .describe('Array of objects, each with "id" (row ID) plus updated fields as {column_title: value}. Example: [{"id": "row_xxx", "Status": "Done"}]'),
+      return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns [{id, status}] only (saves tokens)'),
+    },
+    async ({ table_id, rows, return: returnMode }) => {
+      const params = returnMode ? `?return=${returnMode}` : '';
+      const result = await gw.patch(`/data/${table_id}/rows/batch${params}`, { rows });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );

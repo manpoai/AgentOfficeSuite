@@ -1,7 +1,7 @@
 {
   "name": "aose-adapter",
-  "version": "0.5.0",
-  "description": "AOSE adapter sidecar \u2014 bridges AOSE events to a local agent runtime (zylos, openclaw, claude-code, codex, gemini-cli)",
+  "version": "3.3.0",
+  "description": "AOSE adapter sidecar — bridges AOSE events to a local agent runtime (zylos, openclaw, claude-code, codex, gemini-cli)",
   "type": "module",
   "bin": {
     "aose-adapter": "index.js"

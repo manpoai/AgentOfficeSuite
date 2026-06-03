@@ -30,7 +30,7 @@ export function ensureTopLevelBlockIds(docJson) {
   return { doc: next, changed };
 }
 
-export function listTopLevelBlocks(docJson) {
+export function listTopLevelBlocks(docJson, { previewLength = 160 } = {}) {
   const { doc } = ensureTopLevelBlockIds(docJson);
   const content = ensureArray(doc.content);
   return content
@@ -39,7 +39,7 @@ export function listTopLevelBlocks(docJson) {
       block_id: node.attrs?.blockId || null,
       type: node.type,
       index,
-      text_preview: extractNodeText(node).slice(0, 160),
+      text_preview: extractNodeText(node).slice(0, previewLength),
       child_count: Array.isArray(node.content) ? node.content.length : 0,
       heading_level: node.type === 'heading' ? node.attrs?.level || null : null,
     }));

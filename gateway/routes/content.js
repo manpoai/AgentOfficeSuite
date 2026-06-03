@@ -937,6 +937,18 @@ ${headHtml}
       return res.json({ items: rows });
     }
     const actorId = req.actor?.id || req.agent?.id || null;
+    const search = req.query.search || null;
+    const type = req.query.type || null;
+    const limit = parseInt(req.query.limit) || null;
+    const offset = parseInt(req.query.offset) || 0;
+
+    let whereExtra = '';
+    const params = [actorId];
+    if (search) { whereExtra += ' AND ci.title LIKE ?'; params.push(`%${search}%`); }
+    if (type) { whereExtra += ' AND ci.type = ?'; params.push(type); }
+    let limitClause = '';
+    if (limit) { limitClause = ` LIMIT ? OFFSET ?`; params.push(limit, offset); }
+
     const rows = db.prepare(`
       SELECT ci.*,
         COALESCE(cc.unresolved_count, 0) AS unresolved_comment_count,
@@ -949,9 +961,9 @@ ${headHtml}
         GROUP BY target_id
       ) cc ON cc.target_id = ci.id
       LEFT JOIN content_pins cp ON cp.content_id = ci.id AND cp.actor_id = ?
-      WHERE ci.deleted_at IS NULL
-      ORDER BY ci.sort_order ASC, ci.created_at ASC
-    `).all(actorId);
+      WHERE ci.deleted_at IS NULL${whereExtra}
+      ORDER BY ci.sort_order ASC, ci.created_at ASC${limitClause}
+    `).all(...params);
     const mappedRows = rows.map(r => ({ ...r, pinned: r.pinned_relation === 1 }));
     res.json({ items: mappedRows });
   });

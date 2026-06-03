@@ -3,13 +3,21 @@ import { z } from 'zod';
 export function registerContentTools(server, gw) {
   server.tool(
     'list_content_items',
-    'List all content items in the workspace (docs, tables, presentations, diagrams, canvases, videos). Returns title, type, owner, and metadata.',
+    'List content items in the workspace (docs, tables, presentations, diagrams, canvases, videos). Supports filtering by type and title search.',
     {
       type: z.enum(['doc', 'table', 'presentation', 'diagram', 'canvas', 'video']).optional().describe('Filter by content type (omit for all)'),
+      search: z.string().optional().describe('Search by title (case-insensitive substring match)'),
+      limit: z.number().optional().describe('Max items to return (omit for all)'),
+      offset: z.number().optional().default(0).describe('Skip first N items (for pagination)'),
     },
-    async ({ type }) => {
-      const params = type ? `?type=${type}` : '';
-      const result = await gw.get(`/content${params}`);
+    async ({ type, search, limit, offset }) => {
+      const params = new URLSearchParams();
+      if (type) params.set('type', type);
+      if (search) params.set('search', search);
+      if (limit) params.set('limit', String(limit));
+      if (offset) params.set('offset', String(offset));
+      const qs = params.toString();
+      const result = await gw.get(`/content-items${qs ? `?${qs}` : ''}`);
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
   );
