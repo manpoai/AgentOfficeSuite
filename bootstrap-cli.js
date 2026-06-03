@@ -372,7 +372,7 @@ async function updateCommand() {
       await startBackground();
       // health check window
       const gwPort = Number(process.env.GATEWAY_PORT || 4000);
-      const deadline = Date.now() + 15_000;
+      const deadline = Date.now() + 45_000;
       let healthy = false;
       while (Date.now() < deadline) {
         if (await fetchHealth(gwPort)) { healthy = true; break; }
