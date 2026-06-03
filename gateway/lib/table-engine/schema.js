@@ -135,7 +135,12 @@ export function createSchema(db) {
   }
 
   function listTables() {
-    const rows = db.prepare('SELECT * FROM user_tables ORDER BY created_at DESC').all();
+    const rows = db.prepare(`
+      SELECT ut.* FROM user_tables ut
+      LEFT JOIN content_items ci ON ci.raw_id = ut.id AND ci.type = 'table'
+      WHERE ci.id IS NULL OR ci.deleted_at IS NULL
+      ORDER BY ut.created_at DESC
+    `).all();
     return rows;
   }
 
