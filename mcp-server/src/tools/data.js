@@ -147,7 +147,7 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'query_rows',
-    'Query rows from a database table. Supports filtering, sorting, and field selection to reduce token usage.',
+    'Query rows from a database table. Supports filtering, sorting, and field selection to reduce token usage. Example: query_rows({table_id: "utbl_xxx", fields: "Name,Status", field_key: "title", where: "(Status,eq,Active)", limit: 10})',
     {
       table_id: z.string().describe('Table ID to query'),
       where: z.string().optional().describe('Filter expression, e.g. "(Status,eq,Active)" or "(Agent,eq,zylos-thinker)"'),
@@ -170,10 +170,10 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'insert_row',
-    'Insert a new row into a database table. Pass column values as key-value pairs. Use return="minimal" to save tokens.',
+    'Insert a new row into a database table. Example: insert_row({table_id: "utbl_xxx", data: {"Name": "Alice", "Status": "Active"}, return: "minimal"})',
     {
       table_id: z.string().describe('Table ID to insert into'),
-      data: z.record(z.any()).describe('Row data as {column_title: value} object'),
+      data: z.record(z.any()).describe('Row data as {column_title: value}. Example: {"Name": "Alice", "Age": 30, "Status": "Active"}'),
       return: z.enum(['full', 'minimal']).optional().describe('Response detail: "minimal" returns {id, status} only (saves tokens), "full" returns complete row (default)'),
     },
     async ({ table_id, data, return: returnMode }) => {
@@ -185,10 +185,10 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'batch_insert_rows',
-    'Insert multiple rows into a database table at once. More efficient than calling insert_row repeatedly. Maximum 500 rows per call.',
+    'Insert multiple rows at once (max 500). Example: batch_insert_rows({table_id: "utbl_xxx", rows: [{"Name": "Alice", "Status": "Active"}, {"Name": "Bob", "Status": "Done"}], return: "minimal"})',
     {
       table_id: z.string().describe('Table ID to insert into'),
-      rows: z.array(z.record(z.any())).min(1).max(500).describe('Array of row objects, each as {column_title: value}'),
+      rows: z.array(z.record(z.any())).min(1).max(500).describe('Array of row objects. Example: [{"Name": "Alice", "Age": 30}, {"Name": "Bob", "Age": 25}]'),
       return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns [{id, status}] only (saves tokens)'),
     },
     async ({ table_id, rows, return: returnMode }) => {
@@ -200,11 +200,11 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'update_row',
-    'Update an existing row in a database table. Use return="minimal" to save tokens.',
+    'Update a row. Example: update_row({table_id: "utbl_xxx", row_id: "urow_xxx", data: {"Status": "Done"}, return: "minimal"})',
     {
       table_id: z.string().describe('Table ID'),
       row_id: z.string().describe('Row ID to update'),
-      data: z.record(z.any()).describe('Updated fields as {column_title: value} object'),
+      data: z.record(z.any()).describe('Fields to update. Example: {"Status": "Done", "Score": 95}'),
       return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns {id, status} only (saves tokens)'),
     },
     async ({ table_id, row_id, data, return: returnMode }) => {
@@ -216,11 +216,11 @@ export function registerDataTools(server, gw) {
 
   server.tool(
     'batch_update_rows',
-    'Update multiple rows in a database table at once. More efficient than calling update_row repeatedly.',
+    'Update multiple rows at once (max 500). Example: batch_update_rows({table_id: "utbl_xxx", rows: [{"id": "urow_aaa", "Status": "Done"}, {"id": "urow_bbb", "Status": "Active"}], return: "minimal"})',
     {
       table_id: z.string().describe('Table ID'),
       rows: z.array(z.record(z.any())).min(1).max(500)
-        .describe('Array of objects, each with "id" (row ID) plus updated fields as {column_title: value}. Example: [{"id": "row_xxx", "Status": "Done"}]'),
+        .describe('Array of objects with "id" + updated fields. Example: [{"id": "urow_xxx", "Status": "Done"}, {"id": "urow_yyy", "Score": 100}]'),
       return: z.enum(['full', 'minimal']).optional().describe('"minimal" returns [{id, status}] only (saves tokens)'),
     },
     async ({ table_id, rows, return: returnMode }) => {
